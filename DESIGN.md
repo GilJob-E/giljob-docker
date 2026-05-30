@@ -85,9 +85,11 @@
   - Event log: `#event-log`.
 - New/changed components:
   - `top-nav`, `hero-band`, `hero-app-mockup-card`, `feature-card`, `product-mockup-card`, `nav-pill-group`, `footer`.
+  - `interview-room-shell`: Zoom/Google-Meet-familiar room surface adapted for GilJob, with pre-join preview, candidate tile, interviewer bot placeholder tile, question/transcript/analysis panels, and bottom control bar.
 - Variants and states:
   - Primary/secondary buttons, disabled button, connected/connecting/error status badges.
-  - Featured pipeline step is the current LiveKit slice; future steps are placeholder/disabled-looking.
+  - Mic/camera control buttons use `aria-pressed` and explicit on/off labels; permission failures render through the redacted status/log path.
+  - Featured pipeline step is the current LiveKit room shell; future steps are placeholder/disabled-looking.
 - Token/component ownership: CSS custom properties in `apps/web/static/styles.css`; no external design-system package yet.
 
 ## Accessibility
