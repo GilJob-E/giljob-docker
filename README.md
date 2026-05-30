@@ -268,6 +268,7 @@ npx --yes pyright
 
 - [`DESIGN.md`](DESIGN.md)
 - [`docs/architecture.noml`](docs/architecture.noml)
+- [`docs/demo-screenshots.md`](docs/demo-screenshots.md)
 - [`docs/implementation-plan.md`](docs/implementation-plan.md)
 - [`docs/runbooks/local-livekit-media.md`](docs/runbooks/local-livekit-media.md)
 - [`docs/runbooks/verification.md`](docs/runbooks/verification.md)
