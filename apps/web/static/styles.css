@@ -552,3 +552,104 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
     padding-top: 24px;
   }
 }
+
+/* Production room: no prejoin/marketing explanation inside the room route */
+.room-app-body {
+  min-height: 100vh;
+  background: var(--color-surface-soft);
+}
+.room-top-nav {
+  background: rgb(255 255 255 / 0.94);
+}
+.room-app-main {
+  width: min(1440px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 32px 0;
+}
+.production-room-shell {
+  min-height: calc(100vh - 128px);
+  margin: 0;
+  padding: 20px;
+}
+.room-runtime-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.room-runtime-bar > div {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+.room-runtime-bar strong {
+  color: var(--color-ink);
+}
+.room-eyebrow {
+  color: var(--color-muted-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.production-room-layout {
+  grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.55fr);
+}
+.production-video-stage {
+  min-height: calc(100vh - 300px);
+}
+.production-side-panel {
+  align-content: start;
+}
+.production-control-bar {
+  position: sticky;
+  bottom: 18px;
+  z-index: 10;
+  box-shadow: var(--shadow-subtle);
+}
+.room-debug-drawer {
+  margin-top: 24px;
+}
+.room-debug-drawer details {
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-xl);
+  background: var(--color-canvas);
+  padding: 16px;
+}
+.room-debug-drawer summary {
+  cursor: pointer;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.room-debug-drawer .product-grid {
+  padding: 18px 0 0;
+}
+.room-debug-drawer .log-card {
+  margin-bottom: 0;
+}
+
+@media (max-width: 980px) {
+  .production-room-layout {
+    grid-template-columns: 1fr;
+  }
+  .production-video-stage {
+    min-height: unset;
+  }
+}
+
+@media (max-width: 720px) {
+  .room-app-main {
+    width: min(100% - 24px, 1440px);
+    padding: 18px 0;
+  }
+  .production-room-shell {
+    padding: 14px;
+  }
+  .room-runtime-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

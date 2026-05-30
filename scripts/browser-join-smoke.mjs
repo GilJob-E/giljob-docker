@@ -42,16 +42,19 @@ try {
   });
 
   await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 15000 });
-  await page.waitForSelector("#join-room", { timeout: 10000 });
-  await page.click("#join-room");
+  await page.waitForSelector("#room-shell", { timeout: 10000 });
+  const joinButton = await page.$("#join-room");
+  if (joinButton) {
+    await joinButton.click();
+  }
   await page.waitForFunction(() => {
     const status = document.querySelector("#status")?.textContent?.toLowerCase() ?? "";
     return status.includes("connected");
   }, null, { timeout: 30000 });
 
   const connectedStatus = await page.locator("#status").textContent();
-  const summary = await page.locator("#session-summary").innerText();
-  const log = await page.locator("#event-log").innerText();
+  const summary = await page.locator("#session-summary").evaluate((element) => element.textContent ?? "");
+  const log = await page.locator("#event-log").evaluate((element) => element.textContent ?? "");
   if (/access_token=|join_request=|gj_session_|gj_report_|eyJ[a-zA-Z0-9_-]+\./.test(`${summary}\n${log}`)) {
     throw new Error("raw token appeared in visible browser text");
   }

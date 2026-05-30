@@ -3,7 +3,7 @@
 ## Source of truth
 - Status: Active
 - Last refreshed: 2026-05-30
-- Primary product surfaces: GilJob v2 landing page, production-style interview flow routes (`/interviews/new`, `/interviews/:id/lobby`, `/interviews/:id/room`, `/interviews/:id/report`), local LiveKit room UI, session summary, local media pipeline explanation, event log, documentation/runbooks.
+- Primary product surfaces: GilJob v2 landing page, production-style interview flow routes (`/interviews/new`, `/interviews/:id/lobby`, `/interviews/:id/room`, `/interviews/:id/report`), auto-joining local LiveKit room UI, hidden session diagnostics, local media pipeline explanation, documentation/runbooks.
 - Evidence reviewed:
   - User-provided Cal.com-style marketing design brief in the 2026-05-30 design request.
   - Existing UI source: `apps/web/static/index.html`, `apps/web/static/styles.css`, `apps/web/static/app.js`.
@@ -11,7 +11,7 @@
 
 ## Brand
 - Personality: clean, calm, confidently engineered, modern SaaS, product-first, not flashy.
-- Trust signals: visible self-hosted architecture boundaries, token security copy, real session/LiveKit status, explicit out-of-scope placeholders.
+- Trust signals: clear self-hosted architecture boundaries on setup/lobby/docs, token security copy, real session/LiveKit status, explicit out-of-scope placeholders outside the actual room.
 - Avoid: dark dashboard aesthetic, blue primary CTAs, glassmorphism, heavy shadows, overly rounded consumer-app cards, fake marketing illustrations.
 
 ## Product goals
@@ -19,14 +19,14 @@
   - Make the local self-hosted LiveKit slice understandable at a glance.
   - Keep the landing page as a product entry point, not a long scroll into the room.
   - Shape the route contract like production: setup -> lobby -> room -> report under an interview id.
-  - Let a user create a session and join/leave the LiveKit room from a dedicated Interview Room route.
-  - Show product UI fragments directly: session form, room summary, pipeline map, event log.
+  - Let the dedicated room route auto-create a session and join LiveKit, while setup/lobby own pre-join readiness.
+  - Show product UI fragments directly: room tiles, question/transcript/signal panels, hidden diagnostics, pipeline map.
 - Non-goals:
   - Zoom/Google Meet replacement UI.
   - Real CV/job parsing, Main LLM, avatar/TTS, multimodal analysis, final report, production TLS/domain.
 - Success signals:
-  - User can identify that this is a local media-room scaffold.
-  - Primary action is obvious: create/join room.
+  - User can identify the production route shape without the room reading like a setup page.
+  - Primary action is obvious before room entry; the room itself connects and then offers media/leave/report controls.
   - Raw tokens are never shown in visible UI or logs.
 
 ## Personas and jobs
@@ -36,24 +36,24 @@
 - User jobs:
   - Confirm API can issue a LiveKit room token.
   - Confirm browser can join/leave the self-hosted LiveKit room.
-  - Understand which interview-pipeline parts are still placeholders.
+  - Understand which interview-pipeline parts are still reserved without turning the actual room into a development checklist.
 - Key contexts of use: local Mac via SSH tunnel, single-server Docker Compose, desktop browser first, responsive enough for tablet/mobile review.
 
 ## Information architecture
-- Primary navigation: simple top nav with brand, local mode, architecture anchor, docs anchor, and primary join CTA.
+- Primary navigation: simple top nav with brand, production-flow route links, and state/status where useful.
 - Core routes/screens: `/` landing/entry page, `/interviews/new` setup placeholder, `/interviews/:id/lobby` pre-join placeholder, `/interviews/:id/room` dedicated LiveKit Interview Room, `/interviews/:id/report` final-report placeholder. Legacy `/interview-room.html` remains as a compatibility alias.
 - Content hierarchy:
   1. Landing hero: purpose and primary action to start a new interview.
   2. New interview setup placeholder: CV/job/persona inputs are reserved but disabled.
-  3. Lobby placeholder: readiness gate before media starts.
-  4. Dedicated room route: candidate/interviewer tiles plus LiveKit join controls.
+  3. Lobby placeholder: readiness/pre-join gate before media starts.
+  4. Dedicated room route: auto-joined candidate/interviewer tiles plus mic/camera/leave/report controls.
   5. Report placeholder: final-report surface reserved after the room.
   6. Dark footer close.
 
 ## Design principles
 - Product chrome over illustration: show real controls, summaries, and pipeline fragments in cards.
 - Monochrome action layer: primary CTA is near-black, not blue.
-- Clear scope honesty: placeholders are labeled as placeholders; do not imply complete interview product behavior.
+- Clear scope honesty: setup/lobby/report can label future placeholders; the actual room should use production empty states rather than marketing/dev explanation copy.
 - Calm hierarchy: use whitespace, display scale, and card rhythm before color or decoration.
 - Security by presentation: token redaction is a visible product constraint, not hidden implementation detail.
 
@@ -81,20 +81,21 @@
 
 ## Components
 - Existing components to reuse:
-  - Session form: `#join-form`, `#api-endpoint`, `#role`, `#publish-media`, `#create-session`, `#join-room`, `#leave-room`.
+  - Legacy/session-form support in JS: `#join-form`, `#api-endpoint`, `#role`, `#publish-media`, `#create-session`, `#join-room`, `#leave-room` when a compatibility surface renders those elements.
   - Status: `#status` with `data-state`.
-  - Session summary: `#session-summary`.
-  - Event log: `#event-log`.
+  - Session summary: `#session-summary` for diagnostics; hidden on the production room surface.
+  - Event log: `#event-log` for diagnostics; hidden on the production room surface.
 - New/changed components:
   - `top-nav`, `hero-band`, `hero-app-mockup-card`, `feature-card`, `product-mockup-card`, `nav-pill-group`, `footer`.
   - `landing-room-card`: lightweight homepage product fragment that links to the production flow without starting media.
   - `interview-new`: setup placeholder for CV/job/persona route contract.
-  - `interview-lobby`: readiness/pre-join route contract; actual device check can move here later.
-  - `interview-room-shell`: dedicated `/interviews/:id/room` room-first surface adapted for GilJob; it places candidate/interviewer tiles and LiveKit controls above the fold with question/transcript/analysis panels and bottom control bar.
+  - `interview-lobby`: readiness/pre-join route contract; actual device check belongs here, not inside the room route.
+  - `interview-room-shell`: dedicated `/interviews/:id/room` production room surface adapted for GilJob; it auto-joins LiveKit, then places candidate/interviewer tiles and mic/camera/leave/report controls above the fold with question/transcript/analysis panels and bottom control bar.
   - `interview-report`: report placeholder surface for post-interview analysis.
 - Variants and states:
   - Primary/secondary buttons, disabled button, connected/connecting/error status badges.
   - Mic/camera control buttons use `aria-pressed` and explicit on/off labels; permission failures render through the redacted status/log path.
+  - LiveKit SDK console logging is set to silent; GilJob-owned diagnostics stay redacted and hidden on the production room route.
   - Featured pipeline step is the current LiveKit room shell; future steps are placeholder/disabled-looking.
 - Token/component ownership: CSS custom properties in `apps/web/static/styles.css`; no external design-system package yet.
 
@@ -115,8 +116,8 @@
 - Touch/hover differences: buttons remain at least 40px tall; no hover-only affordances.
 
 ## Interaction states
-- Loading: status badge says creating/connecting.
-- Empty: session summary uses `-` values.
+- Loading: room status badge says creating/connecting and room state shows Connecting.
+- Empty: production room uses waiting/ready empty states for interviewer/question/transcript/signal; hidden diagnostics use `-` values.
 - Error: status/log redacts sensitive text before rendering.
 - Success: connected status badge uses success green; session summary shows room and participant.
 - Disabled: leave button disabled before room join.
@@ -124,10 +125,11 @@
 
 ## Content voice
 - Tone: direct, calm, bilingual where useful; Korean explanation for user-facing scope, English for protocol labels.
-- Terminology: “local media room”, “self-hosted LiveKit”, “session”, “candidate”, “placeholder”, “scope 밖”.
+- Terminology: “interview room”, “self-hosted LiveKit” outside the room, “session”, “candidate”, “scope 밖”.
 - Microcopy rules:
   - Never show raw tokens.
-  - State that Zoom/Meet-like features are not included yet.
+  - Do not put pre-join, setup, or marketing explanation copy in `/interviews/:id/room`.
+  - State that Zoom/Meet-like features are not included yet on landing/docs/lobby, not in the room chrome.
   - Keep CTA labels short and action-oriented.
 
 ## Implementation constraints
@@ -141,5 +143,5 @@
   - After visual changes, capture a local screenshot through the SSH tunnel when available.
 
 ## Open questions
-- [ ] Should the next UI slice add local camera preview and participant tiles, or keep the smoke UI non-video until interviewer bot work starts? / owner: product / impact: next frontend milestone
+- [ ] Should the lobby get a full device readiness check before room entry, or stay as a lightweight route placeholder until interviewer bot work starts? / owner: product / impact: next frontend milestone
 - [ ] Should GilJob get its own brand type/color system later instead of the temporary Cal.com-inspired contract? / owner: product/design / impact: future brand differentiation

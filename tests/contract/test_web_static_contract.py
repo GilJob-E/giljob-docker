@@ -54,7 +54,7 @@ class WebStaticContractTest(unittest.TestCase):
         route_expectations = {
             "/interviews/new": ["Production flow · Step 1", "local-demo", "CV upload"],
             "/interviews/prod-demo_01/lobby": ["Production flow · Step 2", "Pre-join lobby", "Device check"],
-            "/interviews/prod-demo_01/room": ["Self-hosted LiveKit", "Interview Room", "room-first", 'src="/app.js"'],
+            "/interviews/prod-demo_01/room": ["production-room-shell", "room-runtime-bar", 'src="/app.js"'],
             "/interviews/prod-demo_01/report": ["Production flow · Step 4", "리포트 placeholder", "Background analysis"],
         }
         for path, expected_strings in route_expectations.items():
@@ -69,7 +69,7 @@ class WebStaticContractTest(unittest.TestCase):
         status, content_type, body = self._get("/interview-room.html")
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
-        self.assertIn("Interview Room", body)
+        self.assertIn("production-room-shell", body)
         self.assertIn('src="/app.js"', body)
 
     def test_invalid_interview_route_is_rejected(self) -> None:
@@ -77,29 +77,39 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertEqual(json.loads(body)["error"], "not_found")
 
-    def test_interview_room_page_serves_livekit_join_ui(self) -> None:
+    def test_interview_room_page_is_production_room_not_prejoin(self) -> None:
         status, content_type, body = self._get("/interviews/local-demo/room")
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
-        self.assertIn("Self-hosted LiveKit", body)
-        self.assertIn("Interview Room", body)
-        self.assertIn("room-first", body)
-        self.assertIn("Interviewer bot", body)
-        self.assertIn("Camera preview", body)
+        self.assertIn("production-room-shell", body)
+        self.assertIn("room-runtime-bar", body)
+        self.assertIn("Interviewer", body)
+        self.assertIn("질문 준비 중", body)
         self.assertIn('src="/app.js"', body)
-        self.assertIn('value="/api/sessions"', body)
         self.assertIn('data-interview-route="report"', body)
-        self.assertIn("placeholder", body)
+        self.assertIn('id="session-summary"', body)
+        self.assertIn('id="event-log"', body)
+        self.assertNotIn("Self-hosted LiveKit · Interview Room", body)
+        self.assertNotIn("이 페이지가 실제 면접룸입니다", body)
+        self.assertNotIn("Pre-join checklist", body)
+        self.assertNotIn('id="join-form"', body)
+        self.assertNotIn('id="join-room"', body)
+        self.assertNotIn("Camera preview", body)
+        self.assertNotIn('value="/api/sessions"', body)
 
     def test_app_js_uses_browser_public_url_and_hides_tokens_from_log(self) -> None:
         status, content_type, body = self._get("/app.js")
         self.assertEqual(status, 200)
         self.assertIn("text/javascript", content_type)
         self.assertIn("livekit-client.esm.mjs", body)
+        self.assertIn("setLogLevel", body)
+        self.assertIn('setLogLevel("silent")', body)
         self.assertIn("publicUrl", body)
         self.assertIn("candidateToken", body)
         self.assertIn("tokens hidden", body)
         self.assertIn("function interviewIdFromPath", body)
+        self.assertIn("function isProductionRoomPath", body)
+        self.assertIn("function autoJoinRoomRoute", body)
         self.assertIn("data-interview-route", body)
         self.assertIn("navigator.mediaDevices", body)
         self.assertIn("setMicrophoneEnabled", body)
