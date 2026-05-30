@@ -1,8 +1,17 @@
 import { chromium } from "playwright";
 
-const targetUrl = process.env.GILJOB_WEB_URL ?? "http://127.0.0.1/";
+const baseTargetUrl = process.env.GILJOB_WEB_URL ?? "http://127.0.0.1/";
+const targetUrl = interviewRoomUrl(baseTargetUrl);
 const executablePath = process.env.CHROME_BIN ?? "/usr/bin/google-chrome";
 const pageErrors = [];
+
+function interviewRoomUrl(value) {
+  const url = new URL(value);
+  if (url.pathname === "/" || url.pathname === "") {
+    url.pathname = "/interview-room.html";
+  }
+  return url.toString();
+}
 
 function redactSensitiveText(value) {
   return String(value)

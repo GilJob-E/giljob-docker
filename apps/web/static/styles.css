@@ -455,3 +455,100 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
   .control-divider { width: 100%; height: 1px; }
   .preview-tile { min-height: 180px; }
 }
+
+/* Landing page split route */
+.landing-hero {
+  min-height: calc(100vh - 64px);
+}
+.landing-room-card {
+  display: grid;
+  gap: 16px;
+}
+.landing-room-preview {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 12px;
+  min-height: 280px;
+  border-radius: var(--radius-xl);
+  background: #f0f1f3;
+  padding: 12px;
+}
+.mini-video-tile {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  min-height: 220px;
+  border: 1px solid rgb(0 0 0 / 0.08);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-dark);
+  color: var(--color-on-dark);
+  text-align: center;
+}
+.mini-video-tile.primary {
+  background: linear-gradient(145deg, #111111, #242424);
+}
+.mini-video-tile small {
+  color: var(--color-on-dark-soft);
+}
+.bot-orb.small {
+  width: 48px;
+  height: 48px;
+  font-size: 1rem;
+}
+.full-width {
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  .landing-room-preview {
+    grid-template-columns: 1fr;
+  }
+  .mini-video-tile {
+    min-height: 160px;
+  }
+}
+
+/* Dedicated Interview Room page */
+.room-page-main {
+  padding-top: 48px;
+}
+.room-page-shell {
+  margin-bottom: 32px;
+}
+.room-page-shell h1 {
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+.room-first-layout {
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+}
+.room-entry-panel {
+  align-content: start;
+}
+.room-control-card {
+  box-shadow: none;
+}
+.compact-header {
+  padding-bottom: 14px;
+}
+.compact-header h2 {
+  font-size: 1.25rem;
+}
+.compact-preview {
+  min-height: 180px;
+}
+.compact-session-form {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 980px) {
+  .room-first-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .room-page-main {
+    padding-top: 24px;
+  }
+}

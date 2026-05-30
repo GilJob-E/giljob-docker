@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GilJob v2 · Interview Room</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top-nav" aria-label="Primary navigation">
+      <a class="brand" href="/" aria-label="GilJob v2 home">
+        <span class="brand-mark" aria-hidden="true">G</span>
+        <span>GilJob</span>
+      </a>
+      <nav class="nav-pill-group" aria-label="Interview room sections">
+        <a class="active" href="#room-title">Room</a>
+        <a href="#session-title">Summary</a>
+        <a href="#log-title">Logs</a>
+      </nav>
+      <div class="nav-actions">
+        <span class="nav-mode">Local mode</span>
+        <a class="button button-primary nav-cta" href="#join-form">Join room</a>
+      </div>
+    </header>
+
+    <main class="room-page-main">
+      <section id="room-shell" class="interview-room-shell room-page-shell" data-mode="prejoin" aria-labelledby="room-title">
+        <div class="room-shell-header">
+          <div>
+            <p class="badge-pill">Self-hosted LiveKit · Interview Room</p>
+            <h1 id="room-title">Interview Room</h1>
+            <p>이 페이지가 실제 면접룸입니다. 설명 페이지 아래로 스크롤하지 않고, 여기서 바로 프리뷰와 LiveKit join을 실행합니다.</p>
+          </div>
+          <span id="room-state" class="status">Pre-join</span>
+        </div>
+
+        <div class="room-layout room-first-layout">
+          <section class="video-stage" aria-label="Interview video stage">
+            <article class="video-tile candidate-tile">
+              <div class="tile-topline">
+                <span>Candidate</span>
+                <small id="candidate-media-state">Mic off · Camera off</small>
+              </div>
+              <video id="candidate-room-video" autoplay muted playsinline hidden></video>
+              <div id="candidate-placeholder" class="tile-placeholder large">
+                <span class="avatar-circle">C</span>
+                <strong>후보자</strong>
+                <small>카메라를 켜면 이 tile에 preview가 표시됩니다.</small>
+              </div>
+            </article>
+
+            <article class="video-tile interviewer-tile placeholder-tile">
+              <div class="tile-topline">
+                <span>Interviewer bot</span>
+                <small>placeholder</small>
+              </div>
+              <div class="bot-orb" aria-hidden="true">G</div>
+              <strong>면접관 participant 예정</strong>
+              <p>다음 단계에서 Main LLM 질문, avatar/TTS, LiveKit participant를 연결합니다.</p>
+            </article>
+          </section>
+
+          <aside class="interview-panel room-entry-panel" aria-label="Interview room controls and flow">
+            <section class="hero-app-mockup-card prejoin-card room-control-card" aria-labelledby="controls-title">
+              <div class="mockup-header compact-header">
+                <div>
+                  <p class="mockup-kicker">Pre-join checklist</p>
+                  <h2 id="controls-title">입장 준비</h2>
+                </div>
+                <p id="status" class="status" role="status">idle</p>
+              </div>
+
+              <div class="preview-tile compact-preview" aria-label="Local camera preview">
+                <video id="local-preview-video" autoplay muted playsinline hidden></video>
+                <div id="preview-placeholder" class="tile-placeholder">
+                  <span class="avatar-circle">나</span>
+                  <strong>Camera preview</strong>
+                  <small>입장 전 카메라/마이크 권한을 확인합니다.</small>
+                </div>
+              </div>
+              <p id="permission-note" class="note">입장 전 카메라/마이크를 켜서 권한과 프리뷰를 확인할 수 있습니다.</p>
+
+              <form id="join-form" class="session-form compact-session-form">
+                <label>
+                  API session endpoint
+                  <input id="api-endpoint" name="api-endpoint" value="/api/sessions" autocomplete="off" />
+                </label>
+                <label>
+                  Role
+                  <input id="role" name="role" value="candidate" autocomplete="off" />
+                </label>
+                <label class="publish-note">
+                  <input id="publish-media" type="checkbox" hidden />
+                  <span>join 시 현재 mic/camera 상태를 LiveKit에 publish합니다.</span>
+                </label>
+                <div class="actions">
+                  <button id="start-preview" class="button button-secondary" type="button">프리뷰 시작</button>
+                  <button id="create-session" class="button button-secondary" type="button">세션만 생성</button>
+                  <button id="join-room" class="button button-primary" type="submit">면접룸 입장</button>
+                </div>
+              </form>
+            </section>
+
+            <div class="panel-card current-question">
+              <p class="badge-pill muted-pill">Current question</p>
+              <h3>질문 영역 placeholder</h3>
+              <p>아직 Main LLM 질문 루프는 붙이지 않았습니다. 다음 slice에서 이 영역에 실시간 질문을 표시합니다.</p>
+            </div>
+            <div class="panel-card transcript-card">
+              <p class="badge-pill muted-pill">Transcript</p>
+              <h3>답변 transcript 예정</h3>
+              <p>후보자 음성/텍스트 답변과 turn boundary를 여기에 표시할 수 있습니다.</p>
+            </div>
+            <div class="panel-card analysis-card">
+              <p class="badge-pill muted-pill">Multimodal</p>
+              <h3>분석 신호 placeholder</h3>
+              <p>raw token이나 raw media를 노출하지 않고, windowed signal만 나중에 연결합니다.</p>
+            </div>
+          </aside>
+        </div>
+
+        <div class="room-control-bar" aria-label="Room controls">
+          <button id="toggle-mic" class="button control-button" type="button" aria-pressed="false">Mic off</button>
+          <button id="toggle-camera" class="button control-button" type="button" aria-pressed="false">Camera off</button>
+          <span class="control-divider" aria-hidden="true"></span>
+          <button id="leave-room" class="button button-secondary danger-button" type="button" disabled>룸 leave</button>
+        </div>
+      </section>
+
+      <section class="product-grid" aria-label="Product details">
+        <section class="product-mockup-card" aria-labelledby="session-title">
+          <div class="section-heading">
+            <p class="badge-pill muted-pill">Session summary</p>
+            <h2 id="session-title">현재 세션</h2>
+          </div>
+          <dl id="session-summary" class="summary">
+            <div><dt>sessionId</dt><dd>-</dd></div>
+            <div><dt>roomName</dt><dd>-</dd></div>
+            <div><dt>LiveKit URL</dt><dd>-</dd></div>
+            <div><dt>tokenStatus</dt><dd>-</dd></div>
+            <div><dt>participant</dt><dd>-</dd></div>
+          </dl>
+          <p class="note">원시 session/report/candidate token은 브라우저 메모리에서만 사용하고 화면에 출력하지 않습니다.</p>
+        </section>
+
+        <section class="product-mockup-card" aria-labelledby="architecture-title">
+          <div class="section-heading">
+            <p class="badge-pill muted-pill">Pipeline placeholder</p>
+            <h2 id="architecture-title">나중에 붙을 면접 파이프라인</h2>
+          </div>
+          <ol class="pipeline-list">
+            <li><span>CV/직무 링크 입력</span><small>placeholder · scope 밖</small></li>
+            <li><span>면접관 페르소나/아바타/TTS</span><small>SpatialReal / ElevenLabs 예정</small></li>
+            <li><span>Main LLM 질문/응답 루프</span><small>placeholder</small></li>
+            <li class="active"><span>LiveKit media room shell</span><small>현재 slice</small></li>
+            <li><span>Multimodal 분석/최종 리포트</span><small>scope 밖</small></li>
+          </ol>
+        </section>
+      </section>
+
+      <section class="log-card" aria-labelledby="log-title">
+        <div class="section-heading">
+          <p class="badge-pill muted-pill">Runtime</p>
+          <h2 id="log-title">Event log</h2>
+        </div>
+        <pre id="event-log" class="log" aria-live="polite"></pre>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <a class="brand footer-brand" href="/" aria-label="GilJob v2 home">
+            <span class="brand-mark" aria-hidden="true">G</span>
+            <span>GilJob</span>
+          </a>
+          <p>Local self-hosted LiveKit interview room scaffold for GilJob v2.</p>
+        </div>
+        <div class="footer-links" aria-label="Footer links">
+          <a href="#room-title">Room</a>
+          <a href="#session-title">Summary</a>
+          <a href="#architecture-title">Architecture</a>
+          <a href="#log-title">Logs</a>
+        </div>
+      </div>
+    </footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

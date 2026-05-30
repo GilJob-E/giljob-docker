@@ -39,12 +39,24 @@ class WebStaticContractTest(unittest.TestCase):
         except urllib.error.HTTPError as exc:
             return exc.code, exc.headers.get("Content-Type", ""), exc.read().decode("utf-8")
 
-    def test_root_serves_minimal_livekit_join_ui(self) -> None:
+    def test_root_serves_landing_page_with_room_link(self) -> None:
         status, content_type, body = self._get("/")
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
         self.assertIn("Self-hosted LiveKit", body)
-        self.assertIn("Interview Room Shell", body)
+        self.assertIn("별도 페이지", body)
+        self.assertIn('href="/interview-room.html"', body)
+        self.assertIn("Interview Room 열기", body)
+        self.assertNotIn('id="join-form"', body)
+        self.assertNotIn('src="/app.js"', body)
+
+    def test_interview_room_page_serves_livekit_join_ui(self) -> None:
+        status, content_type, body = self._get("/interview-room.html")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", content_type)
+        self.assertIn("Self-hosted LiveKit", body)
+        self.assertIn("Interview Room", body)
+        self.assertIn("room-first", body)
         self.assertIn("Interviewer bot", body)
         self.assertIn("Camera preview", body)
         self.assertIn('src="/app.js"', body)
@@ -87,6 +99,7 @@ class WebStaticContractTest(unittest.TestCase):
 
     def test_browser_smoke_redacts_sensitive_console_output(self) -> None:
         smoke_script = (REPO_ROOT / "scripts" / "browser-join-smoke.mjs").read_text()
+        self.assertIn("interview-room.html", smoke_script)
         self.assertIn("function redactSensitiveText", smoke_script)
         self.assertIn("access_token=<redacted>", smoke_script)
         self.assertIn("join_request=<redacted>", smoke_script)

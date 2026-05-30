@@ -3,7 +3,7 @@
 ## Source of truth
 - Status: Active
 - Last refreshed: 2026-05-30
-- Primary product surfaces: GilJob v2 local LiveKit room smoke UI, session summary, local media pipeline explanation, event log, documentation/runbooks.
+- Primary product surfaces: GilJob v2 landing page, separate Interview Room page, local LiveKit room smoke UI, session summary, local media pipeline explanation, event log, documentation/runbooks.
 - Evidence reviewed:
   - User-provided Cal.com-style marketing design brief in the 2026-05-30 design request.
   - Existing UI source: `apps/web/static/index.html`, `apps/web/static/styles.css`, `apps/web/static/app.js`.
@@ -17,7 +17,8 @@
 ## Product goals
 - Goals:
   - Make the local self-hosted LiveKit slice understandable at a glance.
-  - Let a user create a session and join/leave the LiveKit room from a friendly web surface.
+  - Keep the landing page as a product entry point, not a long scroll into the room.
+  - Let a user create a session and join/leave the LiveKit room from a dedicated Interview Room page.
   - Show product UI fragments directly: session form, room summary, pipeline map, event log.
 - Non-goals:
   - Zoom/Google Meet replacement UI.
@@ -39,13 +40,13 @@
 
 ## Information architecture
 - Primary navigation: simple top nav with brand, local mode, architecture anchor, docs anchor, and primary join CTA.
-- Core routes/screens: single-page `/` smoke UI.
+- Core routes/screens: `/` landing/entry page and `/interview-room.html` dedicated LiveKit Interview Room page.
 - Content hierarchy:
-  1. Hero: purpose and primary action.
-  2. Embedded product UI card: session/create/join controls.
-  3. Feature cards: self-hosted LiveKit, token boundary, future pipeline.
-  4. Session + pipeline product cards.
-  5. Event log.
+  1. Landing hero: purpose and primary action to open the room.
+  2. Landing product fragment: visual preview/link for the Interview Room.
+  3. Dedicated room hero: pre-join preview and session/create/join controls.
+  4. Room shell: candidate/interviewer tiles plus question/transcript placeholders.
+  5. Room support cards: session summary, pipeline map, event log.
   6. Dark footer close.
 
 ## Design principles
@@ -85,7 +86,8 @@
   - Event log: `#event-log`.
 - New/changed components:
   - `top-nav`, `hero-band`, `hero-app-mockup-card`, `feature-card`, `product-mockup-card`, `nav-pill-group`, `footer`.
-  - `interview-room-shell`: Zoom/Google-Meet-familiar room surface adapted for GilJob, with pre-join preview, candidate tile, interviewer bot placeholder tile, question/transcript/analysis panels, and bottom control bar.
+  - `landing-room-card`: lightweight homepage product fragment that links to the real room without starting media.
+  - `interview-room-shell`: dedicated `/interview-room.html` room-first surface adapted for GilJob; it places candidate/interviewer tiles and pre-join controls above the fold instead of below a long landing scroll, with question/transcript/analysis panels and bottom control bar.
 - Variants and states:
   - Primary/secondary buttons, disabled button, connected/connecting/error status badges.
   - Mic/camera control buttons use `aria-pressed` and explicit on/off labels; permission failures render through the redacted status/log path.
@@ -131,7 +133,7 @@
 - Compatibility constraints: modern Chromium/Safari/Firefox; LiveKit client vendored via Docker build.
 - Test/screenshot expectations:
   - Existing contract tests must continue to pass.
-  - Browser smoke must still connect/disconnect and check token non-exposure.
+  - Browser smoke must navigate to `/interview-room.html`, connect/disconnect, and check token non-exposure.
   - After visual changes, capture a local screenshot through the SSH tunnel when available.
 
 ## Open questions
