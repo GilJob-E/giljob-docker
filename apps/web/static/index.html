@@ -3,72 +3,144 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>GilJob v2 · Local LiveKit Room</title>
+    <title>GilJob v2 · Local Interview Media</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="hero" aria-labelledby="page-title">
-        <p class="eyebrow">GilJob v2 local media room</p>
-        <h1 id="page-title">Self-hosted LiveKit 면접 룸 연결 스모크</h1>
-        <p class="lede">
-          이 화면은 CV/직무 파싱, 메인 LLM, SpatialReal/ElevenLabs, 멀티모달 분석, 최종 리포트 없이
-          브라우저가 API에서 세션을 만들고 반환된 LiveKit URL/token으로 로컬 룸에 join/leave 되는지만 확인합니다.
-        </p>
-      </section>
+    <header class="top-nav" aria-label="Primary navigation">
+      <a class="brand" href="#page-title" aria-label="GilJob v2 home">
+        <span class="brand-mark" aria-hidden="true">G</span>
+        <span>GilJob</span>
+      </a>
+      <nav class="nav-pill-group" aria-label="Landing sections">
+        <a class="active" href="#page-title">Home</a>
+        <a href="#architecture-title">Architecture</a>
+        <a href="#next-title">Next</a>
+      </nav>
+      <div class="nav-actions">
+        <span class="nav-mode">Local mode</span>
+        <a class="button button-primary nav-cta" href="/interviews/new">New interview</a>
+      </div>
+    </header>
 
-      <section class="panel" aria-labelledby="controls-title">
-        <h2 id="controls-title">1. 세션 생성 및 LiveKit 접속</h2>
-        <form id="join-form" class="grid">
-          <label>
-            API session endpoint
-            <input id="api-endpoint" name="api-endpoint" value="/api/sessions" autocomplete="off" />
-          </label>
-          <label>
-            Role
-            <input id="role" name="role" value="candidate" autocomplete="off" />
-          </label>
-          <label class="checkbox">
-            <input id="publish-media" type="checkbox" />
-            join 후 마이크/카메라 publish 시도하기(기본 off)
-          </label>
-          <div class="actions">
-            <button id="create-session" type="button">세션만 생성</button>
-            <button id="join-room" type="submit">룸 join</button>
-            <button id="leave-room" type="button" disabled>룸 leave</button>
+    <main>
+      <section class="hero-band landing-hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="badge-pill">Self-hosted LiveKit · GilJob v2</p>
+          <h1 id="page-title">면접은 session route로<br />진행합니다</h1>
+          <p class="lede">
+            메인 페이지는 제품의 입구와 현재 아키텍처를 보여주고, 실제 LiveKit join/leave와 camera preview는
+            production-style `/interviews/:id/*` 흐름에서 실행합니다. landing, lobby, room, report를 분리합니다.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button button-primary" href="/interviews/new">새 면접 시작</a>
+            <a class="button button-secondary" href="#architecture-title">아키텍처 보기</a>
           </div>
-        </form>
-        <p id="status" class="status" role="status">idle</p>
+          <div class="trust-row" aria-label="Current guarantees">
+            <span>Token hidden</span>
+            <span>Self-hosted</span>
+            <span>Session route</span>
+          </div>
+        </div>
+
+        <section class="hero-app-mockup-card landing-room-card" aria-labelledby="room-card-title">
+          <div class="mockup-topbar" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="mockup-header">
+            <div>
+              <p class="mockup-kicker">Interview entry</p>
+              <h2 id="room-card-title">Production interview flow</h2>
+            </div>
+            <span class="status">Ready</span>
+          </div>
+          <div class="landing-room-preview" aria-hidden="true">
+            <div class="mini-video-tile primary">
+              <span class="avatar-circle">C</span>
+              <strong>Candidate</strong>
+              <small>camera preview</small>
+            </div>
+            <div class="mini-video-tile">
+              <span class="bot-orb small">G</span>
+              <strong>Interviewer bot</strong>
+              <small>placeholder</small>
+            </div>
+          </div>
+          <p class="note">실제 브라우저 media permission과 LiveKit connect는 `/interviews/:id/room`에서만 시작됩니다.</p>
+          <a class="button button-primary full-width" href="/interviews/new">Production flow로 이동</a>
+        </section>
       </section>
 
-      <section class="panel" aria-labelledby="session-title">
-        <h2 id="session-title">2. 현재 세션</h2>
-        <dl id="session-summary" class="summary">
-          <div><dt>sessionId</dt><dd>-</dd></div>
-          <div><dt>roomName</dt><dd>-</dd></div>
-          <div><dt>LiveKit URL</dt><dd>-</dd></div>
-          <div><dt>tokenStatus</dt><dd>-</dd></div>
-          <div><dt>participant</dt><dd>-</dd></div>
-        </dl>
-        <p class="note">원시 session/report/candidate token은 브라우저 메모리에서만 사용하고 화면에 출력하지 않습니다.</p>
+      <section class="feature-band" aria-label="Current slice guarantees">
+        <article class="feature-card">
+          <span class="feature-icon">01</span>
+          <h3>Landing과 Room을 분리합니다</h3>
+          <p>메인 페이지는 설명과 진입 CTA만 담당하고, 실시간 media UI는 `/interviews/:id/room`에서만 실행합니다.</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-icon">02</span>
+          <h3>LiveKit은 로컬 self-hosted입니다</h3>
+          <p>LiveKit Cloud가 아니라 `kiostation`의 로컬 compose stack과 브라우저 direct media port를 사용합니다.</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-icon">03</span>
+          <h3>원시 토큰은 노출하지 않습니다</h3>
+          <p>room page에서도 candidate/session/report token은 화면과 로그에 직접 렌더링하지 않습니다.</p>
+        </article>
       </section>
 
-      <section class="panel muted" aria-labelledby="future-title">
-        <h2 id="future-title">나중에 붙을 파이프라인 자리</h2>
-        <ol class="flow">
-          <li>사용자 CV/직무 링크 입력 — 현재 scope 밖</li>
-          <li>면접관 페르소나/아바타/TTS — placeholder</li>
-          <li>Main LLM 질문/응답 루프 — placeholder</li>
-          <li>LiveKit media room — 현재 slice</li>
-          <li>Multimodal module 분석/최종 리포트 — 현재 scope 밖</li>
-        </ol>
+      <section class="product-grid" aria-label="Product details">
+        <section class="product-mockup-card" aria-labelledby="architecture-title">
+          <div class="section-heading">
+            <p class="badge-pill muted-pill">Architecture</p>
+            <h2 id="architecture-title">현재 연결 구조</h2>
+          </div>
+          <ol class="pipeline-list">
+            <li><span>Landing page</span><small>`/` · 설명/진입</small></li>
+            <li><span>New interview</span><small>`/interviews/new` · setup</small></li>
+            <li><span>Lobby</span><small>`/interviews/:id/lobby` · pre-join</small></li>
+            <li class="active"><span>Interview Room</span><small>`/interviews/:id/room` · LiveKit join</small></li>
+            <li><span>Report</span><small>`/interviews/:id/report` · placeholder</small></li>
+            <li><span>Self-hosted LiveKit</span><small>ws://127.0.0.1:7880 via tunnel</small></li>
+          </ol>
+        </section>
+
+        <section class="product-mockup-card" aria-labelledby="next-title">
+          <div class="section-heading">
+            <p class="badge-pill muted-pill">Next</p>
+            <h2 id="next-title">다음에 붙일 것</h2>
+          </div>
+          <ol class="pipeline-list">
+            <li><span>Interviewer bot participant</span><small>room에 면접관 존재감 추가</small></li>
+            <li><span>Main LLM question loop</span><small>질문/답변 상태 연결</small></li>
+            <li><span>Transcript and signals</span><small>답변 transcript, multimodal signal</small></li>
+          </ol>
+        </section>
       </section>
 
-      <section class="panel" aria-labelledby="log-title">
-        <h2 id="log-title">Event log</h2>
-        <pre id="event-log" class="log" aria-live="polite"></pre>
+      <section class="cta-band-light" aria-label="Open interview room">
+        <h2>실제 테스트는 production route에서 합니다</h2>
+        <p>아래로 스크롤해서 room shell을 찾는 대신, `/interviews/new`에서 시작해 lobby와 room으로 이동합니다.</p>
+        <a class="button button-primary" href="/interviews/new">새 면접 시작</a>
       </section>
     </main>
-    <script type="module" src="/app.js"></script>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <a class="brand footer-brand" href="#page-title" aria-label="GilJob v2 home">
+            <span class="brand-mark" aria-hidden="true">G</span>
+            <span>GilJob</span>
+          </a>
+          <p>Local self-hosted LiveKit interview room scaffold for GilJob v2.</p>
+        </div>
+        <div class="footer-links" aria-label="Footer links">
+          <a href="/interviews/new">New</a>
+          <a href="#architecture-title">Architecture</a>
+          <a href="#next-title">Next</a>
+          <a href="https://github.com/GilJob-E/giljob-docker">GitHub</a>
+        </div>
+      </div>
+    </footer>
   </body>
 </html>

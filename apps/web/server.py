@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -22,6 +23,7 @@ LIVEKIT_CLIENT_DIST = Path(
     os.getenv("LIVEKIT_CLIENT_DIST", Path(__file__).with_name("node_modules") / "livekit-client" / "dist")
 ).resolve()
 VENDOR_PREFIX = "vendor/livekit-client/dist/"
+INTERVIEW_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 
 CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
@@ -32,6 +34,37 @@ CONTENT_TYPES = {
     ".mjs": "text/javascript; charset=utf-8",
     ".wasm": "application/wasm",
 }
+
+
+def _route_alias(request_path: str) -> str | None:
+    """Map production-style app routes to static shell templates.
+
+    The static server stays deliberately simple for this scaffold, but the
+    public URLs should already look like the future production app:
+    /interviews/new -> setup page
+    /interviews/{id}/lobby -> pre-join lobby
+    /interviews/{id}/room -> LiveKit room
+    /interviews/{id}/report -> report placeholder
+    """
+    if request_path == "/interview-room.html":
+        return "interview-room.html"
+    if request_path == "/interviews/new":
+        return "interview-new.html"
+
+    parts = [part for part in request_path.split("/") if part]
+    if len(parts) != 3 or parts[0] != "interviews":
+        return None
+    interview_id = parts[1]
+    screen = parts[2]
+    if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
+        return None
+    if screen == "lobby":
+        return "interview-lobby.html"
+    if screen == "room":
+        return "interview-room.html"
+    if screen == "report":
+        return "interview-report.html"
+    return None
 
 
 def _safe_file(root: Path, relative_path: str) -> Path | None:
@@ -65,6 +98,9 @@ class Handler(BaseHTTPRequestHandler):
         request_path = unquote(urlsplit(self.path).path)
         if request_path == "/":
             request_path = "/index.html"
+        alias = _route_alias(request_path)
+        if alias is not None:
+            return _safe_file(STATIC_ROOT, alias)
         relative_path = request_path.lstrip("/")
         if not relative_path:
             return None

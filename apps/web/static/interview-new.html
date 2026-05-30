@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GilJob v2 · New Interview</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top-nav" aria-label="Primary navigation">
+      <a class="brand" href="/" aria-label="GilJob v2 home">
+        <span class="brand-mark" aria-hidden="true">G</span>
+        <span>GilJob</span>
+      </a>
+      <nav class="nav-pill-group" aria-label="Interview setup steps">
+        <a class="active" href="/interviews/new">New</a>
+        <a href="/interviews/local-demo/lobby">Lobby</a>
+        <a href="/interviews/local-demo/room">Room</a>
+        <a href="/interviews/local-demo/report">Report</a>
+      </nav>
+      <div class="nav-actions">
+        <span class="nav-mode">Production route scaffold</span>
+        <a class="button button-primary nav-cta" href="/interviews/local-demo/lobby">Continue</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero-band landing-hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="badge-pill">Production flow · Step 1</p>
+          <h1 id="page-title">새 면접 세션을 준비합니다</h1>
+          <p class="lede">
+            Production에서는 바로 media room으로 들어가지 않습니다. 먼저 CV, 직무 링크, 면접관 페르소나를 묶어
+            하나의 interview session을 만들고, 그 session id 기준으로 lobby, room, report가 이어집니다.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button button-primary" href="/interviews/local-demo/lobby">Demo lobby로 이동</a>
+            <a class="button button-secondary" href="/interviews/local-demo/room">Room 바로 보기</a>
+          </div>
+          <div class="trust-row" aria-label="Production constraints">
+            <span>Session-scoped</span>
+            <span>No raw tokens in URL</span>
+            <span>LLM/multimodal placeholder</span>
+          </div>
+        </div>
+
+        <section class="hero-app-mockup-card setup-card" aria-labelledby="setup-title">
+          <div class="mockup-topbar" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="mockup-header">
+            <div>
+              <p class="mockup-kicker">Interview setup</p>
+              <h2 id="setup-title">입력 계약 placeholder</h2>
+            </div>
+            <span class="status">Draft</span>
+          </div>
+          <form class="session-form production-setup-form" aria-label="Production interview setup placeholder">
+            <label>
+              Candidate CV
+              <input value="CV upload / text extraction 예정" autocomplete="off" disabled />
+            </label>
+            <label>
+              Job link
+              <input value="직무 링크 parsing 예정" autocomplete="off" disabled />
+            </label>
+            <label>
+              Interviewer persona
+              <input value="SpatialReal / ElevenLabs persona 예정" autocomplete="off" disabled />
+            </label>
+            <label>
+              Interview session id
+              <input value="local-demo" autocomplete="off" disabled />
+            </label>
+            <div class="actions">
+              <a class="button button-primary" href="/interviews/local-demo/lobby">세션 준비 완료</a>
+            </div>
+          </form>
+          <p class="note">현재 slice는 route contract만 고정합니다. 실제 CV parsing, persona 생성, production auth는 아직 scope 밖입니다.</p>
+        </section>
+      </section>
+
+      <section class="feature-band" aria-label="Production gates">
+        <article class="feature-card">
+          <span class="feature-icon">01</span>
+          <h3>Session first</h3>
+          <p>모든 화면은 `/interviews/:id/*` 아래에서 동작합니다. media token이나 report token을 URL에 직접 싣지 않습니다.</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-icon">02</span>
+          <h3>Lobby before room</h3>
+          <p>카메라/마이크 permission, 네트워크 readiness, interview 안내는 room 이전 lobby에서 처리하는 방향입니다.</p>
+        </article>
+        <article class="feature-card">
+          <span class="feature-icon">03</span>
+          <h3>Report after room</h3>
+          <p>최종 report는 면접 종료 후 별도 route에서 열립니다. 깊은 multimodal/report 분석은 background로 분리합니다.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <a class="brand footer-brand" href="/" aria-label="GilJob v2 home">
+            <span class="brand-mark" aria-hidden="true">G</span>
+            <span>GilJob</span>
+          </a>
+          <p>Production-style interview session route scaffold for GilJob v2.</p>
+        </div>
+        <div class="footer-links" aria-label="Footer links">
+          <a href="/interviews/new">New</a>
+          <a href="/interviews/local-demo/lobby">Lobby</a>
+          <a href="/interviews/local-demo/room">Room</a>
+          <a href="/interviews/local-demo/report">Report</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
