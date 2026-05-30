@@ -5,71 +5,71 @@
 	#.secure: fill=#ecfdf5 stroke=#047857
 	#.future: fill=#fff7ed stroke=#c2410c dashed
 	#.store: fill=#f8fafc stroke=#475569
-	
+
 	[&lt;external&gt; 후보자 브라우저|
 	  /interviews/new
 	  /interviews/:id/lobby
 	  /interviews/:id/room
 	  /interviews/:id/report
 	]
-	
+
 	[&lt;service&gt; Caddy Ingress|
 	  :80/:443
 	  정적 Web 라우팅
 	  /api/* reverse proxy
 	  /api/internal/* 차단
 	]
-	
+
 	[&lt;service&gt; Web App|
 	  vanilla HTML/CSS/JS
 	  production route shell
 	  room 진입 시 LiveKit 자동 join
 	  token-safe hidden diagnostics
 	]
-	
+
 	[&lt;secure&gt; API Service|
 	  POST /api/sessions
 	  session/report token 발급
 	  purpose-separated hash contract
 	  LiveKit candidate token 발급
 	]
-	
+
 	[&lt;store&gt; Postgres|
 	  향후 durable session state
 	  token hash only
 	  raw public token 저장 금지
 	]
-	
+
 	[&lt;media&gt; LiveKit Server|
 	  self-hosted signaling/media
 	  7880/tcp WebSocket
 	  7881/tcp ICE/TCP
 	  50000-50100/udp media
 	]
-	
+
 	[&lt;media&gt; coturn|
 	  direct TURN/STUN overlay
 	  3478 udp/tcp
 	  5349 tcp
 	]
-	
+
 	[&lt;service&gt; AI Engine|
 	  현재 health placeholder
 	  향후 STT/LLM orchestration
 	]
-	
+
 	[&lt;future&gt; Agent1 Multimodal Module|
 	  향후 raw AV windowing
 	  structured signal only
 	  token/media 직접 노출 금지
 	]
-	
+
 	[&lt;future&gt; Main LLM / Interview Controller|
 	  향후 질문 정책
 	  후보자 답변 loop
 	  최종 report trigger
 	]
-	
+
 	[후보자 브라우저] - HTTP app/API -&gt; [Caddy Ingress]
 	[Caddy Ingress] - static pages -&gt; [Web App]
 	[Caddy Ingress] - /api/sessions -&gt; [API Service]
@@ -125,7 +125,7 @@
 						<g transform="translate(594.75, 0)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="후보자 브라우저" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#6b7280" text-align="center" data-name="후보자 브라우저" data-compartment="0">
 								<text x="80.0" y="14.1" stroke="none" text-anchor="middle" data-name="후보자 브라우저" data-compartment="0">후보자 브라우저</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(594.75, 32)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="후보자 브라우저" data-compartment="1">
@@ -134,7 +134,7 @@
 								<text x="0.0" y="30.3" stroke="none" data-name="후보자 브라우저" data-compartment="1">/interviews/:id/lobby</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="후보자 브라우저" data-compartment="1">/interviews/:id/room</text>
 								<text x="0.0" y="62.7" stroke="none" data-name="후보자 브라우저" data-compartment="1">/interviews/:id/report</text>
-								
+
 							</g>
 						</g>
 					</g>
@@ -146,7 +146,7 @@
 						<g transform="translate(41.5, 153)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Caddy Ingress" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#111111" text-align="center" data-name="Caddy Ingress" data-compartment="0">
 								<text x="77.5" y="14.1" stroke="none" text-anchor="middle" data-name="Caddy Ingress" data-compartment="0">Caddy Ingress</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(41.5, 185)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Caddy Ingress" data-compartment="1">
@@ -155,7 +155,7 @@
 								<text x="0.0" y="30.3" stroke="none" data-name="Caddy Ingress" data-compartment="1">정적 Web 라우팅</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="Caddy Ingress" data-compartment="1">/api/* reverse proxy</text>
 								<text x="0.0" y="62.7" stroke="none" data-name="Caddy Ingress" data-compartment="1">/api/internal/* 차단</text>
-								
+
 							</g>
 						</g>
 					</g>
@@ -167,7 +167,7 @@
 						<g transform="translate(0, 306)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Web App" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#111111" text-align="center" data-name="Web App" data-compartment="0">
 								<text x="119.0" y="14.1" stroke="none" text-anchor="middle" data-name="Web App" data-compartment="0">Web App</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(0, 338)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Web App" data-compartment="1">
@@ -176,7 +176,7 @@
 								<text x="0.0" y="30.3" stroke="none" data-name="Web App" data-compartment="1">production route shell</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="Web App" data-compartment="1">room 진입 시 LiveKit 자동 join</text>
 								<text x="0.0" y="62.7" stroke="none" data-name="Web App" data-compartment="1">token-safe hidden diagnostics</text>
-								
+
 							</g>
 						</g>
 					</g>
@@ -188,7 +188,7 @@
 						<g transform="translate(332.25, 306)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="API Service" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#047857" text-align="center" data-name="API Service" data-compartment="0">
 								<text x="132.0" y="14.1" stroke="none" text-anchor="middle" data-name="API Service" data-compartment="0">API Service</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(332.25, 338)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="API Service" data-compartment="1">
@@ -197,7 +197,7 @@
 								<text x="0.0" y="30.3" stroke="none" data-name="API Service" data-compartment="1">session/report token 발급</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="API Service" data-compartment="1">purpose-separated hash contract</text>
 								<text x="0.0" y="62.7" stroke="none" data-name="API Service" data-compartment="1">LiveKit candidate token 발급</text>
-								
+
 							</g>
 						</g>
 					</g>
@@ -209,7 +209,7 @@
 						<g transform="translate(360.75, 467)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Postgres" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#475569" text-align="center" data-name="Postgres" data-compartment="0">
 								<text x="103.5" y="14.1" stroke="none" text-anchor="middle" data-name="Postgres" data-compartment="0">Postgres</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(360.75, 499)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Postgres" data-compartment="1">
@@ -217,7 +217,7 @@
 								<text x="0.0" y="14.1" stroke="none" data-name="Postgres" data-compartment="1">향후 durable session state</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="Postgres" data-compartment="1">token hash only</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="Postgres" data-compartment="1">raw public token 저장 금지</text>
-								
+
 							</g>
 						</g>
 					</g>
@@ -229,7 +229,7 @@
 						<g transform="translate(782.5, 459)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="LiveKit Server" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#0369a1" text-align="center" data-name="LiveKit Server" data-compartment="0">
 								<text x="108.5" y="14.1" stroke="none" text-anchor="middle" data-name="LiveKit Server" data-compartment="0">LiveKit Server</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(782.5, 491)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="LiveKit Server" data-compartment="1">
@@ -238,7 +238,7 @@
 								<text x="0.0" y="30.3" stroke="none" data-name="LiveKit Server" data-compartment="1">7880/tcp WebSocket</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="LiveKit Server" data-compartment="1">7881/tcp ICE/TCP</text>
 								<text x="0.0" y="62.7" stroke="none" data-name="LiveKit Server" data-compartment="1">50000-50100/udp media</text>
-								
+
 							</g>
 						</g>
 					</g>
@@ -250,7 +250,7 @@
 						<g transform="translate(708.75, 612)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="coturn" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#0369a1" text-align="center" data-name="coturn" data-compartment="0">
 								<text x="104.0" y="14.1" stroke="none" text-anchor="middle" data-name="coturn" data-compartment="0">coturn</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(708.75, 644)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="coturn" data-compartment="1">
@@ -258,7 +258,7 @@
 								<text x="0.0" y="14.1" stroke="none" data-name="coturn" data-compartment="1">direct TURN/STUN overlay</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="coturn" data-compartment="1">3478 udp/tcp</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="coturn" data-compartment="1">5349 tcp</text>
-								
+
 							</g>
 						</g>
 					</g>
@@ -270,14 +270,14 @@
 						<g transform="translate(841, 322.5)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="AI Engine" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#111111" text-align="center" data-name="AI Engine" data-compartment="0">
 								<text x="108.0" y="14.1" stroke="none" text-anchor="middle" data-name="AI Engine" data-compartment="0">AI Engine</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(841, 354.5)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="AI Engine" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#111111" text-align="left" data-name="AI Engine" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="AI Engine" data-compartment="1">현재 health placeholder</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="AI Engine" data-compartment="1">향후 STT/LLM orchestration</text>
-								
+
 							</g>
 						</g>
 					</g>
@@ -289,7 +289,7 @@
 						<g transform="translate(1000.5, 8)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Agent1 Multimodal Module" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#c2410c" text-align="center" data-name="Agent1 Multimodal Module" data-compartment="0">
 								<text x="104.5" y="14.1" stroke="none" text-anchor="middle" data-name="Agent1 Multimodal Module" data-compartment="0">Agent1 Multimodal Module</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(1000.5, 40)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Agent1 Multimodal Module" data-compartment="1">
@@ -297,7 +297,7 @@
 								<text x="0.0" y="14.1" stroke="none" data-name="Agent1 Multimodal Module" data-compartment="1">향후 raw AV windowing</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="Agent1 Multimodal Module" data-compartment="1">structured signal only</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="Agent1 Multimodal Module" data-compartment="1">token/media 직접 노출 금지</text>
-								
+
 							</g>
 						</g>
 					</g>
@@ -309,7 +309,7 @@
 						<g transform="translate(323.5, 161)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Main LLM / Interview Controller" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#c2410c" text-align="center" data-name="Main LLM / Interview Controller" data-compartment="0">
 								<text x="122.5" y="14.1" stroke="none" text-anchor="middle" data-name="Main LLM / Interview Controller" data-compartment="0">Main LLM / Interview Controller</text>
-								
+
 							</g>
 						</g>
 						<g transform="translate(323.5, 193)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Main LLM / Interview Controller" data-compartment="1">
@@ -317,7 +317,7 @@
 								<text x="0.0" y="14.1" stroke="none" data-name="Main LLM / Interview Controller" data-compartment="1">향후 질문 정책</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="Main LLM / Interview Controller" data-compartment="1">후보자 답변 loop</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="Main LLM / Interview Controller" data-compartment="1">최종 report trigger</text>
-								
+
 							</g>
 						</g>
 					</g>
