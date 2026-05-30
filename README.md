@@ -2,6 +2,8 @@
 
 GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 현재 목표는 전체 제품을 한 번에 구현하는 것이 아니라, production에 가까운 라우트/보안/미디어 경계 위에 LiveKit 기반 면접룸의 최소 실행 단위를 세우는 것입니다.
 
+![GilJob v2 아키텍처](docs/assets/architecture.svg)
+
 > 중요: 이 repository/worktree는 기존 `/home/hoddukzoa/GilJob`와 분리된 v2 작업 공간입니다. 기존 GilJob 폴더를 복사·삭제·수정하지 않습니다.
 
 ## 현재 상태
@@ -57,11 +59,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 4. 브라우저는 Caddy를 통해 LiveKit media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다.
 5. Agent1 multimodal module과 Main LLM/Interview Controller는 아직 future slice입니다.
 
-렌더링된 아키텍처 다이어그램:
-
-![GilJob v2 아키텍처](docs/assets/architecture.svg)
-
-아키텍처 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
+위 다이어그램의 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
 
 ```noml
 #.service: fill=#f5f5f5 stroke=#111111
