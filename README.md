@@ -57,6 +57,10 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 4. 브라우저는 Caddy를 통해 LiveKit media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다.
 5. Agent1 multimodal module과 Main LLM/Interview Controller는 아직 future slice입니다.
 
+렌더링된 아키텍처 다이어그램:
+
+![GilJob v2 아키텍처](docs/assets/architecture.svg)
+
 아키텍처 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
 
 ```noml
@@ -150,7 +154,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 렌더링 예시:
 
 ```bash
-npx nomnoml docs/architecture.noml docs/architecture.svg
+npx nomnoml docs/architecture.noml docs/assets/architecture.svg
 ```
 
 ## Repository 구조
