@@ -1,0 +1,11 @@
+{
+  "include": [
+    "services/api",
+    "tests/contract"
+  ],
+  "extraPaths": [
+    "services/api"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic"
+}

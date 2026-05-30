@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+from http.server import ThreadingHTTPServer
+import importlib.util
+import json
+import pathlib
+import threading
+import unittest
+import urllib.error
+import urllib.request
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+WEB_ROOT = REPO_ROOT / "apps" / "web"
+
+spec = importlib.util.spec_from_file_location("giljob_v2_web_server", WEB_ROOT / "server.py")
+assert spec is not None and spec.loader is not None
+web_server = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(web_server)
+
+
+class WebStaticContractTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        host = self.server.server_address[0]
+        port = self.server.server_address[1]
+        self.base_url = f"http://{host}:{port}"
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+
+    def _get(self, path: str) -> tuple[int, str, str]:
+        try:
+            with urllib.request.urlopen(self.base_url + path, timeout=5) as res:
+                return res.status, res.headers.get("Content-Type", ""), res.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.headers.get("Content-Type", ""), exc.read().decode("utf-8")
+
+    def test_root_serves_minimal_livekit_join_ui(self) -> None:
+        status, content_type, body = self._get("/")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", content_type)
+        self.assertIn("Self-hosted LiveKit", body)
+        self.assertIn('src="/app.js"', body)
+        self.assertIn('value="/api/sessions"', body)
+        self.assertIn("placeholder", body)
+
+    def test_app_js_uses_browser_public_url_and_hides_tokens_from_log(self) -> None:
+        status, content_type, body = self._get("/app.js")
+        self.assertEqual(status, 200)
+        self.assertIn("text/javascript", content_type)
+        self.assertIn("livekit-client.esm.mjs", body)
+        self.assertIn("publicUrl", body)
+        self.assertIn("candidateToken", body)
+        self.assertIn("tokens hidden", body)
+        self.assertIn("function redactSensitiveText", body)
+        self.assertIn("access_token=<redacted>", body)
+        self.assertIn("join_request=<redacted>", body)
+        self.assertIn("<jwt-redacted>", body)
+        self.assertIn("redactSensitiveText(message)", body)
+        self.assertIn("replaceChildren", body)
+        self.assertNotIn("innerHTML", body)
+        self.assertNotIn("localStorage", body)
+
+    def test_styles_are_served_and_path_traversal_is_rejected(self) -> None:
+        status, content_type, body = self._get("/styles.css")
+        self.assertEqual(status, 200)
+        self.assertIn("text/css", content_type)
+        self.assertIn(".status", body)
+
+        status, _, body = self._get("/%2e%2e/services/api/server.py")
+        self.assertEqual(status, 404)
+        self.assertEqual(json.loads(body)["error"], "not_found")
+
+    def test_browser_smoke_redacts_sensitive_console_output(self) -> None:
+        smoke_script = (REPO_ROOT / "scripts" / "browser-join-smoke.mjs").read_text()
+        self.assertIn("function redactSensitiveText", smoke_script)
+        self.assertIn("access_token=<redacted>", smoke_script)
+        self.assertIn("join_request=<redacted>", smoke_script)
+        self.assertIn("<jwt-redacted>", smoke_script)
+        self.assertIn("redactSensitiveText(message.text())", smoke_script)
+        self.assertIn("redactSensitiveText(error.message)", smoke_script)
+        self.assertNotIn("${message.text()}", smoke_script)
+
+    def test_smoke_script_does_not_assert_raw_livekit_payload(self) -> None:
+        smoke_script = (REPO_ROOT / "scripts" / "smoke.sh").read_text()
+        self.assertIn("invalid LiveKit candidate token shape", smoke_script)
+        self.assertNotIn('payload["livekit"]', smoke_script)
+        self.assertNotIn('candidateToken"], payload', smoke_script)
+
+    def test_package_declares_exact_livekit_client_dependency(self) -> None:
+        package_json = json.loads((WEB_ROOT / "package.json").read_text())
+        self.assertEqual(package_json["dependencies"]["livekit-client"], "2.19.1")
+
+
+if __name__ == "__main__":
+    unittest.main()

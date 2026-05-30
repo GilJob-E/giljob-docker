@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GilJob v2 · Local LiveKit Room</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero" aria-labelledby="page-title">
+        <p class="eyebrow">GilJob v2 local media room</p>
+        <h1 id="page-title">Self-hosted LiveKit 면접 룸 연결 스모크</h1>
+        <p class="lede">
+          이 화면은 CV/직무 파싱, 메인 LLM, SpatialReal/ElevenLabs, 멀티모달 분석, 최종 리포트 없이
+          브라우저가 API에서 세션을 만들고 반환된 LiveKit URL/token으로 로컬 룸에 join/leave 되는지만 확인합니다.
+        </p>
+      </section>
+
+      <section class="panel" aria-labelledby="controls-title">
+        <h2 id="controls-title">1. 세션 생성 및 LiveKit 접속</h2>
+        <form id="join-form" class="grid">
+          <label>
+            API session endpoint
+            <input id="api-endpoint" name="api-endpoint" value="/api/sessions" autocomplete="off" />
+          </label>
+          <label>
+            Role
+            <input id="role" name="role" value="candidate" autocomplete="off" />
+          </label>
+          <label class="checkbox">
+            <input id="publish-media" type="checkbox" />
+            join 후 마이크/카메라 publish 시도하기(기본 off)
+          </label>
+          <div class="actions">
+            <button id="create-session" type="button">세션만 생성</button>
+            <button id="join-room" type="submit">룸 join</button>
+            <button id="leave-room" type="button" disabled>룸 leave</button>
+          </div>
+        </form>
+        <p id="status" class="status" role="status">idle</p>
+      </section>
+
+      <section class="panel" aria-labelledby="session-title">
+        <h2 id="session-title">2. 현재 세션</h2>
+        <dl id="session-summary" class="summary">
+          <div><dt>sessionId</dt><dd>-</dd></div>
+          <div><dt>roomName</dt><dd>-</dd></div>
+          <div><dt>LiveKit URL</dt><dd>-</dd></div>
+          <div><dt>tokenStatus</dt><dd>-</dd></div>
+          <div><dt>participant</dt><dd>-</dd></div>
+        </dl>
+        <p class="note">원시 session/report/candidate token은 브라우저 메모리에서만 사용하고 화면에 출력하지 않습니다.</p>
+      </section>
+
+      <section class="panel muted" aria-labelledby="future-title">
+        <h2 id="future-title">나중에 붙을 파이프라인 자리</h2>
+        <ol class="flow">
+          <li>사용자 CV/직무 링크 입력 — 현재 scope 밖</li>
+          <li>면접관 페르소나/아바타/TTS — placeholder</li>
+          <li>Main LLM 질문/응답 루프 — placeholder</li>
+          <li>LiveKit media room — 현재 slice</li>
+          <li>Multimodal module 분석/최종 리포트 — 현재 scope 밖</li>
+        </ol>
+      </section>
+
+      <section class="panel" aria-labelledby="log-title">
+        <h2 id="log-title">Event log</h2>
+        <pre id="event-log" class="log" aria-live="polite"></pre>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

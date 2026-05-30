@@ -1,0 +1,71 @@
+# Initial app scaffold only. Add infra/docker-compose.media.yml for media ingress.
+name: giljob-v2
+
+services:
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2.8-alpine}
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-:80}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - api
+      - web
+
+  web:
+    build: ../apps/web
+    expose:
+      - "3000"
+
+  api:
+    build: ../services/api
+    environment:
+      GILJOB_ENV: ${GILJOB_ENV:-development}
+      SESSION_TOKEN_TTL_SECONDS: ${SESSION_TOKEN_TTL_SECONDS:-7200}
+      REPORT_TOKEN_TTL_SECONDS: ${REPORT_TOKEN_TTL_SECONDS:-2592000}
+      SESSION_TOKEN_HASH_SECRET: ${SESSION_TOKEN_HASH_SECRET:?set SESSION_TOKEN_HASH_SECRET in .env before running compose}
+      REPORT_TOKEN_HASH_SECRET: ${REPORT_TOKEN_HASH_SECRET:?set REPORT_TOKEN_HASH_SECRET in .env before running compose}
+      LIVEKIT_REQUIRED: ${LIVEKIT_REQUIRED:-false}
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_INTERNAL_URL: ${LIVEKIT_INTERNAL_URL:-}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      LIVEKIT_TOKEN_TTL_SECONDS: ${LIVEKIT_TOKEN_TTL_SECONDS:-7200}
+    expose:
+      - "8000"
+    depends_on:
+      - postgres
+
+  ai-engine:
+    build: ../services/ai-engine
+    expose:
+      - "8100"
+
+  agent1:
+    build: ../services/agent1
+    expose:
+      - "8010"
+
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-giljob}
+      POSTGRES_USER: ${POSTGRES_USER:-giljob}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env before running compose}
+    expose:
+      - "5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    profiles: ["redis"]
+    expose:
+      - "6379"
+
+volumes:
+  postgres-data:

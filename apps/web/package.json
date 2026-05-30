@@ -1,0 +1,13 @@
+{
+  "name": "giljob-v2-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal GilJob v2 local LiveKit join UI served by the Python web scaffold.",
+  "scripts": {
+    "check:js": "node --check static/app.js"
+  },
+  "dependencies": {
+    "livekit-client": "2.19.1"
+  }
+}

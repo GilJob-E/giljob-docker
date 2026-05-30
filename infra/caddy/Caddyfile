@@ -1,0 +1,28 @@
+# Initial scaffold. Replace PUBLIC_DOMAIN during deployment.
+# route preserves handler order so internal denies run before broader API proxying.
+{$PUBLIC_DOMAIN::80} {
+  route {
+    @internal path /api/internal /api/internal/*
+    handle @internal {
+      respond 404
+    }
+
+    @public_health path /healthz
+    handle @public_health {
+      reverse_proxy api:8000
+    }
+
+    @public_ready path /readyz
+    handle @public_ready {
+      respond 404
+    }
+
+    handle_path /api/* {
+      reverse_proxy api:8000
+    }
+
+    handle {
+      reverse_proxy web:3000
+    }
+  }
+}
