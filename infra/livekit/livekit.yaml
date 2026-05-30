@@ -1,0 +1,7 @@
+# Template only. The compose media profile uses LIVEKIT_CONFIG so secrets are
+# injected from environment and not stored in this source file.
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100

@@ -1,0 +1,43 @@
+{
+  "schema_version": "ralplan-consensus-handoff/v1",
+  "created_at": "2026-05-30T05:11:58.233Z",
+  "task": "GilJob v2 execution preparation from deep-interview spec",
+  "source_spec": ".omx/specs/deep-interview-giljob-v2-execution-spec.md",
+  "context_snapshot": ".omx/context/giljob-v2-docs-interview-20260530T045141Z.md",
+  "planning_artifacts": {
+    "prd": ".omx/plans/prd-giljob-v2-execution-prep-20260530T050637Z.md",
+    "test_spec": ".omx/plans/test-spec-giljob-v2-execution-prep-20260530T050637Z.md",
+    "ralplan_dr": ".omx/plans/ralplan-dr-giljob-v2-execution-prep-20260530T050637Z.md"
+  },
+  "ralplan_architect_review": {
+    "path": ".omx/reviews/architect-giljob-v2-execution-prep-20260530T050637Z.md",
+    "verdict": "APPROVE",
+    "agent_id": "019e7747-3696-7e82-b3e2-3c4a7697464e",
+    "order": 1
+  },
+  "ralplan_critic_review": {
+    "path": ".omx/reviews/critic-giljob-v2-execution-prep-20260530T050637Z.md",
+    "verdict": "APPROVE",
+    "agent_id": "019e7749-92f1-7610-ae3c-3b17a0f069a0",
+    "order": 2
+  },
+  "ralplan_consensus_gate": {
+    "complete": true,
+    "order": "Architect->Critic",
+    "iterations": 1
+  },
+  "execution_authorized": false,
+  "recommended_next": [
+    " for durable sequential goal tracking",
+    " after M0/M1/M2 gate decisions if parallel implementation is desired",
+    " only as explicit fallback"
+  ],
+  "required_before_implementation": [
+    "source checksums in ~/GilJob_v2/docs/source-manifest.md",
+    "legacy ~/GilJob untouched evidence",
+    "Gate A state/event ADR",
+    "Gate B ingress ADR",
+    "Redis-deferral equivalence if Redis deferred",
+    "external-network RTC/TURN smoke plan"
+  ]
+}
