@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GilJob v2 · Interview Report</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top-nav" aria-label="Primary navigation">
+      <a class="brand" href="/" aria-label="GilJob v2 home">
+        <span class="brand-mark" aria-hidden="true">G</span>
+        <span>GilJob</span>
+      </a>
+      <nav class="nav-pill-group" aria-label="Interview setup steps">
+        <a href="/interviews/new">New</a>
+        <a href="/interviews/local-demo/lobby">Lobby</a>
+        <a href="/interviews/local-demo/room">Room</a>
+        <a class="active" href="/interviews/local-demo/report">Report</a>
+      </nav>
+      <div class="nav-actions">
+        <span class="nav-mode">Post interview</span>
+        <a class="button button-primary nav-cta" href="/interviews/local-demo/room">Back to room</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero-band landing-hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="badge-pill">Production flow · Step 4</p>
+          <h1 id="page-title">최종 리포트 route</h1>
+          <p class="lede">
+            Production에서는 면접 종료 후 report route에서 구조화된 평가를 보여줍니다. 면접 중 빠른 turn-control signal과
+            종료 후 깊은 multimodal/report 분석은 분리합니다.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button button-primary" href="/interviews/local-demo/room">Room으로 돌아가기</a>
+            <a class="button button-secondary" href="/interviews/new">새 면접 준비</a>
+          </div>
+          <div class="trust-row" aria-label="Report constraints">
+            <span>Report token not in URL</span>
+            <span>Background analysis</span>
+            <span>Placeholder only</span>
+          </div>
+        </div>
+
+        <section class="hero-app-mockup-card setup-card" aria-labelledby="report-title">
+          <div class="mockup-topbar" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="mockup-header">
+            <div>
+              <p class="mockup-kicker">Final report</p>
+              <h2 id="report-title">리포트 placeholder</h2>
+            </div>
+            <span class="status">Pending</span>
+          </div>
+          <ol class="pipeline-list lobby-checklist">
+            <li><span>Transcript summary</span><small>placeholder</small></li>
+            <li><span>Answer quality</span><small>placeholder</small></li>
+            <li><span>Multimodal signal</span><small>background</small></li>
+            <li><span>Hiring recommendation</span><small>scope 밖</small></li>
+          </ol>
+          <p class="note">현재 route는 final report surface만 예약합니다. 실제 report token/session authorization은 backend slice에서 붙입니다.</p>
+        </section>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div>
+          <a class="brand footer-brand" href="/" aria-label="GilJob v2 home">
+            <span class="brand-mark" aria-hidden="true">G</span>
+            <span>GilJob</span>
+          </a>
+          <p>Production-style interview report scaffold for GilJob v2.</p>
+        </div>
+        <div class="footer-links" aria-label="Footer links">
+          <a href="/interviews/new">New</a>
+          <a href="/interviews/local-demo/lobby">Lobby</a>
+          <a href="/interviews/local-demo/room">Room</a>
+          <a href="/interviews/local-demo/report">Report</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

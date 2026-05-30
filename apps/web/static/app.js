@@ -1,4 +1,6 @@
-import { Room, RoomEvent } from "./vendor/livekit-client/dist/livekit-client.esm.mjs";
+import { Room, RoomEvent, setLogLevel } from "./vendor/livekit-client/dist/livekit-client.esm.mjs";
+
+setLogLevel("silent");
 
 const form = document.querySelector("#join-form");
 const createButton = document.querySelector("#create-session");
@@ -10,9 +12,26 @@ const publishMediaInput = document.querySelector("#publish-media");
 const statusEl = document.querySelector("#status");
 const logEl = document.querySelector("#event-log");
 const summaryEl = document.querySelector("#session-summary");
+const roomShell = document.querySelector("#room-shell");
+const roomStateEl = document.querySelector("#room-state");
+const previewButton = document.querySelector("#start-preview");
+const toggleMicButton = document.querySelector("#toggle-mic");
+const toggleCameraButton = document.querySelector("#toggle-camera");
+const localPreviewVideo = document.querySelector("#local-preview-video");
+const candidateRoomVideo = document.querySelector("#candidate-room-video");
+const previewPlaceholder = document.querySelector("#preview-placeholder");
+const candidatePlaceholder = document.querySelector("#candidate-placeholder");
+const candidateMediaState = document.querySelector("#candidate-media-state");
+const permissionNote = document.querySelector("#permission-note");
+const interviewRouteLabel = document.querySelector("#interview-route-label");
 
 let activeSession = null;
 let activeRoom = null;
+let localPreviewStream = null;
+let micEnabled = false;
+let cameraEnabled = false;
+const activeInterviewId = interviewIdFromPath(window.location.pathname);
+const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
 
 function redactSensitiveText(value) {
   return String(value)
@@ -22,14 +41,60 @@ function redactSensitiveText(value) {
     .replace(/gj_(session|report)_[A-Za-z0-9._-]+/g, "gj_$1_<redacted>");
 }
 
+function interviewIdFromPath(pathname) {
+  const match = pathname.match(/^\/interviews\/([A-Za-z0-9][A-Za-z0-9._-]{0,95})\/room\/?$/);
+  return match?.[1] ?? "local-demo";
+}
+
+function isProductionRoomPath(pathname) {
+  return /^\/interviews\/[A-Za-z0-9][A-Za-z0-9._-]{0,95}\/room\/?$/.test(pathname) || pathname === "/interview-room.html";
+}
+
+function productionRouteFor(screen) {
+  return `/interviews/${encodeURIComponent(activeInterviewId)}/${screen}`;
+}
+
+function hydrateProductionRoutes() {
+  document.querySelectorAll("[data-interview-route]").forEach((link) => {
+    const screen = link.dataset.interviewRoute;
+    if (!screen) {
+      return;
+    }
+    link.setAttribute("href", productionRouteFor(screen));
+  });
+  if (interviewRouteLabel) {
+    interviewRouteLabel.textContent = activeInterviewId;
+  }
+}
+
 function appendLog(message) {
+  if (!logEl) {
+    return;
+  }
   const timestamp = new Date().toISOString();
   logEl.textContent = `${timestamp} ${redactSensitiveText(message)}\n${logEl.textContent}`;
 }
 
 function setStatus(message, state = "idle") {
+  if (!statusEl) {
+    return;
+  }
   statusEl.textContent = redactSensitiveText(message);
   statusEl.dataset.state = state;
+}
+
+function setRoomMode(mode) {
+  if (roomShell) {
+    roomShell.dataset.mode = mode;
+  }
+  const labels = {
+    prejoin: "Disconnected",
+    connecting: "Connecting",
+    connected: "Connected",
+  };
+  if (roomStateEl) {
+    roomStateEl.textContent = labels[mode] ?? mode;
+  }
 }
 
 function valueOrDash(value) {
@@ -37,8 +102,12 @@ function valueOrDash(value) {
 }
 
 function renderSessionSummary(session) {
+  if (!summaryEl) {
+    return;
+  }
   const livekit = session?.livekit ?? {};
   const rows = [
+    ["interviewId", activeInterviewId],
     ["sessionId", session?.sessionId],
     ["roomName", session?.roomName ?? livekit.roomName],
     ["LiveKit URL", livekit.publicUrl ?? livekit.url],
@@ -58,6 +127,137 @@ function renderSessionSummary(session) {
   );
 }
 
+function setButtonPressed(button, isPressed, onLabel, offLabel) {
+  if (!button) {
+    return;
+  }
+  button.setAttribute("aria-pressed", String(isPressed));
+  button.textContent = isPressed ? onLabel : offLabel;
+  button.dataset.enabled = String(isPressed);
+}
+
+function syncMediaUi() {
+  if (publishMediaInput) {
+    publishMediaInput.checked = micEnabled || cameraEnabled;
+  }
+  setButtonPressed(toggleMicButton, micEnabled, "Mic on", "Mic off");
+  setButtonPressed(toggleCameraButton, cameraEnabled, "Camera on", "Camera off");
+  const hasCameraPreview = Boolean(cameraEnabled && localPreviewStream);
+  if (localPreviewVideo) {
+    localPreviewVideo.hidden = !hasCameraPreview;
+  }
+  if (candidateRoomVideo) {
+    candidateRoomVideo.hidden = !hasCameraPreview;
+  }
+  if (previewPlaceholder) {
+    previewPlaceholder.hidden = hasCameraPreview;
+  }
+  if (candidatePlaceholder) {
+    candidatePlaceholder.hidden = hasCameraPreview;
+  }
+  if (candidateMediaState) {
+    candidateMediaState.textContent = `Mic ${micEnabled ? "on" : "off"} · Camera ${cameraEnabled ? "on" : "off"}`;
+  }
+  if (permissionNote) {
+    permissionNote.textContent = hasCameraPreview
+      ? "카메라 프리뷰는 브라우저 로컬에서만 표시됩니다."
+      : "입장 전 카메라/마이크를 켜서 권한과 프리뷰를 확인할 수 있습니다.";
+  }
+}
+
+function stopPreviewStream() {
+  if (!localPreviewStream) {
+    return;
+  }
+  localPreviewStream.getTracks().forEach((track) => track.stop());
+  localPreviewStream = null;
+  if (localPreviewVideo) {
+    localPreviewVideo.srcObject = null;
+  }
+  if (candidateRoomVideo) {
+    candidateRoomVideo.srcObject = null;
+  }
+}
+
+async function restartPreviewStream() {
+  stopPreviewStream();
+  if (!micEnabled && !cameraEnabled) {
+    syncMediaUi();
+    appendLog("local preview stopped; mic/camera off");
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    micEnabled = false;
+    cameraEnabled = false;
+    syncMediaUi();
+    throw new Error("browser media permissions are not available");
+  }
+
+  setStatus("requesting media permission...", "connecting");
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: micEnabled,
+    video: cameraEnabled ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+  });
+  localPreviewStream = stream;
+  if (cameraEnabled) {
+    if (localPreviewVideo) {
+      localPreviewVideo.srcObject = stream;
+    }
+    if (candidateRoomVideo) {
+      candidateRoomVideo.srcObject = stream;
+    }
+  }
+  syncMediaUi();
+  setStatus("preview ready", activeRoom ? "connected" : "idle");
+  appendLog(`local preview ready: mic ${micEnabled ? "on" : "off"}, camera ${cameraEnabled ? "on" : "off"}; tokens hidden`);
+}
+
+async function startPreview() {
+  if (!micEnabled && !cameraEnabled) {
+    cameraEnabled = true;
+  }
+  await restartPreviewStream();
+}
+
+async function applyMediaStateToRoom() {
+  if (!activeRoom) {
+    return;
+  }
+  await activeRoom.localParticipant.setMicrophoneEnabled(micEnabled);
+  await activeRoom.localParticipant.setCameraEnabled(cameraEnabled);
+  appendLog(`room media updated: mic ${micEnabled ? "on" : "off"}, camera ${cameraEnabled ? "on" : "off"}`);
+}
+
+async function toggleMic() {
+  micEnabled = !micEnabled;
+  try {
+    await restartPreviewStream();
+    await applyMediaStateToRoom();
+  } catch (error) {
+    micEnabled = false;
+    cameraEnabled = false;
+    stopPreviewStream();
+    syncMediaUi();
+    setStatus(`media permission failed: ${error.message}`, "error");
+    appendLog(`media permission failed: ${error.message}`);
+  }
+}
+
+async function toggleCamera() {
+  cameraEnabled = !cameraEnabled;
+  try {
+    await restartPreviewStream();
+    await applyMediaStateToRoom();
+  } catch (error) {
+    micEnabled = false;
+    cameraEnabled = false;
+    stopPreviewStream();
+    syncMediaUi();
+    setStatus(`media permission failed: ${error.message}`, "error");
+    appendLog(`media permission failed: ${error.message}`);
+  }
+}
+
 function sessionLiveKitConfig(session) {
   const livekit = session?.livekit;
   const url = livekit?.publicUrl ?? livekit?.url;
@@ -70,8 +270,8 @@ function sessionLiveKitConfig(session) {
 }
 
 async function createSession() {
-  const endpoint = apiEndpointInput.value.trim() || "/api/sessions";
-  const role = roleInput.value.trim() || "candidate";
+  const endpoint = apiEndpointInput?.value.trim() || "/api/sessions";
+  const role = roleInput?.value.trim() || "candidate";
   setStatus("creating session...", "connecting");
   appendLog(`POST ${endpoint}`);
 
@@ -101,15 +301,25 @@ function bindRoomEvents(room) {
       appendLog(`LiveKit state: ${state}`);
     })
     .on(RoomEvent.Connected, () => {
+      setRoomMode("connected");
       setStatus("LiveKit connected", "connected");
-      leaveButton.disabled = false;
-      joinButton.disabled = true;
+      if (leaveButton) {
+        leaveButton.disabled = false;
+      }
+      if (joinButton) {
+        joinButton.disabled = true;
+      }
       appendLog("LiveKit connected");
     })
     .on(RoomEvent.Disconnected, (reason) => {
+      setRoomMode("prejoin");
       setStatus(`LiveKit disconnected${reason ? `: ${reason}` : ""}`, "idle");
-      leaveButton.disabled = true;
-      joinButton.disabled = false;
+      if (leaveButton) {
+        leaveButton.disabled = true;
+      }
+      if (joinButton) {
+        joinButton.disabled = false;
+      }
       appendLog(`LiveKit disconnected${reason ? `: ${reason}` : ""}`);
     })
     .on(RoomEvent.Reconnecting, () => appendLog("LiveKit reconnecting"))
@@ -119,14 +329,40 @@ function bindRoomEvents(room) {
 }
 
 async function maybePublishLocalMedia(room) {
-  if (!publishMediaInput.checked) {
-    appendLog("media publish skipped (default smoke mode)");
+  if (!micEnabled && !cameraEnabled) {
+    appendLog("media publish skipped (mic/camera off)");
     return;
   }
-  appendLog("requesting browser microphone/camera permissions");
-  await room.localParticipant.setMicrophoneEnabled(true);
-  await room.localParticipant.setCameraEnabled(true);
-  appendLog("local microphone/camera publish requested");
+  appendLog(`publishing local media: mic ${micEnabled ? "on" : "off"}, camera ${cameraEnabled ? "on" : "off"}`);
+  await room.localParticipant.setMicrophoneEnabled(micEnabled);
+  await room.localParticipant.setCameraEnabled(cameraEnabled);
+  appendLog("local microphone/camera publish state applied");
+}
+
+async function disableLocalMedia(room) {
+  if (!room?.localParticipant) {
+    return;
+  }
+  await Promise.allSettled([
+    room.localParticipant.setMicrophoneEnabled(false),
+    room.localParticipant.setCameraEnabled(false),
+  ]);
+}
+
+async function failClosedAfterJoinMediaError(room, error) {
+  appendLog(`media publish failed after join; disconnecting room fail-closed: ${error.message}`);
+  await disableLocalMedia(room);
+  room.disconnect();
+  if (activeRoom === room) {
+    activeRoom = null;
+  }
+  if (leaveButton) {
+    leaveButton.disabled = true;
+  }
+  if (joinButton) {
+    joinButton.disabled = false;
+  }
+  setRoomMode("prejoin");
 }
 
 async function joinRoom() {
@@ -136,12 +372,34 @@ async function joinRoom() {
     activeRoom.disconnect();
   }
 
+  setRoomMode("connecting");
   setStatus("connecting to LiveKit...", "connecting");
   activeRoom = new Room();
   bindRoomEvents(activeRoom);
   appendLog(`connecting to ${url} as ${session.livekit.participantIdentity}; token hidden`);
   await activeRoom.connect(url, token);
-  await maybePublishLocalMedia(activeRoom);
+  try {
+    await maybePublishLocalMedia(activeRoom);
+  } catch (error) {
+    await failClosedAfterJoinMediaError(activeRoom, error);
+    throw error;
+  }
+}
+
+async function autoJoinRoomRoute() {
+  if (!shouldAutoJoinRoom) {
+    return;
+  }
+  try {
+    await joinRoom();
+  } catch (error) {
+    setRoomMode("prejoin");
+    setStatus(error.message, "error");
+    appendLog(`error: ${error.message}`);
+    if (leaveButton) {
+      leaveButton.disabled = true;
+    }
+  }
 }
 
 function leaveRoom() {
@@ -151,11 +409,15 @@ function leaveRoom() {
   appendLog("leaving LiveKit room");
   activeRoom.disconnect();
   activeRoom = null;
-  leaveButton.disabled = true;
-  joinButton.disabled = false;
+  if (leaveButton) {
+    leaveButton.disabled = true;
+  }
+  if (joinButton) {
+    joinButton.disabled = false;
+  }
 }
 
-createButton.addEventListener("click", async () => {
+createButton?.addEventListener("click", async () => {
   try {
     await createSession();
   } catch (error) {
@@ -164,19 +426,44 @@ createButton.addEventListener("click", async () => {
   }
 });
 
-form.addEventListener("submit", async (event) => {
+previewButton?.addEventListener("click", async () => {
+  try {
+    await startPreview();
+  } catch (error) {
+    micEnabled = false;
+    cameraEnabled = false;
+    stopPreviewStream();
+    syncMediaUi();
+    setStatus(`media permission failed: ${error.message}`, "error");
+    appendLog(`media permission failed: ${error.message}`);
+  }
+});
+
+toggleMicButton?.addEventListener("click", toggleMic);
+toggleCameraButton?.addEventListener("click", toggleCamera);
+
+form?.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
     await joinRoom();
   } catch (error) {
+    setRoomMode("prejoin");
     setStatus(error.message, "error");
     appendLog(`error: ${error.message}`);
-    leaveButton.disabled = true;
-    joinButton.disabled = false;
+    if (leaveButton) {
+      leaveButton.disabled = true;
+    }
+    if (joinButton) {
+      joinButton.disabled = false;
+    }
   }
 });
 
-leaveButton.addEventListener("click", leaveRoom);
+leaveButton?.addEventListener("click", leaveRoom);
 
 renderSessionSummary(null);
-appendLog("UI ready; use /api/sessions through Caddy for same-origin API access");
+setRoomMode("prejoin");
+syncMediaUi();
+hydrateProductionRoutes();
+appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);
+autoJoinRoomRoute();

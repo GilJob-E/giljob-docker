@@ -1,0 +1,84 @@
+#.service: fill=#f5f5f5 stroke=#111111
+#.external: fill=#ffffff stroke=#6b7280 dashed
+#.media: fill=#e0f2fe stroke=#0369a1
+#.secure: fill=#ecfdf5 stroke=#047857
+#.future: fill=#fff7ed stroke=#c2410c dashed
+#.store: fill=#f8fafc stroke=#475569
+
+[<external> 후보자 브라우저|
+  /interviews/new
+  /interviews/:id/lobby
+  /interviews/:id/room
+  /interviews/:id/report
+]
+
+[<service> Caddy Ingress|
+  :80/:443
+  정적 Web 라우팅
+  /api/* reverse proxy
+  /api/internal/* 차단
+]
+
+[<service> Web App|
+  vanilla HTML/CSS/JS
+  production route shell
+  room 진입 시 LiveKit 자동 join
+  token-safe hidden diagnostics
+]
+
+[<secure> API Service|
+  POST /api/sessions
+  session/report token 발급
+  purpose-separated hash contract
+  LiveKit candidate token 발급
+]
+
+[<store> Postgres|
+  향후 durable session state
+  token hash only
+  raw public token 저장 금지
+]
+
+[<media> LiveKit Server|
+  self-hosted signaling/media
+  7880/tcp WebSocket
+  7881/tcp ICE/TCP
+  50000-50100/udp media
+]
+
+[<media> coturn|
+  direct TURN/STUN overlay
+  3478 udp/tcp
+  5349 tcp
+]
+
+[<service> AI Engine|
+  현재 health placeholder
+  향후 STT/LLM orchestration
+]
+
+[<future> Agent1 Multimodal Module|
+  향후 raw AV windowing
+  structured signal only
+  token/media 직접 노출 금지
+]
+
+[<future> Main LLM / Interview Controller|
+  향후 질문 정책
+  후보자 답변 loop
+  최종 report trigger
+]
+
+[후보자 브라우저] - HTTP app/API -> [Caddy Ingress]
+[Caddy Ingress] - static pages -> [Web App]
+[Caddy Ingress] - /api/sessions -> [API Service]
+[API Service] - token hash 저장 -> [Postgres]
+[API Service] - internal URL로 room/token 발급 -> [LiveKit Server]
+[API Service] - public room URL + candidate token -> [후보자 브라우저]
+[후보자 브라우저] - direct WebRTC signaling/media -> [LiveKit Server]
+[후보자 브라우저] - relay 필요 시 -> [coturn]
+[LiveKit Server] - TURN boundary -> [coturn]
+[AI Engine] - 향후 participant subscribe/publish -> [LiveKit Server]
+[Agent1 Multimodal Module] - 향후 media observation -> [LiveKit Server]
+[Agent1 Multimodal Module] - structured signal -> [Main LLM / Interview Controller]
+[Main LLM / Interview Controller] - 향후 interview state/report -> [API Service]
