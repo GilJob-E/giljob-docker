@@ -19,7 +19,7 @@
       </nav>
       <div class="nav-actions">
         <span class="nav-mode">Local mode</span>
-        <a class="button button-primary nav-cta" href="/interview-room.html">Open room</a>
+        <a class="button button-primary nav-cta" href="/interviews/new">New interview</a>
       </div>
     </header>
 
@@ -27,19 +27,19 @@
       <section class="hero-band landing-hero" aria-labelledby="page-title">
         <div class="hero-copy">
           <p class="badge-pill">Self-hosted LiveKit · GilJob v2</p>
-          <h1 id="page-title">면접룸은 이제<br />별도 페이지에서 엽니다</h1>
+          <h1 id="page-title">면접은 session route로<br />진행합니다</h1>
           <p class="lede">
             메인 페이지는 제품의 입구와 현재 아키텍처를 보여주고, 실제 LiveKit join/leave와 camera preview는
-            새로운 Interview Room 페이지에서만 실행합니다. 아래로 긴 smoke UI를 스크롤하지 않아도 됩니다.
+            production-style `/interviews/:id/*` 흐름에서 실행합니다. landing, lobby, room, report를 분리합니다.
           </p>
           <div class="hero-actions" aria-label="Primary actions">
-            <a class="button button-primary" href="/interview-room.html">Interview Room 열기</a>
+            <a class="button button-primary" href="/interviews/new">새 면접 시작</a>
             <a class="button button-secondary" href="#architecture-title">아키텍처 보기</a>
           </div>
           <div class="trust-row" aria-label="Current guarantees">
             <span>Token hidden</span>
             <span>Self-hosted</span>
-            <span>Separate room page</span>
+            <span>Session route</span>
           </div>
         </div>
 
@@ -50,7 +50,7 @@
           <div class="mockup-header">
             <div>
               <p class="mockup-kicker">Interview entry</p>
-              <h2 id="room-card-title">새 Interview Room</h2>
+              <h2 id="room-card-title">Production interview flow</h2>
             </div>
             <span class="status">Ready</span>
           </div>
@@ -66,8 +66,8 @@
               <small>placeholder</small>
             </div>
           </div>
-          <p class="note">실제 브라우저 media permission과 LiveKit connect는 별도 room page에서만 시작됩니다.</p>
-          <a class="button button-primary full-width" href="/interview-room.html">방으로 이동</a>
+          <p class="note">실제 브라우저 media permission과 LiveKit connect는 `/interviews/:id/room`에서만 시작됩니다.</p>
+          <a class="button button-primary full-width" href="/interviews/new">Production flow로 이동</a>
         </section>
       </section>
 
@@ -75,7 +75,7 @@
         <article class="feature-card">
           <span class="feature-icon">01</span>
           <h3>Landing과 Room을 분리합니다</h3>
-          <p>메인 페이지는 설명과 진입 CTA만 담당하고, 실시간 media UI는 `/interview-room.html`에서만 실행합니다.</p>
+          <p>메인 페이지는 설명과 진입 CTA만 담당하고, 실시간 media UI는 `/interviews/:id/room`에서만 실행합니다.</p>
         </article>
         <article class="feature-card">
           <span class="feature-icon">02</span>
@@ -97,9 +97,11 @@
           </div>
           <ol class="pipeline-list">
             <li><span>Landing page</span><small>`/` · 설명/진입</small></li>
-            <li class="active"><span>Interview Room page</span><small>`/interview-room.html` · LiveKit join</small></li>
+            <li><span>New interview</span><small>`/interviews/new` · setup</small></li>
+            <li><span>Lobby</span><small>`/interviews/:id/lobby` · pre-join</small></li>
+            <li class="active"><span>Interview Room</span><small>`/interviews/:id/room` · LiveKit join</small></li>
+            <li><span>Report</span><small>`/interviews/:id/report` · placeholder</small></li>
             <li><span>Self-hosted LiveKit</span><small>ws://127.0.0.1:7880 via tunnel</small></li>
-            <li><span>Main LLM / multimodal</span><small>placeholder · scope 밖</small></li>
           </ol>
         </section>
 
@@ -117,9 +119,9 @@
       </section>
 
       <section class="cta-band-light" aria-label="Open interview room">
-        <h2>실제 테스트는 Interview Room에서 합니다</h2>
-        <p>아래로 스크롤해서 room shell을 찾는 대신, 새 페이지로 이동해 pre-join preview와 LiveKit join을 실행합니다.</p>
-        <a class="button button-primary" href="/interview-room.html">Interview Room 열기</a>
+        <h2>실제 테스트는 production route에서 합니다</h2>
+        <p>아래로 스크롤해서 room shell을 찾는 대신, `/interviews/new`에서 시작해 lobby와 room으로 이동합니다.</p>
+        <a class="button button-primary" href="/interviews/new">새 면접 시작</a>
       </section>
     </main>
 
@@ -133,7 +135,7 @@
           <p>Local self-hosted LiveKit interview room scaffold for GilJob v2.</p>
         </div>
         <div class="footer-links" aria-label="Footer links">
-          <a href="/interview-room.html">Interview Room</a>
+          <a href="/interviews/new">New</a>
           <a href="#architecture-title">Architecture</a>
           <a href="#next-title">Next</a>
           <a href="https://github.com/GilJob-E/giljob-docker">GitHub</a>

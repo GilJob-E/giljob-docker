@@ -12,10 +12,11 @@
         <span class="brand-mark" aria-hidden="true">G</span>
         <span>GilJob</span>
       </a>
-      <nav class="nav-pill-group" aria-label="Interview room sections">
-        <a class="active" href="#room-title">Room</a>
-        <a href="#session-title">Summary</a>
-        <a href="#log-title">Logs</a>
+      <nav class="nav-pill-group" aria-label="Interview production flow">
+        <a href="/interviews/new">New</a>
+        <a data-interview-route="lobby" href="/interviews/local-demo/lobby">Lobby</a>
+        <a class="active" data-interview-route="room" href="/interviews/local-demo/room">Room</a>
+        <a data-interview-route="report" href="/interviews/local-demo/report">Report</a>
       </nav>
       <div class="nav-actions">
         <span class="nav-mode">Local mode</span>
@@ -29,7 +30,7 @@
           <div>
             <p class="badge-pill">Self-hosted LiveKit · Interview Room</p>
             <h1 id="room-title">Interview Room</h1>
-            <p>이 페이지가 실제 면접룸입니다. 설명 페이지 아래로 스크롤하지 않고, 여기서 바로 프리뷰와 LiveKit join을 실행합니다.</p>
+            <p>이 페이지가 실제 면접룸입니다. interviewId <strong id="interview-route-label">local-demo</strong> 기준으로 lobby와 report가 이어지고, 여기서 바로 LiveKit join을 실행합니다.</p>
           </div>
           <span id="room-state" class="status">Pre-join</span>
         </div>
@@ -124,6 +125,7 @@
           <button id="toggle-camera" class="button control-button" type="button" aria-pressed="false">Camera off</button>
           <span class="control-divider" aria-hidden="true"></span>
           <button id="leave-room" class="button button-secondary danger-button" type="button" disabled>룸 leave</button>
+          <a class="button button-secondary" data-interview-route="report" href="/interviews/local-demo/report">리포트 보기</a>
         </div>
       </section>
 
@@ -177,10 +179,10 @@
           <p>Local self-hosted LiveKit interview room scaffold for GilJob v2.</p>
         </div>
         <div class="footer-links" aria-label="Footer links">
-          <a href="#room-title">Room</a>
-          <a href="#session-title">Summary</a>
-          <a href="#architecture-title">Architecture</a>
-          <a href="#log-title">Logs</a>
+          <a href="/interviews/new">New</a>
+          <a data-interview-route="lobby" href="/interviews/local-demo/lobby">Lobby</a>
+          <a data-interview-route="room" href="/interviews/local-demo/room">Room</a>
+          <a data-interview-route="report" href="/interviews/local-demo/report">Report</a>
         </div>
       </div>
     </footer>

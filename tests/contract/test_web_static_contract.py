@@ -44,14 +44,41 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
         self.assertIn("Self-hosted LiveKit", body)
-        self.assertIn("별도 페이지", body)
-        self.assertIn('href="/interview-room.html"', body)
-        self.assertIn("Interview Room 열기", body)
+        self.assertIn("session route", body)
+        self.assertIn('href="/interviews/new"', body)
+        self.assertIn("새 면접 시작", body)
         self.assertNotIn('id="join-form"', body)
         self.assertNotIn('src="/app.js"', body)
 
-    def test_interview_room_page_serves_livekit_join_ui(self) -> None:
+    def test_production_interview_routes_serve_static_shells(self) -> None:
+        route_expectations = {
+            "/interviews/new": ["Production flow · Step 1", "local-demo", "CV upload"],
+            "/interviews/prod-demo_01/lobby": ["Production flow · Step 2", "Pre-join lobby", "Device check"],
+            "/interviews/prod-demo_01/room": ["Self-hosted LiveKit", "Interview Room", "room-first", 'src="/app.js"'],
+            "/interviews/prod-demo_01/report": ["Production flow · Step 4", "리포트 placeholder", "Background analysis"],
+        }
+        for path, expected_strings in route_expectations.items():
+            with self.subTest(path=path):
+                status, content_type, body = self._get(path)
+                self.assertEqual(status, 200)
+                self.assertIn("text/html", content_type)
+                for expected in expected_strings:
+                    self.assertIn(expected, body)
+
+    def test_legacy_interview_room_page_remains_available(self) -> None:
         status, content_type, body = self._get("/interview-room.html")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", content_type)
+        self.assertIn("Interview Room", body)
+        self.assertIn('src="/app.js"', body)
+
+    def test_invalid_interview_route_is_rejected(self) -> None:
+        status, _, body = self._get("/interviews/%2e%2e/room")
+        self.assertEqual(status, 404)
+        self.assertEqual(json.loads(body)["error"], "not_found")
+
+    def test_interview_room_page_serves_livekit_join_ui(self) -> None:
+        status, content_type, body = self._get("/interviews/local-demo/room")
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
         self.assertIn("Self-hosted LiveKit", body)
@@ -61,6 +88,7 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("Camera preview", body)
         self.assertIn('src="/app.js"', body)
         self.assertIn('value="/api/sessions"', body)
+        self.assertIn('data-interview-route="report"', body)
         self.assertIn("placeholder", body)
 
     def test_app_js_uses_browser_public_url_and_hides_tokens_from_log(self) -> None:
@@ -71,6 +99,8 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("publicUrl", body)
         self.assertIn("candidateToken", body)
         self.assertIn("tokens hidden", body)
+        self.assertIn("function interviewIdFromPath", body)
+        self.assertIn("data-interview-route", body)
         self.assertIn("navigator.mediaDevices", body)
         self.assertIn("setMicrophoneEnabled", body)
         self.assertIn("setCameraEnabled", body)
@@ -99,7 +129,7 @@ class WebStaticContractTest(unittest.TestCase):
 
     def test_browser_smoke_redacts_sensitive_console_output(self) -> None:
         smoke_script = (REPO_ROOT / "scripts" / "browser-join-smoke.mjs").read_text()
-        self.assertIn("interview-room.html", smoke_script)
+        self.assertIn("/interviews/local-demo/room", smoke_script)
         self.assertIn("function redactSensitiveText", smoke_script)
         self.assertIn("access_token=<redacted>", smoke_script)
         self.assertIn("join_request=<redacted>", smoke_script)

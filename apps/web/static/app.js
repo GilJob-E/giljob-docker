@@ -21,12 +21,14 @@ const previewPlaceholder = document.querySelector("#preview-placeholder");
 const candidatePlaceholder = document.querySelector("#candidate-placeholder");
 const candidateMediaState = document.querySelector("#candidate-media-state");
 const permissionNote = document.querySelector("#permission-note");
+const interviewRouteLabel = document.querySelector("#interview-route-label");
 
 let activeSession = null;
 let activeRoom = null;
 let localPreviewStream = null;
 let micEnabled = false;
 let cameraEnabled = false;
+const activeInterviewId = interviewIdFromPath(window.location.pathname);
 
 function redactSensitiveText(value) {
   return String(value)
@@ -34,6 +36,28 @@ function redactSensitiveText(value) {
     .replace(/join_request=[^'"\s&]+/g, "join_request=<redacted>")
     .replace(/eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, "<jwt-redacted>")
     .replace(/gj_(session|report)_[A-Za-z0-9._-]+/g, "gj_$1_<redacted>");
+}
+
+function interviewIdFromPath(pathname) {
+  const match = pathname.match(/^\/interviews\/([A-Za-z0-9][A-Za-z0-9._-]{0,95})\/room\/?$/);
+  return match?.[1] ?? "local-demo";
+}
+
+function productionRouteFor(screen) {
+  return `/interviews/${encodeURIComponent(activeInterviewId)}/${screen}`;
+}
+
+function hydrateProductionRoutes() {
+  document.querySelectorAll("[data-interview-route]").forEach((link) => {
+    const screen = link.dataset.interviewRoute;
+    if (!screen) {
+      return;
+    }
+    link.setAttribute("href", productionRouteFor(screen));
+  });
+  if (interviewRouteLabel) {
+    interviewRouteLabel.textContent = activeInterviewId;
+  }
 }
 
 function appendLog(message) {
@@ -63,6 +87,7 @@ function valueOrDash(value) {
 function renderSessionSummary(session) {
   const livekit = session?.livekit ?? {};
   const rows = [
+    ["interviewId", activeInterviewId],
     ["sessionId", session?.sessionId],
     ["roomName", session?.roomName ?? livekit.roomName],
     ["LiveKit URL", livekit.publicUrl ?? livekit.url],
@@ -358,4 +383,5 @@ leaveButton.addEventListener("click", leaveRoom);
 renderSessionSummary(null);
 setRoomMode("prejoin");
 syncMediaUi();
-appendLog("Interview Room Shell ready; use /api/sessions through Caddy for same-origin API access");
+hydrateProductionRoutes();
+appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);

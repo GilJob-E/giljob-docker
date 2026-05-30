@@ -8,7 +8,7 @@ const pageErrors = [];
 function interviewRoomUrl(value) {
   const url = new URL(value);
   if (url.pathname === "/" || url.pathname === "") {
-    url.pathname = "/interview-room.html";
+    url.pathname = "/interviews/local-demo/room";
   }
   return url.toString();
 }
