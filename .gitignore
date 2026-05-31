@@ -1,0 +1,13 @@
+# Local secrets and machine-specific runtime files
+.env
+.env.*
+!.env.example
+
+# Python / Node transient files
+__pycache__/
+*.py[cod]
+node_modules/
+.pytest_cache/
+
+# OS/editor noise
+.DS_Store
