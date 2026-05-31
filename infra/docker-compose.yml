@@ -45,7 +45,7 @@ services:
     environment:
       LLM_PROVIDER: ${LLM_PROVIDER:-fake}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
       GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-30}
     expose:
       - "8100"

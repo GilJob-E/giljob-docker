@@ -15,7 +15,7 @@ Copy `.env.example` to `.env`, then set:
 ```env
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=your-google-ai-studio-key
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.5-flash
 GEMINI_TIMEOUT_SECONDS=30
 ```
 
