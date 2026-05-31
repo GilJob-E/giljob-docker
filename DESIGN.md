@@ -20,9 +20,11 @@
   - Keep the landing page as a product entry point, not a long scroll into the room.
   - Shape the route contract like production: setup -> lobby -> room -> report under an interview id.
   - Let the dedicated room route auto-create a session and join LiveKit, while setup/lobby own pre-join readiness.
+  - Make candidate audio turn-taking explicit: after an interviewer question finishes, enable `답변 시작`; the candidate presses it, speaks, then presses `답변 종료`; do not rely on VAD as the product boundary.
   - Show product UI fragments directly: room tiles, hidden-by-default question/transcript/signal drawer, hidden diagnostics, pipeline map.
 - Non-goals:
   - Full Zoom/Google Meet replacement feature set such as screen sharing, participant management, recording, chat, or production meeting infra.
+  - VAD-driven answer boundary detection for the candidate answer turn.
   - Real CV/job parsing, Main LLM, avatar/TTS, multimodal analysis, final report, production TLS/domain.
 - Success signals:
   - User can identify the production route shape without the room reading like a setup page.
@@ -46,7 +48,7 @@
   1. Landing hero: purpose and primary action to start a new interview.
   2. New interview setup placeholder: CV/job/persona inputs are reserved but disabled.
   3. Lobby placeholder: readiness/pre-join gate before media starts.
-  4. Dedicated room route: no-scroll dark media room with auto-joined candidate/interviewer tiles, active-speaker affordance, mic/camera/panel/leave/report controls, and hidden-by-default context drawer.
+  4. Dedicated room route: no-scroll light media room with auto-joined candidate/interviewer tiles, active-speaker affordance, mic/camera/panel/leave/report controls, and hidden-by-default context drawer.
   5. Report placeholder: final-report surface reserved after the room.
   6. Dark footer close.
 
@@ -90,12 +92,13 @@
   - `landing-room-card`: lightweight homepage product fragment that links to the production flow without starting media.
   - `interview-new`: setup placeholder for CV/job/persona route contract.
   - `interview-lobby`: readiness/pre-join route contract; actual device check belongs here, not inside the room route.
-  - `interview-room-shell`: dedicated `/interviews/:id/room` production room surface adapted for GilJob; it auto-joins LiveKit, fills a no-scroll dark media stage with candidate/interviewer tiles, and keeps mic/camera/context-drawer/leave/report controls in the bottom dock.
+  - `interview-room-shell`: dedicated `/interviews/:id/room` production room surface adapted for GilJob; it auto-joins LiveKit, fills a no-scroll light media stage with candidate/interviewer tiles, and keeps mic/camera/context-drawer/leave/report controls in the bottom dock.
   - `room-context-drawer`: hidden by default; opens from the bottom dock and contains current question, transcript, and multimodal state without occupying the default meeting view.
   - `interview-report`: report placeholder surface for post-interview analysis.
 - Variants and states:
   - Primary/secondary buttons, disabled button, connected/connecting/error status badges.
-  - Mic/camera control buttons use `aria-pressed` and explicit on/off labels; permission failures render through the redacted status/log path.
+  - Candidate answer button uses the existing microphone publish path but labels the user action as `답변 시작` / `답변 종료`; it remains disabled until the interviewer-question-ended event, and `aria-pressed=true` means the candidate is currently answering.
+  - Camera control remains independent; permission failures render through the redacted status/log path.
   - LiveKit SDK console logging is set to silent; GilJob-owned diagnostics stay redacted and hidden on the production room route.
   - Featured pipeline step is the current LiveKit room shell; future steps are placeholder/disabled-looking.
 - Token/component ownership: CSS custom properties in `apps/web/static/styles.css`; no external design-system package yet.
@@ -120,7 +123,7 @@
 - Loading: room status badge says creating/connecting and room state shows Connecting.
 - Empty: production room uses waiting/ready empty states for interviewer/question/transcript/signal; hidden diagnostics use `-` values.
 - Error: status/log redacts sensitive text before rendering.
-- Success: connected status badge uses success green; session summary shows room and participant.
+- Success: connected status badge uses success green; session summary shows room and participant. Candidate answer state switches from `답변 대기` to `답변 중` only after the interviewer question has ended and the candidate presses the answer button.
 - Disabled: leave button disabled before room join.
 - Offline/slow network: errors appear in status/log with token redaction.
 
@@ -132,6 +135,7 @@
   - Do not put pre-join, setup, or marketing explanation copy in `/interviews/:id/room`.
   - State that full Zoom/Meet feature parity is not included yet on landing/docs/lobby; room chrome may use familiar media-room affordances without claiming feature parity.
   - Keep CTA labels short and action-oriented.
+  - Do not describe the candidate answer control as passive VAD; it is an explicit answer-turn button.
 
 ## Implementation constraints
 - Framework/styling system: vanilla HTML/CSS/JS served by Python static server; no build step for CSS.

@@ -9,7 +9,7 @@
 - 캡처 방식: Chrome DevTools viewport screenshot / route별 full-page review
 - Viewport: `1440 x 1000`
 - Demo interview id: `local-demo`
-- Media 상태: room route에서 LiveKit 자동 join 확인, mic/camera off 상태
+- Media 상태: room route에서 LiveKit 자동 join 확인, 답변 대기/camera off 상태
 
 ## Route 흐름
 
@@ -49,9 +49,9 @@
 - room은 실제 면접 surface입니다.
 - room 진입 시 LiveKit session이 자동 생성되고 join됩니다.
 - room 내부에는 prejoin form, endpoint 입력, `Join room` 버튼, 긴 개발 설명문이 없습니다.
-- 기본 meeting view는 스크롤 없이 후보자/면접관 타일과 하단 control dock만 보여줍니다.
+- 기본 meeting view는 light surface에서 스크롤 없이 후보자/면접관 타일과 하단 control dock만 보여줍니다.
 - 질문/답변/multimodal state는 기본 숨김 상태의 `면접 패널` Drawer로 분리했습니다.
-- visible control은 mic/camera/면접 패널/leave/report 중심입니다.
+- visible control은 답변 시작/종료, camera, 면접 패널, leave, report 중심입니다. 단, `답변 시작`은 면접관 질문 종료 이벤트 이후 활성화됩니다.
 
 ## 4. Report
 
@@ -61,7 +61,7 @@
 
 - report route는 면접 종료 후 final report surface를 예약합니다.
 - transcript summary, answer quality, multimodal signal, hiring recommendation은 아직 placeholder입니다.
-- 빠른 turn-control signal과 종료 후 깊은 report 분석을 분리하는 UX 방향을 유지합니다.
+- 면접관 질문 종료 후 후보자가 버튼으로 답변 시작/종료 turn boundary를 명시하고, 종료 후 깊은 report 분석을 분리하는 UX 방향을 유지합니다.
 
 ## 다시 캡처하는 방법
 

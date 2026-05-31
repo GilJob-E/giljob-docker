@@ -54,7 +54,7 @@ class WebStaticContractTest(unittest.TestCase):
         route_expectations = {
             "/interviews/new": ["Production flow · Step 1", "local-demo", "CV upload"],
             "/interviews/prod-demo_01/lobby": ["Production flow · Step 2", "Pre-join lobby", "Device check"],
-            "/interviews/prod-demo_01/room": ["production-room-shell", "dark-media-room-shell", "room-context-drawer", 'src="/app.js"'],
+            "/interviews/prod-demo_01/room": ["production-room-shell", "light-media-room-shell", "room-context-drawer", 'src="/app.js"'],
             "/interviews/prod-demo_01/report": ["Production flow · Step 4", "리포트 placeholder", "Background analysis"],
         }
         for path, expected_strings in route_expectations.items():
@@ -82,13 +82,17 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
         self.assertIn("production-room-shell", body)
-        self.assertIn("dark-media-room-shell", body)
+        self.assertIn("light-media-room-shell", body)
         self.assertIn("meet-style-video-stage", body)
         self.assertIn("active-speaker", body)
         self.assertIn("meet-control-dock", body)
         self.assertIn("room-context-drawer", body)
         self.assertIn('hidden aria-hidden="true"', body)
         self.assertIn("Interviewer", body)
+        self.assertIn("답변 시작", body)
+        self.assertIn('aria-disabled="true"', body)
+        self.assertIn("면접관 질문이 끝나면 답변 시작 버튼이 활성화됩니다", body)
+        self.assertIn("답변 대기", body)
         self.assertIn("질문 준비 중", body)
         self.assertIn('src="/app.js"', body)
         self.assertIn('data-interview-route="report"', body)
@@ -121,6 +125,11 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("navigator.mediaDevices", body)
         self.assertIn("setMicrophoneEnabled", body)
         self.assertIn("setCameraEnabled", body)
+        self.assertIn("답변 시작", body)
+        self.assertIn("답변 종료", body)
+        self.assertIn("candidate answer turn", body)
+        self.assertIn("giljob:interviewer-question-ended", body)
+        self.assertIn("answer start blocked until interviewer question ends", body)
         self.assertIn("function failClosedAfterJoinMediaError", body)
         self.assertIn("disconnecting room fail-closed", body)
         self.assertIn("Promise.allSettled", body)

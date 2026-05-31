@@ -24,7 +24,7 @@
     </header>
 
     <main class="room-app-main">
-      <section id="room-shell" class="interview-room-shell production-room-shell dark-media-room-shell" data-mode="connecting" aria-label="Interview Room">
+      <section id="room-shell" class="interview-room-shell production-room-shell light-media-room-shell" data-mode="connecting" aria-label="Interview Room">
         <span id="room-state" hidden>Connecting</span>
 
         <div class="room-layout room-first-layout production-room-layout">
@@ -32,7 +32,7 @@
             <article class="video-tile candidate-tile participant-tile">
               <div class="tile-topline">
                 <span>Candidate</span>
-                <small id="candidate-media-state">Mic off · Camera off</small>
+                <small id="candidate-media-state">답변 대기 · Camera off</small>
               </div>
               <video id="candidate-room-video" autoplay muted playsinline hidden></video>
               <div id="candidate-placeholder" class="tile-placeholder large">
@@ -55,7 +55,7 @@
         </div>
 
         <div class="room-control-bar production-control-bar meet-control-dock" aria-label="Room controls">
-          <button id="toggle-mic" class="button control-button" type="button" aria-pressed="false">Mic off</button>
+          <button id="toggle-mic" class="button control-button" type="button" aria-pressed="false" aria-disabled="true" disabled title="면접관 질문이 끝나면 답변 시작 버튼이 활성화됩니다.">답변 시작</button>
           <button id="toggle-camera" class="button control-button" type="button" aria-pressed="false">Camera off</button>
           <button id="toggle-context-drawer" class="button button-secondary" type="button" aria-expanded="false" aria-controls="room-context-drawer">면접 패널</button>
           <span class="control-divider" aria-hidden="true"></span>
