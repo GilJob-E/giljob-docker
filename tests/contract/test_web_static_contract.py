@@ -54,7 +54,7 @@ class WebStaticContractTest(unittest.TestCase):
         route_expectations = {
             "/interviews/new": ["Production flow · Step 1", "local-demo", "CV upload"],
             "/interviews/prod-demo_01/lobby": ["Production flow · Step 2", "Pre-join lobby", "Device check"],
-            "/interviews/prod-demo_01/room": ["production-room-shell", "room-runtime-bar", 'src="/app.js"'],
+            "/interviews/prod-demo_01/room": ["production-room-shell", "dark-media-room-shell", "room-context-drawer", 'src="/app.js"'],
             "/interviews/prod-demo_01/report": ["Production flow · Step 4", "리포트 placeholder", "Background analysis"],
         }
         for path, expected_strings in route_expectations.items():
@@ -82,13 +82,20 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
         self.assertIn("production-room-shell", body)
-        self.assertIn("room-runtime-bar", body)
+        self.assertIn("dark-media-room-shell", body)
+        self.assertIn("meet-style-video-stage", body)
+        self.assertIn("active-speaker", body)
+        self.assertIn("meet-control-dock", body)
+        self.assertIn("room-context-drawer", body)
+        self.assertIn('hidden aria-hidden="true"', body)
         self.assertIn("Interviewer", body)
         self.assertIn("질문 준비 중", body)
         self.assertIn('src="/app.js"', body)
         self.assertIn('data-interview-route="report"', body)
         self.assertIn('id="session-summary"', body)
         self.assertIn('id="event-log"', body)
+        self.assertNotIn("room-runtime-bar", body)
+        self.assertNotIn("INTERVIEWID", body)
         self.assertNotIn("Self-hosted LiveKit · Interview Room", body)
         self.assertNotIn("이 페이지가 실제 면접룸입니다", body)
         self.assertNotIn("Pre-join checklist", body)
@@ -118,6 +125,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("disconnecting room fail-closed", body)
         self.assertIn("Promise.allSettled", body)
         self.assertIn("aria-pressed", body)
+        self.assertIn("setContextDrawerOpen", body)
+        self.assertIn("toggle-context-drawer", body)
+        self.assertIn("aria-expanded", body)
         self.assertIn("function redactSensitiveText", body)
         self.assertIn("access_token=<redacted>", body)
         self.assertIn("join_request=<redacted>", body)

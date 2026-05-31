@@ -4,9 +4,9 @@
 
 ## 캡처 환경
 
-- 캡처일: 2026-05-30
+- 캡처일: 2026-05-31
 - 대상 URL: `http://127.0.0.1:8080`
-- 캡처 방식: Chrome DevTools full-page screenshot
+- 캡처 방식: Chrome DevTools viewport screenshot / route별 full-page review
 - Viewport: `1440 x 1000`
 - Demo interview id: `local-demo`
 - Media 상태: room route에서 LiveKit 자동 join 확인, mic/camera off 상태
@@ -49,8 +49,9 @@
 - room은 실제 면접 surface입니다.
 - room 진입 시 LiveKit session이 자동 생성되고 join됩니다.
 - room 내부에는 prejoin form, endpoint 입력, `Join room` 버튼, 긴 개발 설명문이 없습니다.
-- visible control은 mic/camera/leave/report 중심입니다.
-- 후보자/면접관 타일과 질문/답변/multimodal state panel만 보여줍니다.
+- 기본 meeting view는 스크롤 없이 후보자/면접관 타일과 하단 control dock만 보여줍니다.
+- 질문/답변/multimodal state는 기본 숨김 상태의 `면접 패널` Drawer로 분리했습니다.
+- visible control은 mic/camera/면접 패널/leave/report 중심입니다.
 
 ## 4. Report
 
@@ -76,6 +77,8 @@ http://127.0.0.1:8080/interviews/local-demo/report
 room screenshot을 다시 찍을 때의 acceptance 기준:
 
 - `#status`가 `LiveKit connected`가 될 것
+- page scroll이 생기지 않을 것
+- `#room-context-drawer`가 기본 hidden일 것
 - `#join-form`이 없을 것
 - `#join-room`이 없을 것
 - `Pre-join checklist`, `Camera preview`, `Self-hosted LiveKit · Interview Room` 같은 prejoin/개발 설명 copy가 보이지 않을 것

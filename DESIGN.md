@@ -20,9 +20,9 @@
   - Keep the landing page as a product entry point, not a long scroll into the room.
   - Shape the route contract like production: setup -> lobby -> room -> report under an interview id.
   - Let the dedicated room route auto-create a session and join LiveKit, while setup/lobby own pre-join readiness.
-  - Show product UI fragments directly: room tiles, question/transcript/signal panels, hidden diagnostics, pipeline map.
+  - Show product UI fragments directly: room tiles, hidden-by-default question/transcript/signal drawer, hidden diagnostics, pipeline map.
 - Non-goals:
-  - Zoom/Google Meet replacement UI.
+  - Full Zoom/Google Meet replacement feature set such as screen sharing, participant management, recording, chat, or production meeting infra.
   - Real CV/job parsing, Main LLM, avatar/TTS, multimodal analysis, final report, production TLS/domain.
 - Success signals:
   - User can identify the production route shape without the room reading like a setup page.
@@ -46,12 +46,12 @@
   1. Landing hero: purpose and primary action to start a new interview.
   2. New interview setup placeholder: CV/job/persona inputs are reserved but disabled.
   3. Lobby placeholder: readiness/pre-join gate before media starts.
-  4. Dedicated room route: auto-joined candidate/interviewer tiles plus mic/camera/leave/report controls.
+  4. Dedicated room route: no-scroll dark media room with auto-joined candidate/interviewer tiles, active-speaker affordance, mic/camera/panel/leave/report controls, and hidden-by-default context drawer.
   5. Report placeholder: final-report surface reserved after the room.
   6. Dark footer close.
 
 ## Design principles
-- Product chrome over illustration: show real controls, summaries, and pipeline fragments in cards.
+- Product chrome over illustration: show real controls and media tiles; keep question/transcript/signal details in a Drawer so the default room reads as a meeting room, not a dashboard.
 - Monochrome action layer: primary CTA is near-black, not blue.
 - Clear scope honesty: setup/lobby/report can label future placeholders; the actual room should use production empty states rather than marketing/dev explanation copy.
 - Calm hierarchy: use whitespace, display scale, and card rhythm before color or decoration.
@@ -90,7 +90,8 @@
   - `landing-room-card`: lightweight homepage product fragment that links to the production flow without starting media.
   - `interview-new`: setup placeholder for CV/job/persona route contract.
   - `interview-lobby`: readiness/pre-join route contract; actual device check belongs here, not inside the room route.
-  - `interview-room-shell`: dedicated `/interviews/:id/room` production room surface adapted for GilJob; it auto-joins LiveKit, then places candidate/interviewer tiles and mic/camera/leave/report controls above the fold with question/transcript/analysis panels and bottom control bar.
+  - `interview-room-shell`: dedicated `/interviews/:id/room` production room surface adapted for GilJob; it auto-joins LiveKit, fills a no-scroll dark media stage with candidate/interviewer tiles, and keeps mic/camera/context-drawer/leave/report controls in the bottom dock.
+  - `room-context-drawer`: hidden by default; opens from the bottom dock and contains current question, transcript, and multimodal state without occupying the default meeting view.
   - `interview-report`: report placeholder surface for post-interview analysis.
 - Variants and states:
   - Primary/secondary buttons, disabled button, connected/connecting/error status badges.
@@ -129,7 +130,7 @@
 - Microcopy rules:
   - Never show raw tokens.
   - Do not put pre-join, setup, or marketing explanation copy in `/interviews/:id/room`.
-  - State that Zoom/Meet-like features are not included yet on landing/docs/lobby, not in the room chrome.
+  - State that full Zoom/Meet feature parity is not included yet on landing/docs/lobby; room chrome may use familiar media-room affordances without claiming feature parity.
   - Keep CTA labels short and action-oriented.
 
 ## Implementation constraints
@@ -139,7 +140,7 @@
 - Compatibility constraints: modern Chromium/Safari/Firefox; LiveKit client vendored via Docker build.
 - Test/screenshot expectations:
   - Existing contract tests must continue to pass.
-  - Browser smoke must navigate to `/interviews/local-demo/room`, connect/disconnect, and check token non-exposure.
+  - Browser smoke must navigate to `/interviews/local-demo/room`, connect/disconnect, check token non-exposure, and confirm the default room does not page-scroll.
   - After visual changes, capture a local screenshot through the SSH tunnel when available.
 
 ## Open questions

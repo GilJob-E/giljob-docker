@@ -24,6 +24,9 @@ const candidatePlaceholder = document.querySelector("#candidate-placeholder");
 const candidateMediaState = document.querySelector("#candidate-media-state");
 const permissionNote = document.querySelector("#permission-note");
 const interviewRouteLabel = document.querySelector("#interview-route-label");
+const contextDrawer = document.querySelector("#room-context-drawer");
+const toggleContextDrawerButton = document.querySelector("#toggle-context-drawer");
+const closeContextDrawerButton = document.querySelector("#close-context-drawer");
 
 let activeSession = null;
 let activeRoom = null;
@@ -65,6 +68,21 @@ function hydrateProductionRoutes() {
   if (interviewRouteLabel) {
     interviewRouteLabel.textContent = activeInterviewId;
   }
+}
+
+function setContextDrawerOpen(isOpen) {
+  if (!contextDrawer) {
+    return;
+  }
+  contextDrawer.hidden = !isOpen;
+  contextDrawer.setAttribute("aria-hidden", String(!isOpen));
+  if (toggleContextDrawerButton) {
+    toggleContextDrawerButton.setAttribute("aria-expanded", String(isOpen));
+  }
+}
+
+function toggleContextDrawer() {
+  setContextDrawerOpen(Boolean(contextDrawer?.hidden));
 }
 
 function appendLog(message) {
@@ -441,6 +459,8 @@ previewButton?.addEventListener("click", async () => {
 
 toggleMicButton?.addEventListener("click", toggleMic);
 toggleCameraButton?.addEventListener("click", toggleCamera);
+toggleContextDrawerButton?.addEventListener("click", toggleContextDrawer);
+closeContextDrawerButton?.addEventListener("click", () => setContextDrawerOpen(false));
 
 form?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -462,6 +482,7 @@ form?.addEventListener("submit", async (event) => {
 leaveButton?.addEventListener("click", leaveRoom);
 
 renderSessionSummary(null);
+setContextDrawerOpen(false);
 setRoomMode("prejoin");
 syncMediaUi();
 hydrateProductionRoutes();
