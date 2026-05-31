@@ -24,12 +24,16 @@ const candidatePlaceholder = document.querySelector("#candidate-placeholder");
 const candidateMediaState = document.querySelector("#candidate-media-state");
 const permissionNote = document.querySelector("#permission-note");
 const interviewRouteLabel = document.querySelector("#interview-route-label");
+const contextDrawer = document.querySelector("#room-context-drawer");
+const toggleContextDrawerButton = document.querySelector("#toggle-context-drawer");
+const closeContextDrawerButton = document.querySelector("#close-context-drawer");
 
 let activeSession = null;
 let activeRoom = null;
 let localPreviewStream = null;
 let micEnabled = false;
 let cameraEnabled = false;
+let answerTurnAvailable = false;
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
 const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
 
@@ -65,6 +69,21 @@ function hydrateProductionRoutes() {
   if (interviewRouteLabel) {
     interviewRouteLabel.textContent = activeInterviewId;
   }
+}
+
+function setContextDrawerOpen(isOpen) {
+  if (!contextDrawer) {
+    return;
+  }
+  contextDrawer.hidden = !isOpen;
+  contextDrawer.setAttribute("aria-hidden", String(!isOpen));
+  if (toggleContextDrawerButton) {
+    toggleContextDrawerButton.setAttribute("aria-expanded", String(isOpen));
+  }
+}
+
+function toggleContextDrawer() {
+  setContextDrawerOpen(Boolean(contextDrawer?.hidden));
 }
 
 function appendLog(message) {
@@ -136,11 +155,30 @@ function setButtonPressed(button, isPressed, onLabel, offLabel) {
   button.dataset.enabled = String(isPressed);
 }
 
+function syncAnswerTurnButton() {
+  if (!toggleMicButton) {
+    return;
+  }
+  const shouldDisable = !answerTurnAvailable && !micEnabled;
+  toggleMicButton.disabled = shouldDisable;
+  toggleMicButton.setAttribute("aria-disabled", String(shouldDisable));
+  toggleMicButton.title = shouldDisable ? "면접관 질문이 끝나면 답변 시작 버튼이 활성화됩니다." : "";
+}
+
+function setAnswerTurnAvailability(isAvailable, reason = "") {
+  answerTurnAvailable = Boolean(isAvailable);
+  syncAnswerTurnButton();
+  if (reason) {
+    appendLog(reason);
+  }
+}
+
 function syncMediaUi() {
   if (publishMediaInput) {
     publishMediaInput.checked = micEnabled || cameraEnabled;
   }
-  setButtonPressed(toggleMicButton, micEnabled, "Mic on", "Mic off");
+  setButtonPressed(toggleMicButton, micEnabled, "답변 종료", "답변 시작");
+  syncAnswerTurnButton();
   setButtonPressed(toggleCameraButton, cameraEnabled, "Camera on", "Camera off");
   const hasCameraPreview = Boolean(cameraEnabled && localPreviewStream);
   if (localPreviewVideo) {
@@ -156,7 +194,7 @@ function syncMediaUi() {
     candidatePlaceholder.hidden = hasCameraPreview;
   }
   if (candidateMediaState) {
-    candidateMediaState.textContent = `Mic ${micEnabled ? "on" : "off"} · Camera ${cameraEnabled ? "on" : "off"}`;
+    candidateMediaState.textContent = `답변 ${micEnabled ? "중" : "대기"} · Camera ${cameraEnabled ? "on" : "off"}`;
   }
   if (permissionNote) {
     permissionNote.textContent = hasCameraPreview
@@ -209,7 +247,7 @@ async function restartPreviewStream() {
   }
   syncMediaUi();
   setStatus("preview ready", activeRoom ? "connected" : "idle");
-  appendLog(`local preview ready: mic ${micEnabled ? "on" : "off"}, camera ${cameraEnabled ? "on" : "off"}; tokens hidden`);
+  appendLog(`candidate answer turn ${micEnabled ? "started" : "idle"}; camera ${cameraEnabled ? "on" : "off"}; tokens hidden`);
 }
 
 async function startPreview() {
@@ -225,14 +263,22 @@ async function applyMediaStateToRoom() {
   }
   await activeRoom.localParticipant.setMicrophoneEnabled(micEnabled);
   await activeRoom.localParticipant.setCameraEnabled(cameraEnabled);
-  appendLog(`room media updated: mic ${micEnabled ? "on" : "off"}, camera ${cameraEnabled ? "on" : "off"}`);
+  appendLog(`room media updated: answer ${micEnabled ? "recording" : "ended"}, camera ${cameraEnabled ? "on" : "off"}`);
 }
 
 async function toggleMic() {
-  micEnabled = !micEnabled;
+  if (!micEnabled && !answerTurnAvailable) {
+    appendLog("answer start blocked until interviewer question ends");
+    return;
+  }
+  const nextMicEnabled = !micEnabled;
+  micEnabled = nextMicEnabled;
   try {
     await restartPreviewStream();
     await applyMediaStateToRoom();
+    if (!nextMicEnabled) {
+      setAnswerTurnAvailability(false, "candidate answer ended; waiting for next interviewer question");
+    }
   } catch (error) {
     micEnabled = false;
     cameraEnabled = false;
@@ -333,7 +379,7 @@ async function maybePublishLocalMedia(room) {
     appendLog("media publish skipped (mic/camera off)");
     return;
   }
-  appendLog(`publishing local media: mic ${micEnabled ? "on" : "off"}, camera ${cameraEnabled ? "on" : "off"}`);
+  appendLog(`publishing local media: answer ${micEnabled ? "recording" : "idle"}, camera ${cameraEnabled ? "on" : "off"}`);
   await room.localParticipant.setMicrophoneEnabled(micEnabled);
   await room.localParticipant.setCameraEnabled(cameraEnabled);
   appendLog("local microphone/camera publish state applied");
@@ -441,6 +487,16 @@ previewButton?.addEventListener("click", async () => {
 
 toggleMicButton?.addEventListener("click", toggleMic);
 toggleCameraButton?.addEventListener("click", toggleCamera);
+toggleContextDrawerButton?.addEventListener("click", toggleContextDrawer);
+closeContextDrawerButton?.addEventListener("click", () => setContextDrawerOpen(false));
+document.addEventListener("giljob:interviewer-question-started", () => {
+  if (!micEnabled) {
+    setAnswerTurnAvailability(false, "interviewer question started; answer button disabled");
+  }
+});
+document.addEventListener("giljob:interviewer-question-ended", () => {
+  setAnswerTurnAvailability(true, "interviewer question ended; answer button enabled");
+});
 
 form?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -462,7 +518,9 @@ form?.addEventListener("submit", async (event) => {
 leaveButton?.addEventListener("click", leaveRoom);
 
 renderSessionSummary(null);
+setContextDrawerOpen(false);
 setRoomMode("prejoin");
+setAnswerTurnAvailability(false);
 syncMediaUi();
 hydrateProductionRoutes();
 appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);

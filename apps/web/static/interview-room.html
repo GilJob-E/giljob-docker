@@ -24,21 +24,15 @@
     </header>
 
     <main class="room-app-main">
-      <section id="room-shell" class="interview-room-shell production-room-shell" data-mode="connecting" aria-label="Interview Room">
-        <div class="room-runtime-bar" aria-label="Room runtime state">
-          <div>
-            <span class="room-eyebrow">interviewId</span>
-            <strong id="interview-route-label">local-demo</strong>
-          </div>
-          <span id="room-state" class="status">Connecting</span>
-        </div>
+      <section id="room-shell" class="interview-room-shell production-room-shell light-media-room-shell" data-mode="connecting" aria-label="Interview Room">
+        <span id="room-state" hidden>Connecting</span>
 
         <div class="room-layout room-first-layout production-room-layout">
-          <section class="video-stage production-video-stage" aria-label="Interview video stage">
-            <article class="video-tile candidate-tile">
+          <section class="video-stage production-video-stage meet-style-video-stage" aria-label="Interview video stage">
+            <article class="video-tile candidate-tile participant-tile">
               <div class="tile-topline">
                 <span>Candidate</span>
-                <small id="candidate-media-state">Mic off · Camera off</small>
+                <small id="candidate-media-state">답변 대기 · Camera off</small>
               </div>
               <video id="candidate-room-video" autoplay muted playsinline hidden></video>
               <div id="candidate-placeholder" class="tile-placeholder large">
@@ -48,44 +42,54 @@
               </div>
             </article>
 
-            <article class="video-tile interviewer-tile placeholder-tile">
+            <article class="video-tile interviewer-tile placeholder-tile active-speaker">
               <div class="tile-topline">
                 <span>Interviewer</span>
                 <small>대기 중</small>
               </div>
               <div class="bot-orb" aria-hidden="true">G</div>
-              <strong>면접관 입장 대기 중</strong>
-              <p>면접이 시작되면 질문과 음성 participant가 이 영역에 연결됩니다.</p>
+              <strong>면접관</strong>
+              <p>질문이 시작되면 음성 participant와 avatar 상태가 이 타일에 연결됩니다.</p>
             </article>
           </section>
-
-          <aside class="interview-panel production-side-panel" aria-label="Interview flow state">
-            <div class="panel-card current-question">
-              <p class="badge-pill muted-pill">Current question</p>
-              <h3>질문 준비 중</h3>
-              <p>면접관 질문이 생성되면 이 영역에 표시됩니다.</p>
-            </div>
-            <div class="panel-card transcript-card">
-              <p class="badge-pill muted-pill">Transcript</p>
-              <h3>답변 기록</h3>
-              <p>후보자 답변과 turn boundary가 세션 진행에 맞춰 정리됩니다.</p>
-            </div>
-            <div class="panel-card analysis-card">
-              <p class="badge-pill muted-pill">Multimodal</p>
-              <h3>분석 신호 대기</h3>
-              <p>raw token이나 raw media를 노출하지 않고, 정리된 signal만 표시합니다.</p>
-            </div>
-          </aside>
         </div>
 
-        <div class="room-control-bar production-control-bar" aria-label="Room controls">
-          <button id="toggle-mic" class="button control-button" type="button" aria-pressed="false">Mic off</button>
+        <div class="room-control-bar production-control-bar meet-control-dock" aria-label="Room controls">
+          <button id="toggle-mic" class="button control-button" type="button" aria-pressed="false" aria-disabled="true" disabled title="면접관 질문이 끝나면 답변 시작 버튼이 활성화됩니다.">답변 시작</button>
           <button id="toggle-camera" class="button control-button" type="button" aria-pressed="false">Camera off</button>
+          <button id="toggle-context-drawer" class="button button-secondary" type="button" aria-expanded="false" aria-controls="room-context-drawer">면접 패널</button>
           <span class="control-divider" aria-hidden="true"></span>
           <button id="leave-room" class="button button-secondary danger-button" type="button" disabled>룸 leave</button>
           <a class="button button-secondary" data-interview-route="report" href="/interviews/local-demo/report">리포트 보기</a>
         </div>
       </section>
+
+      <aside id="room-context-drawer" class="room-context-drawer" aria-label="Interview flow state" hidden aria-hidden="true">
+        <div class="drawer-header">
+          <div>
+            <p class="badge-pill muted-pill">Interview context</p>
+            <h2>면접 진행 패널</h2>
+          </div>
+          <button id="close-context-drawer" class="button button-secondary drawer-close" type="button">닫기</button>
+        </div>
+        <div class="interview-panel production-side-panel drawer-panel-stack">
+          <div class="panel-card current-question">
+            <p class="badge-pill muted-pill">Current question</p>
+            <h3>질문 준비 중</h3>
+            <p>면접관 질문이 생성되면 이 Drawer에 표시됩니다.</p>
+          </div>
+          <div class="panel-card transcript-card">
+            <p class="badge-pill muted-pill">Transcript</p>
+            <h3>답변 기록</h3>
+            <p>후보자 답변과 turn boundary가 세션 진행에 맞춰 정리됩니다.</p>
+          </div>
+          <div class="panel-card analysis-card">
+            <p class="badge-pill muted-pill">Multimodal</p>
+            <h3>분석 신호 대기</h3>
+            <p>raw token이나 raw media를 노출하지 않고, 정리된 signal만 표시합니다.</p>
+          </div>
+        </div>
+      </aside>
 
       <section class="room-debug-drawer" aria-label="Development diagnostics" hidden aria-hidden="true">
         <details>
