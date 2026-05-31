@@ -13,6 +13,7 @@ const statusEl = document.querySelector("#status");
 const logEl = document.querySelector("#event-log");
 const summaryEl = document.querySelector("#session-summary");
 const roomShell = document.querySelector("#room-shell");
+const roomAppMain = document.querySelector(".room-app-main");
 const roomStateEl = document.querySelector("#room-state");
 const previewButton = document.querySelector("#start-preview");
 const toggleMicButton = document.querySelector("#toggle-mic");
@@ -83,6 +84,7 @@ function setContextDrawerOpen(isOpen) {
   }
   contextDrawer.hidden = !isOpen;
   contextDrawer.setAttribute("aria-hidden", String(!isOpen));
+  roomAppMain?.classList.toggle("is-context-open", isOpen);
   if (toggleContextDrawerButton) {
     toggleContextDrawerButton.setAttribute("aria-expanded", String(isOpen));
   }

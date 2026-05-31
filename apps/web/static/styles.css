@@ -589,12 +589,18 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
 }
 .room-app-main {
   position: relative;
+  display: grid;
   width: 100%;
   height: calc(100vh - 54px);
   margin: 0;
   overflow: hidden;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
   background: var(--color-canvas);
   padding: 18px 24px 24px;
+}
+.room-app-main.is-context-open {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
 }
 .production-room-shell {
   display: grid;
@@ -777,22 +783,19 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
   display: none;
 }
 .room-context-drawer {
-  position: absolute;
-  top: 18px;
-  right: 24px;
-  bottom: 24px;
-  z-index: 30;
+  position: static;
+  z-index: 1;
   display: grid;
-  width: min(420px, calc(100vw - 48px));
+  min-height: 0;
+  height: 100%;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-xl);
-  background: rgb(255 255 255 / 0.98);
-  box-shadow: 0 30px 90px rgb(0 0 0 / 0.16);
+  background: var(--color-canvas);
+  box-shadow: var(--shadow-subtle);
   padding: 20px;
-  backdrop-filter: blur(18px);
 }
 .drawer-header {
   display: flex;
@@ -812,8 +815,10 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
   padding: 8px 12px;
 }
 .drawer-panel-stack {
+  min-height: 0;
   align-content: start;
   gap: 12px;
+  overflow: hidden;
 }
 .room-context-drawer .panel-card {
   border-color: var(--color-hairline-soft);
@@ -854,9 +859,21 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
   margin-bottom: 0;
 }
 
+@media (max-width: 1180px) {
+  .room-app-main.is-context-open {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+  }
+  .room-app-main.is-context-open .production-video-stage {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 980px) {
   .room-app-main {
     padding: 14px;
+  }
+  .room-app-main.is-context-open {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
   }
   .production-video-stage {
     grid-template-columns: 1fr;
@@ -886,8 +903,13 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
     width: 100%;
     height: 1px;
   }
+  .room-app-main.is-context-open {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
+  }
   .room-context-drawer {
-    inset: 10px;
-    width: auto;
+    padding: 14px;
+  }
+  .drawer-header {
+    display: grid;
   }
 }

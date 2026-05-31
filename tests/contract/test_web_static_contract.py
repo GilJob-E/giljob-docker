@@ -110,6 +110,18 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("Camera preview", body)
         self.assertNotIn('value="/api/sessions"', body)
 
+
+    def test_interview_context_panel_is_right_sidebar_not_overlay(self) -> None:
+        status, content_type, body = self._get("/styles.css")
+        self.assertEqual(status, 200)
+        self.assertIn("text/css", content_type)
+        self.assertIn(".room-app-main.is-context-open", body)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);", body)
+        self.assertIn(".room-context-drawer {", body)
+        self.assertIn("position: static;", body)
+        self.assertNotIn("right: 24px;", body)
+        self.assertNotIn("bottom: 24px;", body)
+
     def test_app_js_uses_browser_public_url_and_hides_tokens_from_log(self) -> None:
         status, content_type, body = self._get("/app.js")
         self.assertEqual(status, 200)
