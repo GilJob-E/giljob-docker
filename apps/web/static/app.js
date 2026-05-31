@@ -27,6 +27,10 @@ const interviewRouteLabel = document.querySelector("#interview-route-label");
 const contextDrawer = document.querySelector("#room-context-drawer");
 const toggleContextDrawerButton = document.querySelector("#toggle-context-drawer");
 const closeContextDrawerButton = document.querySelector("#close-context-drawer");
+const currentQuestionTitle = document.querySelector("#current-question-title");
+const currentQuestionBody = document.querySelector("#current-question-body");
+const interviewerQuestionText = document.querySelector("#interviewer-question-text");
+const interviewerMediaState = document.querySelector("#interviewer-media-state");
 
 let activeSession = null;
 let activeRoom = null;
@@ -34,6 +38,8 @@ let localPreviewStream = null;
 let micEnabled = false;
 let cameraEnabled = false;
 let answerTurnAvailable = false;
+let nextQuestionRequested = false;
+let currentTurnIndex = 1;
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
 const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
 
@@ -118,6 +124,78 @@ function setRoomMode(mode) {
 
 function valueOrDash(value) {
   return value ? String(value) : "-";
+}
+
+function renderInterviewQuestion(question) {
+  const text = question?.question || "질문을 불러오지 못했습니다.";
+  const title = question?.questionId ? `질문 ${question.turnIndex || currentTurnIndex}` : "질문 준비 실패";
+  if (currentQuestionTitle) {
+    currentQuestionTitle.textContent = title;
+  }
+  if (currentQuestionBody) {
+    currentQuestionBody.textContent = text;
+  }
+  if (interviewerQuestionText) {
+    interviewerQuestionText.textContent = text;
+  }
+  if (interviewerMediaState) {
+    interviewerMediaState.textContent = "질문 완료";
+  }
+}
+
+function renderQuestionLoading() {
+  if (currentQuestionTitle) {
+    currentQuestionTitle.textContent = "질문 생성 중";
+  }
+  if (currentQuestionBody) {
+    currentQuestionBody.textContent = "Gemini 기반 InterviewController가 다음 질문을 생성하고 있습니다.";
+  }
+  if (interviewerQuestionText) {
+    interviewerQuestionText.textContent = "면접관 질문을 준비하고 있습니다.";
+  }
+  if (interviewerMediaState) {
+    interviewerMediaState.textContent = "질문 생성 중";
+  }
+}
+
+async function requestNextQuestion(reason = "manual") {
+  if (nextQuestionRequested) {
+    return;
+  }
+  nextQuestionRequested = true;
+  document.dispatchEvent(new CustomEvent("giljob:interviewer-question-started"));
+  renderQuestionLoading();
+  appendLog(`requesting next interviewer question: ${reason}`);
+  try {
+    const response = await fetch("/ai/interview/next-question", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        interviewId: activeInterviewId,
+        turnIndex: currentTurnIndex,
+        persona: "차분하고 명확한 한국어 면접관",
+        candidateProfile: "not provided in this slice",
+        job: "not provided in this slice",
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || payload.error || `question request failed: HTTP ${response.status}`);
+    }
+    renderInterviewQuestion(payload);
+    appendLog(`interviewer question ready: ${payload.questionId || "question"}; provider ${payload.provider || "unknown"}`);
+    setTimeout(() => {
+      document.dispatchEvent(new CustomEvent("giljob:interviewer-question-ended", { detail: payload }));
+    }, 800);
+  } catch (error) {
+    nextQuestionRequested = false;
+    renderInterviewQuestion(null);
+    if (interviewerMediaState) {
+      interviewerMediaState.textContent = "질문 실패";
+    }
+    setStatus(`question request failed: ${error.message}`, "error");
+    appendLog(`question request failed: ${error.message}`);
+  }
 }
 
 function renderSessionSummary(session) {
@@ -277,7 +355,10 @@ async function toggleMic() {
     await restartPreviewStream();
     await applyMediaStateToRoom();
     if (!nextMicEnabled) {
+      currentTurnIndex += 1;
+      nextQuestionRequested = false;
       setAnswerTurnAvailability(false, "candidate answer ended; waiting for next interviewer question");
+      requestNextQuestion("candidate-answer-ended");
     }
   } catch (error) {
     micEnabled = false;
@@ -356,6 +437,7 @@ function bindRoomEvents(room) {
         joinButton.disabled = true;
       }
       appendLog("LiveKit connected");
+      requestNextQuestion("room-connected");
     })
     .on(RoomEvent.Disconnected, (reason) => {
       setRoomMode("prejoin");

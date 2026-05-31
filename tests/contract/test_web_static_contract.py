@@ -94,6 +94,8 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("면접관 질문이 끝나면 답변 시작 버튼이 활성화됩니다", body)
         self.assertIn("답변 대기", body)
         self.assertIn("질문 준비 중", body)
+        self.assertIn("current-question-title", body)
+        self.assertIn("interviewer-question-text", body)
         self.assertIn('src="/app.js"', body)
         self.assertIn('data-interview-route="report"', body)
         self.assertIn('id="session-summary"', body)

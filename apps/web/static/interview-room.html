@@ -45,11 +45,11 @@
             <article class="video-tile interviewer-tile placeholder-tile active-speaker">
               <div class="tile-topline">
                 <span>Interviewer</span>
-                <small>대기 중</small>
+                <small id="interviewer-media-state">질문 대기</small>
               </div>
               <div class="bot-orb" aria-hidden="true">G</div>
               <strong>면접관</strong>
-              <p>질문이 시작되면 음성 participant와 avatar 상태가 이 타일에 연결됩니다.</p>
+              <p id="interviewer-question-text">질문이 생성되면 이 타일에 표시되고, 질문 종료 후 답변 시작 버튼이 활성화됩니다.</p>
             </article>
           </section>
         </div>
@@ -75,8 +75,8 @@
         <div class="interview-panel production-side-panel drawer-panel-stack">
           <div class="panel-card current-question">
             <p class="badge-pill muted-pill">Current question</p>
-            <h3>질문 준비 중</h3>
-            <p>면접관 질문이 생성되면 이 Drawer에 표시됩니다.</p>
+            <h3 id="current-question-title">질문 준비 중</h3>
+            <p id="current-question-body">면접관 질문이 생성되면 이 Drawer에 표시됩니다.</p>
           </div>
           <div class="panel-card transcript-card">
             <p class="badge-pill muted-pill">Transcript</p>
