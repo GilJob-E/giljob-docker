@@ -53,8 +53,14 @@
 ]
 
 [<service> AI Engine|
-  현재 health placeholder
-  향후 STT/LLM orchestration
+  Gemini next-question boundary
+  full orchestration은 향후
+]
+
+[<service> STT Whisper|
+  Systran/faster-whisper-large-v3
+  host GPU 1 고정
+  /stt/transcribe
 ]
 
 [<future> Agent1 Multimodal Module|
@@ -76,6 +82,9 @@
 [API Service] - internal URL로 room/token 발급 -> [LiveKit Server]
 [API Service] - public room URL + candidate token -> [후보자 브라우저]
 [후보자 브라우저] - direct WebRTC signaling/media -> [LiveKit Server]
+[후보자 브라우저] - answer audio upload -> [STT Whisper]
+[STT Whisper] - transcript text -> [후보자 브라우저]
+[후보자 브라우저] - lastAnswer -> [AI Engine]
 [후보자 브라우저] - relay 필요 시 -> [coturn]
 [LiveKit Server] - TURN boundary -> [coturn]
 [AI Engine] - 향후 participant subscribe/publish -> [LiveKit Server]

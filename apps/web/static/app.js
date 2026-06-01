@@ -32,6 +32,7 @@ const currentQuestionTitle = document.querySelector("#current-question-title");
 const currentQuestionBody = document.querySelector("#current-question-body");
 const interviewerQuestionText = document.querySelector("#interviewer-question-text");
 const interviewerMediaState = document.querySelector("#interviewer-media-state");
+const transcriptBody = document.querySelector("#transcript-body");
 
 let activeSession = null;
 let activeRoom = null;
@@ -41,6 +42,10 @@ let cameraEnabled = false;
 let answerTurnAvailable = false;
 let nextQuestionRequested = false;
 let currentTurnIndex = 1;
+let lastAnswerTranscript = "";
+let answerRecorder = null;
+let answerRecordingChunks = [];
+let answerRecordingMimeType = "";
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
 const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
 
@@ -145,6 +150,12 @@ function renderInterviewQuestion(question) {
   }
 }
 
+function renderTranscriptStatus(message) {
+  if (transcriptBody) {
+    transcriptBody.textContent = message;
+  }
+}
+
 function renderQuestionLoading() {
   if (currentQuestionTitle) {
     currentQuestionTitle.textContent = "질문 생성 중";
@@ -178,6 +189,7 @@ async function requestNextQuestion(reason = "manual") {
         persona: "차분하고 명확한 한국어 면접관",
         candidateProfile: "not provided in this slice",
         job: "not provided in this slice",
+        lastAnswer: lastAnswerTranscript || "아직 이전 답변 전사가 없습니다.",
       }),
     });
     const payload = await response.json().catch(() => ({}));
@@ -346,29 +358,135 @@ async function applyMediaStateToRoom() {
   appendLog(`room media updated: answer ${micEnabled ? "recording" : "ended"}, camera ${cameraEnabled ? "on" : "off"}`);
 }
 
+function supportedAudioMimeType() {
+  if (typeof MediaRecorder === "undefined") {
+    return "";
+  }
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+  ];
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function startAnswerRecording() {
+  if (!localPreviewStream || typeof MediaRecorder === "undefined") {
+    throw new Error("browser MediaRecorder is not available for STT capture");
+  }
+  const audioTracks = localPreviewStream.getAudioTracks();
+  if (!audioTracks.length) {
+    throw new Error("microphone audio track is not available for STT capture");
+  }
+  answerRecordingChunks = [];
+  answerRecordingMimeType = supportedAudioMimeType();
+  const options = answerRecordingMimeType ? { mimeType: answerRecordingMimeType } : undefined;
+  answerRecorder = new MediaRecorder(localPreviewStream, options);
+  answerRecorder.addEventListener("dataavailable", (event) => {
+    if (event.data?.size) {
+      answerRecordingChunks.push(event.data);
+    }
+  });
+  answerRecorder.start(1000);
+  renderTranscriptStatus("답변 녹음 중입니다. 답변 종료 버튼을 누르면 로컬 Whisper가 전사합니다.");
+  appendLog("candidate answer recording started for local Whisper STT");
+}
+
+function stopAnswerRecording() {
+  return new Promise((resolve, reject) => {
+    if (!answerRecorder || answerRecorder.state === "inactive") {
+      resolve(null);
+      return;
+    }
+    const recorder = answerRecorder;
+    recorder.addEventListener("stop", () => {
+      const blob = new Blob(answerRecordingChunks, { type: answerRecordingMimeType || "audio/webm" });
+      answerRecorder = null;
+      answerRecordingChunks = [];
+      resolve(blob);
+    }, { once: true });
+    recorder.addEventListener("error", (event) => {
+      answerRecorder = null;
+      reject(new Error(event.error?.message || "answer recording failed"));
+    }, { once: true });
+    recorder.stop();
+  });
+}
+
+async function transcribeAnswerBlob(blob) {
+  if (!blob || !blob.size) {
+    throw new Error("answer recording was empty");
+  }
+  renderTranscriptStatus("로컬 Whisper가 답변을 전사하고 있습니다.");
+  appendLog(`submitting answer audio to local Whisper STT; bytes=${blob.size}`);
+  const params = new URLSearchParams({
+    interviewId: activeInterviewId,
+    turnIndex: String(currentTurnIndex),
+    language: "ko",
+  });
+  const response = await fetch(`/stt/transcribe?${params.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": blob.type || "audio/webm" },
+    body: blob,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `STT request failed: HTTP ${response.status}`);
+  }
+  const transcript = String(payload.text || "").trim();
+  if (!transcript) {
+    throw new Error("local Whisper returned an empty transcript");
+  }
+  lastAnswerTranscript = transcript;
+  renderTranscriptStatus(transcript);
+  appendLog(`local Whisper STT completed for turn ${payload.turnIndex || currentTurnIndex}; transcript hidden from logs`);
+  return payload;
+}
+
+async function finishAnswerAndRequestNextQuestion() {
+  const audioBlob = await stopAnswerRecording();
+  micEnabled = false;
+  await restartPreviewStream();
+  await applyMediaStateToRoom();
+  try {
+    await transcribeAnswerBlob(audioBlob);
+  } catch (error) {
+    setStatus(`STT failed: ${error.message}`, "error");
+    renderTranscriptStatus("전사 실패. 답변 시작 버튼으로 다시 녹음할 수 있습니다.");
+    setAnswerTurnAvailability(true, "local Whisper STT failed; answer button re-enabled for retry");
+    throw error;
+  }
+  currentTurnIndex += 1;
+  nextQuestionRequested = false;
+  setAnswerTurnAvailability(false, "candidate answer transcribed; waiting for next interviewer question");
+  requestNextQuestion("candidate-answer-transcribed");
+}
+
 async function toggleMic() {
   if (!micEnabled && !answerTurnAvailable) {
     appendLog("answer start blocked until interviewer question ends");
     return;
   }
-  const nextMicEnabled = !micEnabled;
-  micEnabled = nextMicEnabled;
   try {
-    await restartPreviewStream();
-    await applyMediaStateToRoom();
-    if (!nextMicEnabled) {
-      currentTurnIndex += 1;
-      nextQuestionRequested = false;
-      setAnswerTurnAvailability(false, "candidate answer ended; waiting for next interviewer question");
-      requestNextQuestion("candidate-answer-ended");
+    if (!micEnabled) {
+      micEnabled = true;
+      await restartPreviewStream();
+      await applyMediaStateToRoom();
+      startAnswerRecording();
+      return;
     }
+    await finishAnswerAndRequestNextQuestion();
   } catch (error) {
     micEnabled = false;
-    cameraEnabled = false;
+    if (answerRecorder) {
+      answerRecorder = null;
+      answerRecordingChunks = [];
+    }
     stopPreviewStream();
     syncMediaUi();
-    setStatus(`media permission failed: ${error.message}`, "error");
-    appendLog(`media permission failed: ${error.message}`);
+    setStatus(`answer turn failed: ${error.message}`, "error");
+    appendLog(`answer turn failed: ${error.message}`);
   }
 }
 
@@ -607,5 +725,6 @@ setRoomMode("prejoin");
 setAnswerTurnAvailability(false);
 syncMediaUi();
 hydrateProductionRoutes();
+renderTranscriptStatus("후보자 답변과 turn boundary가 세션 진행에 맞춰 정리됩니다.");
 appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);
 autoJoinRoomRoute();

@@ -21,3 +21,8 @@ GEMINI_TIMEOUT_SECONDS=30
 
 The official Gemini quickstart expects the API key in `GEMINI_API_KEY`.
 Do not commit `.env` or real API keys.
+
+
+## STT boundary
+
+STT is not implemented in this service. The current local answer-turn transcription boundary lives in `services/stt-whisper` and is routed through `/stt/transcribe`.

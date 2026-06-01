@@ -11,7 +11,7 @@ This module owns the bounded AI engine scaffold. Follow the root `AGENTS.md` plu
 
 ## Not implemented here yet
 - Full Main LLM loop orchestration.
-- STT or audio transcription.
+- STT or audio transcription; use `services/stt-whisper` for the current local STT boundary.
 - SpatialReal or ElevenLabs avatar/TTS integration.
 - Final report generation.
 - Direct raw media or raw token handling.

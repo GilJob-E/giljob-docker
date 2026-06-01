@@ -11,6 +11,7 @@ DOC_PAIRS = [
     pathlib.Path("apps/web"),
     pathlib.Path("services/api"),
     pathlib.Path("services/ai-engine"),
+    pathlib.Path("services/stt-whisper"),
     pathlib.Path("services/agent1"),
     pathlib.Path("infra"),
     pathlib.Path("tests"),
@@ -24,6 +25,7 @@ PATH_SPECIFIC_TERMS = {
     "apps/web/AGENTS.md": ["DESIGN.md", "manual button", "right sidebar", "redaction", "raw token"],
     "services/api/AGENTS.md": ["hash-only", "raw token", "LIVEKIT_INTERNAL_URL", "LIVEKIT_PUBLIC_URL"],
     "services/ai-engine/AGENTS.md": ["GEMINI_API_KEY", "next-question provider", "LLM_PROVIDER=gemini"],
+    "services/stt-whisper/AGENTS.md": ["faster-whisper", "Systran/faster-whisper-large-v3", "host GPU `1`", "raw audio"],
     "services/agent1/AGENTS.md": ["future multimodal placeholder", "structured signal", "raw media"],
     "infra/AGENTS.md": ["Caddy", "LiveKit", "coturn", "direct media", "/ai/*", "ingress tension"],
     "tests/AGENTS.md": ["tests/contract", "tests/integration", "path-specific"],
@@ -34,7 +36,6 @@ PATH_SPECIFIC_TERMS = {
 
 FORBIDDEN_IMPLEMENTED_CLAIMS = [
     "full Main LLM loop is implemented",
-    "STT is implemented",
     "SpatialReal avatar is implemented",
     "ElevenLabs avatar is implemented",
     "multimodal analysis is implemented",

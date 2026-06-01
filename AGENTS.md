@@ -3,7 +3,7 @@
 This file is the canonical repository-level contract for coding agents working on GilJob v2. Follow any deeper `AGENTS.md` file for module-specific overrides.
 
 ## Product intent
-GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-container Docker Compose deployment. The current implementation is intentionally a scaffold: Caddy ingress, production interview routes, API session/token contracts, self-hosted LiveKit media, a Gemini-backed next-question provider boundary, and placeholder future modules.
+GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-container Docker Compose deployment. The current implementation is intentionally a scaffold: Caddy ingress, production interview routes, API session/token contracts, self-hosted LiveKit media, a Gemini-backed next-question provider boundary, a local faster-whisper STT service pinned to host GPU 1, and placeholder future modules.
 
 ## Hard boundaries
 - Do not touch or migrate the legacy `/home/hoddukzoa/GilJob` tree. This repository/worktree represents GilJob v2.
@@ -11,7 +11,7 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 - Do not expose raw session tokens, report tokens, JWTs, LiveKit tokens, Gemini keys, or raw media in UI, logs, tests, docs, or examples.
 - Preserve the `LIVEKIT_INTERNAL_URL` / `LIVEKIT_PUBLIC_URL` split. Browser clients use the public URL; server-side token issuing uses the internal URL.
 - Preserve hash-only server storage for public tokens. Raw public tokens are returned once and must not be persisted.
-- Mark future work honestly. STT, SpatialReal/ElevenLabs avatar, full Main LLM orchestration, multimodal analysis, and final report generation are not complete product features yet.
+- Mark future work honestly. Local STT is limited to manual answer-turn batch transcription; SpatialReal/ElevenLabs avatar, TTS, full Main LLM orchestration, multimodal analysis, and final report generation are not complete product features yet.
 
 ## Source-of-truth documents
 - `README.md` for current product status, architecture summary, and run instructions.
@@ -25,6 +25,7 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 - `apps/web/`: browser UI, production interview routes, LiveKit client join, manual answer controls, visible/log redaction.
 - `services/api/`: session/report token issuing, hash-only records, LiveKit token issuing, API security contracts.
 - `services/ai-engine/`: Gemini-backed next-question provider boundary; not full STT/avatar/report orchestration.
+- `services/stt-whisper/`: local faster-whisper answer-turn transcription; Docker reserves host GPU 1.
 - `services/agent1/`: future multimodal placeholder; structured signal boundary only.
 - `infra/`: Docker Compose, Caddy, LiveKit, coturn, Postgres, and single-server deployment wiring.
 - `tests/`: contract and integration test guidance.
