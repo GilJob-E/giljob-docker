@@ -395,21 +395,41 @@ function startAnswerRecording() {
 
 function stopAnswerRecording() {
   return new Promise((resolve, reject) => {
-    if (!answerRecorder || answerRecorder.state === "inactive") {
-      resolve(null);
+    if (!answerRecorder) {
+      reject(new Error("answer recording was not started"));
+      return;
+    }
+    if (answerRecorder.state === "inactive") {
+      const inactiveBlob = new Blob(answerRecordingChunks, { type: answerRecordingMimeType || "audio/webm" });
+      answerRecorder = null;
+      answerRecordingChunks = [];
+      resolve(inactiveBlob);
       return;
     }
     const recorder = answerRecorder;
-    recorder.addEventListener("stop", () => {
-      const blob = new Blob(answerRecordingChunks, { type: answerRecordingMimeType || "audio/webm" });
-      answerRecorder = null;
-      answerRecordingChunks = [];
-      resolve(blob);
+    const finalize = () => {
+      setTimeout(() => {
+        const blob = new Blob(answerRecordingChunks, { type: answerRecordingMimeType || "audio/webm" });
+        answerRecorder = null;
+        answerRecordingChunks = [];
+        resolve(blob);
+      }, 0);
+    };
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data?.size) {
+        answerRecordingChunks.push(event.data);
+      }
     }, { once: true });
+    recorder.addEventListener("stop", finalize, { once: true });
     recorder.addEventListener("error", (event) => {
       answerRecorder = null;
       reject(new Error(event.error?.message || "answer recording failed"));
     }, { once: true });
+    try {
+      recorder.requestData();
+    } catch {
+      // Some browsers only emit the final chunk on stop().
+    }
     recorder.stop();
   });
 }
