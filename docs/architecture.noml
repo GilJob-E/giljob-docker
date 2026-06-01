@@ -4,6 +4,7 @@
 #.secure: fill=#ecfdf5 stroke=#047857
 #.future: fill=#fff7ed stroke=#c2410c dashed
 #.store: fill=#f8fafc stroke=#475569
+#.analysis: fill=#fef3c7 stroke=#a16207
 
 [<external> 후보자 브라우저|
   /interviews/new
@@ -23,6 +24,7 @@
   vanilla HTML/CSS/JS
   production route shell
   room 진입 시 LiveKit 자동 join
+  push-to-talk answer turn UI
   token-safe hidden diagnostics
 ]
 
@@ -31,6 +33,7 @@
   session/report token 발급
   purpose-separated hash contract
   LiveKit candidate token 발급
+  LiveKit analyzer token 발급 예정
 ]
 
 [<store> Postgres|
@@ -41,6 +44,8 @@
 
 [<media> LiveKit Server|
   self-hosted signaling/media
+  browser candidate participant
+  hidden analysis participant
   7880/tcp WebSocket
   7881/tcp ICE/TCP
   50000-50100/udp media
@@ -52,19 +57,35 @@
   5349 tcp
 ]
 
-[<service> AI Engine|
-  Gemini next-question boundary
-  full orchestration은 향후
+[<analysis> Analysis Engine Service\n(GilJobE)|
+  services/analysis-engine 예정
+  LiveKit room subscribe participant
+  candidate audio/video track consume
+  GemmaNativeTranscriber STT
+  nonverbal/vision windowing
+  transcript_full + structured signal emit
 ]
 
-[<future> Agent1 Multimodal Module|
-  향후 raw AV windowing
-  structured signal only
-  token/media 직접 노출 금지
+[<service> AI Engine|
+  Gemini next-question boundary
+  analysis signal + transcript 입력
+  질문 생성 / turn policy
+]
+
+[<future> Realtime Interview Voice|
+  STT/TTS/질문 생성 통합 후보
+  avatar voice transport 후보
+  최종 provider 미확정
+]
+
+[<future> Avatar / SpatialReal|
+  면접관 화면 participant
+  LiveKit publish 후보
+  TTS/audio/video output
 ]
 
 [<future> Main LLM / Interview Controller|
-  향후 질문 정책
+  질문 정책 orchestration
   후보자 답변 loop
   최종 report trigger
 ]
@@ -73,14 +94,17 @@
 [Caddy Ingress] - static pages -> [Web App]
 [Caddy Ingress] - /api/sessions -> [API Service]
 [API Service] - token hash 저장 -> [Postgres]
-[API Service] - internal URL로 room/token 발급 -> [LiveKit Server]
-[API Service] - public room URL + candidate token -> [후보자 브라우저]
-[후보자 브라우저] - direct WebRTC signaling/media -> [LiveKit Server]
-[후보자 브라우저] - answer turn boundary only -> [AI Engine]
-[후보자 브라우저] - lastAnswer placeholder -> [AI Engine]
+[API Service] - candidate room URL + token -> [후보자 브라우저]
+[API Service] - analyzer subscribe token -> [Analysis Engine Service\n(GilJobE)]
+[후보자 브라우저] - direct WebRTC publish/subscribe -> [LiveKit Server]
+[후보자 브라우저] - push-to-talk turn_start/turn_end -> [API Service]
 [후보자 브라우저] - relay 필요 시 -> [coturn]
 [LiveKit Server] - TURN boundary -> [coturn]
-[AI Engine] - 향후 participant subscribe/publish -> [LiveKit Server]
-[Agent1 Multimodal Module] - 향후 media observation -> [LiveKit Server]
-[Agent1 Multimodal Module] - structured signal -> [Main LLM / Interview Controller]
-[Main LLM / Interview Controller] - 향후 interview state/report -> [API Service]
+[LiveKit Server] - candidate audio/video tracks -> [Analysis Engine Service\n(GilJobE)]
+[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [AI Engine]
+[Analysis Engine Service\n(GilJobE)] - structured session events -> [API Service]
+[AI Engine] - next question / policy update -> [Main LLM / Interview Controller]
+[Main LLM / Interview Controller] - interview state/report -> [API Service]
+[Main LLM / Interview Controller] - interviewer utterance -> [Realtime Interview Voice]
+[Realtime Interview Voice] - audio/text output -> [Avatar / SpatialReal]
+[Avatar / SpatialReal] - interviewer participant media -> [LiveKit Server]
