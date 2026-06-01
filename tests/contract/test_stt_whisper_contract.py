@@ -88,6 +88,22 @@ class STTWhisperContractTest(unittest.TestCase):
         stt_server._MODEL = None
         restore_env(self._old_env)
 
+
+    def _post_warmup(self) -> tuple[int, dict[str, object], str]:
+        req = urllib.request.Request(
+            self.base_url + "/warmup",
+            data=b"",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                body = res.read().decode("utf-8")
+                return res.status, json.loads(body), body
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8")
+            return exc.code, json.loads(body), body
+
     def _post_audio(self, query: str = "interviewId=local-demo&turnIndex=1&language=ko") -> tuple[int, dict[str, object], str]:
         req = urllib.request.Request(
             self.base_url + "/transcribe?" + query,
@@ -117,6 +133,18 @@ class STTWhisperContractTest(unittest.TestCase):
         self.assertEqual(payload["deviceIndex"], 0)
         self.assertEqual(payload["hostGpuDeviceId"], "1")
         self.assertEqual(payload["modelLoaded"], False)
+
+    def test_warmup_loads_model_without_audio_payload(self) -> None:
+        with patch.object(stt_server, "_load_faster_whisper_class", return_value=_FakeWhisperModel):
+            status, payload, body = self._post_warmup()
+        self.assertEqual(status, 200, body)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["provider"], "local-whisper")
+        self.assertEqual(payload["model"], "Systran/faster-whisper-large-v3")
+        self.assertEqual(payload["modelLoaded"], True)
+        self.assertEqual(_FakeWhisperModel.init_args[0], "Systran/faster-whisper-large-v3")
+        self.assertEqual(_FakeWhisperModel.init_kwargs["device"], "cuda")
+        self.assertEqual(_FakeWhisperModel.init_kwargs["device_index"], 0)
 
     def test_transcribe_uses_faster_whisper_cuda_contract(self) -> None:
         with patch.object(stt_server, "_load_faster_whisper_class", return_value=_FakeWhisperModel):

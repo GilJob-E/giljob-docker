@@ -24,7 +24,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   - `/interviews/:id/report`
 - 실제 room route에서 LiveKit 자동 join
 - room 내부 prejoin/setup UI 제거
-- 답변 중 누적 browser audio를 `/stt/transcribe`로 보내는 local Whisper 실시간 임시 전사와 답변 종료 후 최종 전사 경계
+- LiveKit 연결 직후 `/stt/warmup`으로 local Whisper 모델을 미리 로드하고, 답변 중 누적 browser audio를 `/stt/transcribe`로 보내는 실시간 임시 전사와 답변 종료 후 최종 전사 경계
 - `Systran/faster-whisper-large-v3` 기반 `stt-whisper` service
 - Docker Compose에서 STT service를 host GPU `1`에 고정
 - token redaction 및 raw token 비노출 contract test
@@ -60,7 +60,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 2. API는 session/report token을 발급하되, 서버 쪽에는 purpose-separated hash만 저장하는 계약을 유지합니다.
 3. API는 LiveKit candidate token을 발급합니다.
 4. 브라우저는 Caddy를 통해 LiveKit media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다.
-5. 후보자가 답변하는 동안 브라우저가 누적 audio를 몇 초 단위로 `/stt/transcribe`에 보내 임시 전사를 표시하고, 답변 종료 버튼을 누르면 같은 답변 audio를 최종 전사로 확정합니다. `stt-whisper`는 host GPU `1`에서 local faster-whisper 전사를 수행합니다.
+5. LiveKit 연결이 완료되면 브라우저가 `/stt/warmup`을 비동기로 호출해 Whisper 모델 cold start를 먼저 당깁니다. 이후 후보자가 답변하는 동안 브라우저가 누적 audio를 몇 초 단위로 `/stt/transcribe`에 보내 임시 전사를 표시하고, 답변 종료 버튼을 누르면 같은 답변 audio를 최종 전사로 확정합니다. `stt-whisper`는 host GPU `1`에서 local faster-whisper 전사를 수행합니다.
 6. Agent1 multimodal module, TTS/avatar, 최종 report generator는 아직 future slice입니다.
 
 위 다이어그램의 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
@@ -150,7 +150,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 [API Service] - internal URL로 room/token 발급 -> [LiveKit Server]
 [API Service] - public room URL + candidate token -> [후보자 브라우저]
 [후보자 브라우저] - direct WebRTC signaling/media -> [LiveKit Server]
-[후보자 브라우저] - partial/final answer audio upload -> [STT Whisper]
+[후보자 브라우저] - warmup + partial/final answer audio upload -> [STT Whisper]
 [STT Whisper] - partial/final transcript text -> [후보자 브라우저]
 [후보자 브라우저] - lastAnswer -> [AI Engine]
 [후보자 브라우저] - relay 필요 시 -> [coturn]

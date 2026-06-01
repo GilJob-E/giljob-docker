@@ -12,6 +12,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +33,7 @@ _CONTENT_TYPE_SUFFIXES = {
     "application/octet-stream": ".bin",
 }
 _MODEL: Any | None = None
+_MODEL_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -72,14 +74,44 @@ def _load_faster_whisper_class() -> Any:
 def get_model(settings: WhisperSettings) -> Any:
     global _MODEL
     if _MODEL is None:
-        whisper_model = _load_faster_whisper_class()
-        _MODEL = whisper_model(
-            settings.model_name,
-            device=settings.device,
-            device_index=settings.device_index,
-            compute_type=settings.compute_type,
-        )
+        with _MODEL_LOCK:
+            if _MODEL is None:
+                whisper_model = _load_faster_whisper_class()
+                _MODEL = whisper_model(
+                    settings.model_name,
+                    device=settings.device,
+                    device_index=settings.device_index,
+                    compute_type=settings.compute_type,
+                )
     return _MODEL
+
+
+def warmup_model() -> tuple[int, dict[str, object]]:
+    settings = load_settings()
+    started = time.monotonic()
+    try:
+        get_model(settings)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        return 200, {
+            "service": SERVICE_NAME,
+            "status": "ready",
+            "provider": settings.provider,
+            "model": settings.model_name,
+            "device": settings.device,
+            "deviceIndex": settings.device_index,
+            "hostGpuDeviceId": settings.host_gpu_device_id,
+            "computeType": settings.compute_type,
+            "language": settings.language,
+            "modelLoaded": _MODEL is not None,
+            "warmupMs": duration_ms,
+        }
+    except Exception as error:  # do not leak secrets or raw media
+        return 502, {
+            "error": "stt_warmup_failed",
+            "provider": settings.provider,
+            "model": settings.model_name,
+            "message": str(error)[:500],
+        }
 
 
 def _safe_interview_id(value: str | None) -> str:
@@ -199,6 +231,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
         parsed = urlparse(self.path)
+        if parsed.path in {"/warmup", "/stt/warmup"}:
+            status, payload = warmup_model()
+            self._json(status, payload)
+            return
         if parsed.path not in {"/transcribe", "/stt/transcribe"}:
             self._json(404, {"error": "not_found", "path": parsed.path})
             return

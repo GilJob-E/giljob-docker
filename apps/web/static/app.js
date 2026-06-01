@@ -53,6 +53,7 @@ let partialTranscriptionInFlight = false;
 let partialTranscriptionQueued = false;
 let partialTranscriptionAbortController = null;
 let lastPartialTranscript = "";
+let sttWarmupStarted = false;
 const PARTIAL_TRANSCRIPTION_INTERVAL_MS = 4000;
 const PARTIAL_TRANSCRIPTION_MIN_BYTES = 4096;
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
@@ -172,6 +173,33 @@ function renderPartialTranscriptStatus(transcript) {
     return;
   }
   renderTranscriptStatus(`실시간 전사(임시): ${text}\n\n답변 종료 버튼을 누르면 최종 전사로 확정됩니다.`);
+}
+
+async function warmSttModel() {
+  if (sttWarmupStarted) {
+    return;
+  }
+  sttWarmupStarted = true;
+  appendLog("warming local Whisper STT model after LiveKit connection");
+  if (answerTranscriptionMode === "idle" && !lastAnswerTranscript) {
+    renderTranscriptStatus("로컬 Whisper 모델을 미리 로드하고 있습니다. 첫 답변 지연을 줄이는 중입니다.");
+  }
+  try {
+    const response = await fetch("/stt/warmup", { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || payload.error || `STT warmup failed: HTTP ${response.status}`);
+    }
+    appendLog(`local Whisper STT warmup ready; model=${payload.model || "unknown"}; warmupMs=${payload.warmupMs ?? "unknown"}`);
+    if (answerTranscriptionMode === "idle" && !lastAnswerTranscript) {
+      renderTranscriptStatus("로컬 Whisper 준비 완료. 답변 시작 버튼을 누르면 실시간 임시 전사가 표시됩니다.");
+    }
+  } catch (error) {
+    appendLog(`local Whisper STT warmup failed; first answer may still cold-start: ${error.message}`);
+    if (answerTranscriptionMode === "idle" && !lastAnswerTranscript) {
+      renderTranscriptStatus("로컬 Whisper 워밍업 실패. 첫 답변에서 모델 로딩이 발생할 수 있습니다.");
+    }
+  }
 }
 
 function renderQuestionLoading() {
@@ -680,6 +708,7 @@ function bindRoomEvents(room) {
         joinButton.disabled = true;
       }
       appendLog("LiveKit connected");
+      void warmSttModel();
       requestNextQuestion("room-connected");
     })
     .on(RoomEvent.Disconnected, (reason) => {
