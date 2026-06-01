@@ -25,10 +25,6 @@
       reverse_proxy ai-engine:8100
     }
 
-    handle_path /stt/* {
-      reverse_proxy stt-whisper:8200
-    }
-
     handle {
       reverse_proxy web:3000
     }

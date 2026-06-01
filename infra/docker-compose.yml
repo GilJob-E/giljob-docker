@@ -14,7 +14,6 @@ services:
     depends_on:
       - api
       - web
-      - stt-whisper
 
   web:
     build: ../apps/web
@@ -51,34 +50,6 @@ services:
     expose:
       - "8100"
 
-  stt-whisper:
-    build: ../services/stt-whisper
-    environment:
-      STT_PROVIDER: local-whisper
-      WHISPER_MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-large-v3}
-      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
-      # Compose reserves host GPU 1 below; inside the container that GPU is CUDA device 0.
-      WHISPER_DEVICE_INDEX: ${WHISPER_DEVICE_INDEX:-0}
-      WHISPER_HOST_GPU_DEVICE_ID: ${WHISPER_HOST_GPU_DEVICE_ID:-1}
-      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-float16}
-      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-5}
-      WHISPER_VAD_FILTER: ${WHISPER_VAD_FILTER:-true}
-      STT_LANGUAGE: ${STT_LANGUAGE:-ko}
-      STT_MAX_AUDIO_BYTES: ${STT_MAX_AUDIO_BYTES:-26214400}
-      HF_HOME: /models/huggingface
-      HF_HUB_DISABLE_XET: "1"
-    expose:
-      - "8200"
-    volumes:
-      - whisper-cache:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["1"]
-              capabilities: [gpu]
-
   agent1:
     build: ../services/agent1
     expose:
@@ -103,4 +74,3 @@ services:
 
 volumes:
   postgres-data:
-  whisper-cache:

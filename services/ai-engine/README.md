@@ -25,4 +25,4 @@ Do not commit `.env` or real API keys.
 
 ## STT boundary
 
-STT is not implemented in this service. The current local answer-turn transcription boundary lives in `services/stt-whisper` and is routed through `/stt/transcribe`.
+STT is not implemented in this service. The former local Whisper boundary has been removed; the next transcription boundary is expected to be a Realtime integration slice.
