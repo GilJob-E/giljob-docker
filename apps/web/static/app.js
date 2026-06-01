@@ -46,6 +46,15 @@ let lastAnswerTranscript = "";
 let answerRecorder = null;
 let answerRecordingChunks = [];
 let answerRecordingMimeType = "";
+let answerCaptureId = 0;
+let answerTranscriptionMode = "idle";
+let partialTranscriptionTimer = null;
+let partialTranscriptionInFlight = false;
+let partialTranscriptionQueued = false;
+let partialTranscriptionAbortController = null;
+let lastPartialTranscript = "";
+const PARTIAL_TRANSCRIPTION_INTERVAL_MS = 4000;
+const PARTIAL_TRANSCRIPTION_MIN_BYTES = 4096;
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
 const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
 
@@ -154,6 +163,15 @@ function renderTranscriptStatus(message) {
   if (transcriptBody) {
     transcriptBody.textContent = message;
   }
+}
+
+function renderPartialTranscriptStatus(transcript) {
+  const text = String(transcript || "").trim();
+  if (!text) {
+    renderTranscriptStatus("실시간 전사 대기 중입니다. 답변을 시작하면 몇 초 단위로 임시 전사가 표시됩니다.");
+    return;
+  }
+  renderTranscriptStatus(`실시간 전사(임시): ${text}\n\n답변 종료 버튼을 누르면 최종 전사로 확정됩니다.`);
 }
 
 function renderQuestionLoading() {
@@ -371,6 +389,104 @@ function supportedAudioMimeType() {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
+function clearPartialTranscriptionTimer() {
+  if (partialTranscriptionTimer) {
+    clearInterval(partialTranscriptionTimer);
+    partialTranscriptionTimer = null;
+  }
+}
+
+function stopPartialTranscriptionLoop() {
+  clearPartialTranscriptionTimer();
+  partialTranscriptionQueued = false;
+  if (partialTranscriptionAbortController) {
+    partialTranscriptionAbortController.abort();
+    partialTranscriptionAbortController = null;
+  }
+}
+
+function startPartialTranscriptionLoop(captureId) {
+  stopPartialTranscriptionLoop();
+  answerTranscriptionMode = "recording";
+  partialTranscriptionTimer = setInterval(() => {
+    void transcribeAnswerPartial(captureId);
+  }, PARTIAL_TRANSCRIPTION_INTERVAL_MS);
+}
+
+function currentAnswerAudioBlob() {
+  return new Blob(answerRecordingChunks, { type: answerRecordingMimeType || "audio/webm" });
+}
+
+async function requestAnswerTranscription(blob, { partial = false, signal = undefined } = {}) {
+  if (!blob || !blob.size) {
+    throw new Error("answer recording was empty");
+  }
+  const params = new URLSearchParams({
+    interviewId: activeInterviewId,
+    turnIndex: String(currentTurnIndex),
+    language: "ko",
+  });
+  if (partial) {
+    params.set("partial", "true");
+  }
+  const response = await fetch(`/stt/transcribe?${params.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": blob.type || "audio/webm" },
+    body: blob,
+    signal,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `STT request failed: HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+async function transcribeAnswerPartial(captureId) {
+  if (partialTranscriptionInFlight) {
+    partialTranscriptionQueued = true;
+    return;
+  }
+  if (answerTranscriptionMode !== "recording" || captureId !== answerCaptureId || !answerRecorder) {
+    return;
+  }
+  const blob = currentAnswerAudioBlob();
+  if (blob.size < PARTIAL_TRANSCRIPTION_MIN_BYTES) {
+    return;
+  }
+  partialTranscriptionInFlight = true;
+  const controller = new AbortController();
+  partialTranscriptionAbortController = controller;
+  try {
+    appendLog(`submitting partial answer audio to local Whisper STT; bytes=${blob.size}`);
+    const payload = await requestAnswerTranscription(blob, { partial: true, signal: controller.signal });
+    const transcript = String(payload.text || "").trim();
+    if (answerTranscriptionMode !== "recording" || captureId !== answerCaptureId) {
+      return;
+    }
+    if (transcript && transcript !== lastPartialTranscript) {
+      lastPartialTranscript = transcript;
+      renderPartialTranscriptStatus(transcript);
+      appendLog(`partial local Whisper STT completed for turn ${payload.turnIndex || currentTurnIndex}; transcript hidden from logs`);
+    }
+  } catch (error) {
+    if (error.name !== "AbortError" && answerTranscriptionMode === "recording" && captureId === answerCaptureId) {
+      appendLog(`partial local Whisper STT failed: ${error.message}`);
+    }
+  } finally {
+    partialTranscriptionInFlight = false;
+    if (partialTranscriptionAbortController === controller) {
+      partialTranscriptionAbortController = null;
+    }
+    if (partialTranscriptionQueued && answerTranscriptionMode === "recording" && captureId === answerCaptureId) {
+      partialTranscriptionQueued = false;
+      void transcribeAnswerPartial(captureId);
+    } else {
+      partialTranscriptionQueued = false;
+    }
+  }
+}
+
 function startAnswerRecording() {
   if (!localPreviewStream || typeof MediaRecorder === "undefined") {
     throw new Error("browser MediaRecorder is not available for STT capture");
@@ -379,8 +495,10 @@ function startAnswerRecording() {
   if (!audioTracks.length) {
     throw new Error("microphone audio track is not available for STT capture");
   }
+  answerCaptureId += 1;
   answerRecordingChunks = [];
   answerRecordingMimeType = supportedAudioMimeType();
+  lastPartialTranscript = "";
   const options = answerRecordingMimeType ? { mimeType: answerRecordingMimeType } : undefined;
   answerRecorder = new MediaRecorder(localPreviewStream, options);
   answerRecorder.addEventListener("dataavailable", (event) => {
@@ -389,8 +507,9 @@ function startAnswerRecording() {
     }
   });
   answerRecorder.start(1000);
-  renderTranscriptStatus("답변 녹음 중입니다. 답변 종료 버튼을 누르면 로컬 Whisper가 전사합니다.");
-  appendLog("candidate answer recording started for local Whisper STT");
+  startPartialTranscriptionLoop(answerCaptureId);
+  renderPartialTranscriptStatus("");
+  appendLog("candidate answer recording started with realtime local Whisper STT previews");
 }
 
 function stopAnswerRecording() {
@@ -399,8 +518,10 @@ function stopAnswerRecording() {
       reject(new Error("answer recording was not started"));
       return;
     }
+    stopPartialTranscriptionLoop();
+    answerTranscriptionMode = "finalizing";
     if (answerRecorder.state === "inactive") {
-      const inactiveBlob = new Blob(answerRecordingChunks, { type: answerRecordingMimeType || "audio/webm" });
+      const inactiveBlob = currentAnswerAudioBlob();
       answerRecorder = null;
       answerRecordingChunks = [];
       resolve(inactiveBlob);
@@ -409,17 +530,12 @@ function stopAnswerRecording() {
     const recorder = answerRecorder;
     const finalize = () => {
       setTimeout(() => {
-        const blob = new Blob(answerRecordingChunks, { type: answerRecordingMimeType || "audio/webm" });
+        const blob = currentAnswerAudioBlob();
         answerRecorder = null;
         answerRecordingChunks = [];
         resolve(blob);
       }, 0);
     };
-    recorder.addEventListener("dataavailable", (event) => {
-      if (event.data?.size) {
-        answerRecordingChunks.push(event.data);
-      }
-    }, { once: true });
     recorder.addEventListener("stop", finalize, { once: true });
     recorder.addEventListener("error", (event) => {
       answerRecorder = null;
@@ -435,32 +551,16 @@ function stopAnswerRecording() {
 }
 
 async function transcribeAnswerBlob(blob) {
-  if (!blob || !blob.size) {
-    throw new Error("answer recording was empty");
-  }
-  renderTranscriptStatus("로컬 Whisper가 답변을 전사하고 있습니다.");
-  appendLog(`submitting answer audio to local Whisper STT; bytes=${blob.size}`);
-  const params = new URLSearchParams({
-    interviewId: activeInterviewId,
-    turnIndex: String(currentTurnIndex),
-    language: "ko",
-  });
-  const response = await fetch(`/stt/transcribe?${params.toString()}`, {
-    method: "POST",
-    headers: { "Content-Type": blob.type || "audio/webm" },
-    body: blob,
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.message || payload.error || `STT request failed: HTTP ${response.status}`);
-  }
+  renderTranscriptStatus("로컬 Whisper가 답변을 최종 전사하고 있습니다.");
+  appendLog(`submitting final answer audio to local Whisper STT; bytes=${blob?.size || 0}`);
+  const payload = await requestAnswerTranscription(blob);
   const transcript = String(payload.text || "").trim();
   if (!transcript) {
     throw new Error("local Whisper returned an empty transcript");
   }
   lastAnswerTranscript = transcript;
-  renderTranscriptStatus(transcript);
-  appendLog(`local Whisper STT completed for turn ${payload.turnIndex || currentTurnIndex}; transcript hidden from logs`);
+  renderTranscriptStatus(`최종 전사: ${transcript}`);
+  appendLog(`final local Whisper STT completed for turn ${payload.turnIndex || currentTurnIndex}; transcript hidden from logs`);
   return payload;
 }
 
@@ -477,6 +577,7 @@ async function finishAnswerAndRequestNextQuestion() {
     setAnswerTurnAvailability(true, "local Whisper STT failed; answer button re-enabled for retry");
     throw error;
   }
+  answerTranscriptionMode = "idle";
   currentTurnIndex += 1;
   nextQuestionRequested = false;
   setAnswerTurnAvailability(false, "candidate answer transcribed; waiting for next interviewer question");
@@ -499,6 +600,8 @@ async function toggleMic() {
     await finishAnswerAndRequestNextQuestion();
   } catch (error) {
     micEnabled = false;
+    stopPartialTranscriptionLoop();
+    answerTranscriptionMode = "idle";
     if (answerRecorder) {
       answerRecorder = null;
       answerRecordingChunks = [];
@@ -671,6 +774,8 @@ async function autoJoinRoomRoute() {
 }
 
 function leaveRoom() {
+  stopPartialTranscriptionLoop();
+  answerTranscriptionMode = "idle";
   if (!activeRoom) {
     return;
   }

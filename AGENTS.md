@@ -11,7 +11,7 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 - Do not expose raw session tokens, report tokens, JWTs, LiveKit tokens, Gemini keys, or raw media in UI, logs, tests, docs, or examples.
 - Preserve the `LIVEKIT_INTERNAL_URL` / `LIVEKIT_PUBLIC_URL` split. Browser clients use the public URL; server-side token issuing uses the internal URL.
 - Preserve hash-only server storage for public tokens. Raw public tokens are returned once and must not be persisted.
-- Mark future work honestly. Local STT is limited to manual answer-turn batch transcription; SpatialReal/ElevenLabs avatar, TTS, full Main LLM orchestration, multimodal analysis, and final report generation are not complete product features yet.
+- Mark future work honestly. Local STT supports manual answer-turn final transcription with realtime partial transcript previews; SpatialReal/ElevenLabs avatar, TTS, full Main LLM orchestration, multimodal analysis, and final report generation are not complete product features yet.
 
 ## Source-of-truth documents
 - `README.md` for current product status, architecture summary, and run instructions.
@@ -25,7 +25,7 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 - `apps/web/`: browser UI, production interview routes, LiveKit client join, manual answer controls, visible/log redaction.
 - `services/api/`: session/report token issuing, hash-only records, LiveKit token issuing, API security contracts.
 - `services/ai-engine/`: Gemini-backed next-question provider boundary; not full STT/avatar/report orchestration.
-- `services/stt-whisper/`: local faster-whisper answer-turn transcription; Docker reserves host GPU 1.
+- `services/stt-whisper/`: local faster-whisper answer-turn transcription for partial previews and final answer text; Docker reserves host GPU 1.
 - `services/agent1/`: future multimodal placeholder; structured signal boundary only.
 - `infra/`: Docker Compose, Caddy, LiveKit, coturn, Postgres, and single-server deployment wiring.
 - `tests/`: contract and integration test guidance.

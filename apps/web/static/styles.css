@@ -403,6 +403,7 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
 }
 .panel-card h3 { font-size: 1rem; letter-spacing: -0.01em; }
 .panel-card p:not(.badge-pill) { color: var(--color-body); font-size: 0.92rem; line-height: 1.55; }
+#transcript-body { white-space: pre-wrap; }
 .current-question { background: var(--color-canvas); border-color: var(--color-hairline); }
 .room-control-bar {
   display: flex;
