@@ -8,7 +8,7 @@ This module owns the browser-facing GilJob v2 web shell. Follow the root `AGENTS
 - Follow `DESIGN.md`: light UI, Cal-style hierarchy, non-scrolling room surface, and restrained product chrome.
 - Preserve the light, non-scrolling interview room with candidate/interviewer tiles.
 - Keep interview context as a right sidebar, not an overlay that covers the interviewer screen.
-- Preserve the manual button answer flow: interviewer question ends, the manual answer button enables, the candidate starts speaking, realtime STT previews may appear, and the candidate presses again to end/finalize the answer.
+- Preserve the manual button answer flow: interviewer question ends, the manual answer button enables, the candidate starts speaking, and the candidate presses again to end/finalize the answer; STT output belongs to the future GilJobE analysis-engine boundary, not a browser-owned transcription path.
 - Use LiveKit only as the browser media/signaling client. Do not move token issuing into the browser.
 
 ## Security and privacy

@@ -3,7 +3,7 @@
 
 This service is intentionally small for the current slice: it owns the Main LLM
 provider contract and returns the next interviewer question. It does not ingest
-raw media, run STT, drive SpatialReal, or generate final reports yet. Realtime transcription is a future boundary.
+raw media, run STT, drive SpatialReal, or generate final reports yet. STT belongs to the GilJobE analysis-engine boundary.
 """
 from __future__ import annotations
 

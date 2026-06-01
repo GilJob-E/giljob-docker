@@ -25,4 +25,4 @@ Do not commit `.env` or real API keys.
 
 ## STT boundary
 
-STT is not implemented in this service. The former local Whisper boundary has been removed; the next transcription boundary is expected to be a Realtime integration slice.
+STT is not implemented in this service. The former local Whisper boundary has been removed; transcription belongs to the future `services/analysis-engine` integration based on `GilJobE` subscribing to LiveKit tracks.

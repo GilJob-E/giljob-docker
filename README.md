@@ -24,7 +24,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   - `/interviews/:id/report`
 - 실제 room route에서 LiveKit 자동 join
 - room 내부 prejoin/setup UI 제거
-- 로컬 Whisper/STT service 제거 완료; 다음 전사·음성 질문 생성 경계는 Realtime 기반으로 재설계 예정
+- 로컬 Whisper/STT service 제거 완료; STT는 `GilJobE` 기반 `services/analysis-engine` 경계로 연결 예정
 - token redaction 및 raw token 비노출 contract test
 
 아직 범위 밖:
@@ -32,7 +32,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 - CV/job parsing
 - 실제 Main LLM 전체 orchestration loop
 - SpatialReal / ElevenLabs avatar 또는 TTS
-- Agent1 multimodal 분석 실연결
+- `GilJobE` 기반 `services/analysis-engine` LiveKit subscribe 실연결
 - 최종 report 생성
 - production domain/TLS/hardening
 - Redis 기반 event bus 전환
@@ -58,8 +58,8 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 2. API는 session/report token을 발급하되, 서버 쪽에는 purpose-separated hash만 저장하는 계약을 유지합니다.
 3. API는 LiveKit candidate token을 발급합니다.
 4. 브라우저는 Caddy를 통해 LiveKit media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다.
-5. 로컬 Whisper/STT 경계는 제거되었습니다. 후보자 답변은 현재 버튼 기반 turn boundary만 유지하며, 전사·음성 질문 생성은 Realtime 기반 future slice로 남겨둡니다.
-6. Agent1 multimodal module, Realtime voice/STT, TTS/avatar, 최종 report generator는 아직 future slice입니다.
+5. 로컬 Whisper/STT 경계는 제거되었습니다. 후보자 답변 STT는 `GilJobE`를 `services/analysis-engine`로 붙여 LiveKit audio/video track을 구독하는 구조로 진행합니다.
+6. SpatialReal/Avatar, TTS 출력, 최종 report generator는 아직 future slice입니다.
 
 위 다이어그램의 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
 
@@ -138,16 +138,11 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   질문 생성 / turn policy
 ]
 
-[<future> Realtime Interview Voice|
-  STT/TTS/질문 생성 통합 후보
-  avatar voice transport 후보
-  최종 provider 미확정
-]
 
 [<future> Avatar / SpatialReal|
   면접관 화면 participant
   LiveKit publish 후보
-  TTS/audio/video output
+  interviewer voice/video output
 ]
 
 [<future> Main LLM / Interview Controller|
@@ -171,8 +166,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 [Analysis Engine Service\n(GilJobE)] - structured session events -> [API Service]
 [AI Engine] - next question / policy update -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
-[Main LLM / Interview Controller] - interviewer utterance -> [Realtime Interview Voice]
-[Realtime Interview Voice] - audio/text output -> [Avatar / SpatialReal]
+[Main LLM / Interview Controller] - interviewer utterance -> [Avatar / SpatialReal]
 [Avatar / SpatialReal] - interviewer participant media -> [LiveKit Server]
 ```
 

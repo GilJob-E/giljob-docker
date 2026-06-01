@@ -11,7 +11,7 @@ This module owns the bounded AI engine scaffold. Follow the root `AGENTS.md` plu
 
 ## Not implemented here yet
 - Full Main LLM loop orchestration.
-- STT or audio transcription; local Whisper STT has been removed and the next realtime transcription boundary is not implemented here.
+- STT or audio transcription; local Whisper STT has been removed and transcription belongs to the future GilJobE analysis-engine boundary, not this service.
 - SpatialReal or ElevenLabs avatar/TTS integration.
 - Final report generation.
 - Direct raw media or raw token handling.

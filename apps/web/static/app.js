@@ -356,16 +356,16 @@ async function applyMediaStateToRoom() {
 }
 
 function startAnswerCapture() {
-  renderTranscriptStatus("답변 중입니다. 로컬 STT 경계는 제거되었고, Realtime 전환 전까지 전사는 생성하지 않습니다.");
-  appendLog("candidate answer turn started; STT boundary disabled pending Realtime engine");
+  renderTranscriptStatus("답변 중입니다. 전사는 GilJobE analysis-engine 연결 전까지 생성하지 않습니다.");
+  appendLog("candidate answer turn started; STT boundary disabled pending GilJobE analysis-engine");
 }
 
 async function finishAnswerAndRequestNextQuestion() {
   micEnabled = false;
   await restartPreviewStream();
   await applyMediaStateToRoom();
-  lastAnswerTranscript = "후보자 답변 전사는 Realtime 전환 전까지 비활성화되어 있습니다.";
-  renderTranscriptStatus("답변 종료. 로컬 STT 경계는 제거되었으며, 다음 단계에서 Realtime 전사/질문 엔진으로 대체할 예정입니다.");
+  lastAnswerTranscript = "후보자 답변 전사는 GilJobE analysis-engine 연결 전까지 비활성화되어 있습니다.";
+  renderTranscriptStatus("답변 종료. 전사는 다음 단계에서 GilJobE analysis-engine이 LiveKit track을 구독해 생성할 예정입니다.");
   currentTurnIndex += 1;
   nextQuestionRequested = false;
   setAnswerTurnAvailability(false, "candidate answer ended; waiting for next interviewer question");
@@ -630,6 +630,6 @@ setRoomMode("prejoin");
 setAnswerTurnAvailability(false);
 syncMediaUi();
 hydrateProductionRoutes();
-renderTranscriptStatus("로컬 STT 경계는 제거되었습니다. Realtime 전환 전까지 답변 전사는 생성하지 않습니다.");
+renderTranscriptStatus("로컬 STT 경계는 제거되었습니다. GilJobE analysis-engine 연결 전까지 답변 전사는 생성하지 않습니다.");
 appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);
 autoJoinRoomRoute();

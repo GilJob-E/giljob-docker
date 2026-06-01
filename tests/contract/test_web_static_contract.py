@@ -146,7 +146,7 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("candidate answer turn", body)
         self.assertIn("giljob:interviewer-question-ended", body)
         self.assertIn("lastAnswer", body)
-        self.assertIn("Realtime 전환", body)
+        self.assertIn("GilJobE analysis-engine", body)
         self.assertIn("candidate-answer-ended-no-stt", body)
         self.assertNotIn("/stt/", body)
         self.assertIn("answer start blocked until interviewer question ends", body)

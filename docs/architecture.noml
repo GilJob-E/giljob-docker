@@ -72,16 +72,11 @@
   질문 생성 / turn policy
 ]
 
-[<future> Realtime Interview Voice|
-  STT/TTS/질문 생성 통합 후보
-  avatar voice transport 후보
-  최종 provider 미확정
-]
 
 [<future> Avatar / SpatialReal|
   면접관 화면 participant
   LiveKit publish 후보
-  TTS/audio/video output
+  interviewer voice/video output
 ]
 
 [<future> Main LLM / Interview Controller|
@@ -105,6 +100,5 @@
 [Analysis Engine Service\n(GilJobE)] - structured session events -> [API Service]
 [AI Engine] - next question / policy update -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
-[Main LLM / Interview Controller] - interviewer utterance -> [Realtime Interview Voice]
-[Realtime Interview Voice] - audio/text output -> [Avatar / SpatialReal]
+[Main LLM / Interview Controller] - interviewer utterance -> [Avatar / SpatialReal]
 [Avatar / SpatialReal] - interviewer participant media -> [LiveKit Server]
