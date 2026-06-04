@@ -68,6 +68,21 @@ class TokenContractTest(unittest.TestCase):
         self.assertTrue(str(stored["sessionTokenHash"]).startswith(f"{TOKEN_HASH_VERSION}:session:"))
         self.assertTrue(str(stored["reportTokenHash"]).startswith(f"{TOKEN_HASH_VERSION}:report:"))
 
+    def test_issue_session_can_bind_to_safe_requested_interview_id(self) -> None:
+        issued = issue_session(
+            now=datetime(2026, 5, 30, 7, 0, tzinfo=timezone.utc),
+            requested_session_id="local-demo",
+        )
+        public = cast(dict[str, Any], issued["public"])
+        stored = cast(dict[str, Any], issued["stored"])
+        self.assertEqual(public["sessionId"], "local-demo")
+        self.assertEqual(public["roomName"], "giljob-session-local-demo")
+        self.assertEqual(stored["sessionId"], "local-demo")
+
+    def test_issue_session_rejects_unsafe_requested_interview_id(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid session id"):
+            issue_session(requested_session_id="../local-demo")
+
     def test_issue_session_reports_livekit_not_configured_without_credentials(self) -> None:
         old_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
         try:

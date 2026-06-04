@@ -67,7 +67,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         requested_role = str(body.get("role") or "candidate")
-        issued = issue_session(requested_role=requested_role)
+        requested_session_id = body.get("sessionId") or body.get("interviewId")
+        try:
+            issued = issue_session(requested_role=requested_role, requested_session_id=requested_session_id)
+        except ValueError as exc:
+            self._json(400, {"error": "invalid_session_id", "message": str(exc)})
+            return
         stored = issued["stored"]
         public = issued["public"]
         SESSION_HASH_STORE[str(stored["sessionId"])] = stored

@@ -25,6 +25,11 @@
       reverse_proxy ai-engine:8100
     }
 
+    # Development transcript/signal boundary for the room shell. Keep payloads token/media-safe.
+    handle_path /analysis/* {
+      reverse_proxy analysis-engine:8200
+    }
+
     handle {
       reverse_proxy web:3000
     }

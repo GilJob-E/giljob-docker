@@ -50,6 +50,27 @@ services:
     expose:
       - "8100"
 
+  analysis-engine:
+    build: ../services/analysis-engine
+    environment:
+      SERVICE_NAME: analysis-engine
+      SERVICE_PORT: 8200
+      GILJOBE_GIT_URL: ${GILJOBE_GIT_URL:-https://github.com/GilJob-E/GilJobE.git}
+      GILJOBE_GIT_REF: ${GILJOBE_GIT_REF:-b769120}
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://giljob-v2-gemma-e4b:8000}
+      ANALYSIS_ENGINE_ENABLE_SUBSCRIBER: ${ANALYSIS_ENGINE_ENABLE_SUBSCRIBER:-false}
+      LIVEKIT_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
+      LIVEKIT_SESSION_ID: ${LIVEKIT_SESSION_ID:-local-demo}
+      LIVEKIT_IDENTITY: ${LIVEKIT_IDENTITY:-giljobe-analysis}
+      LIVEKIT_TOKEN: ${LIVEKIT_ANALYZER_TOKEN:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+    expose:
+      - "8200"
+    depends_on:
+      - api
+      - ai-engine
+
   agent1:
     build: ../services/agent1
     expose:

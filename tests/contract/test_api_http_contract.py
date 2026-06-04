@@ -85,6 +85,19 @@ class ApiHttpContractTest(unittest.TestCase):
                 self.assertNotIn(session_token, stored_json)
                 self.assertNotIn(report_token, stored_json)
 
+    def test_create_session_accepts_safe_interview_id_for_room_binding(self) -> None:
+        status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"local-demo"}')
+        self.assertEqual(status, 201)
+        public = json.loads(body)
+        self.assertEqual(public["sessionId"], "local-demo")
+        self.assertEqual(public["roomName"], "giljob-session-local-demo")
+        self.assertEqual(set(SESSION_HASH_STORE), {"local-demo"})
+
+    def test_create_session_rejects_unsafe_interview_id(self) -> None:
+        status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"../local-demo"}')
+        self.assertEqual(status, 400)
+        self.assertEqual(json.loads(body)["error"], "invalid_session_id")
+
     def test_invalid_json_returns_400(self) -> None:
         status, body = self._post("/sessions", b"{bad-json")
         self.assertEqual(status, 400)

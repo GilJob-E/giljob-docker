@@ -15,6 +15,15 @@ services:
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET before enabling media overlay}
       LIVEKIT_TOKEN_TTL_SECONDS: ${LIVEKIT_TOKEN_TTL_SECONDS:-7200}
 
+  analysis-engine:
+    environment:
+      LIVEKIT_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
+      LIVEKIT_SESSION_ID: ${LIVEKIT_SESSION_ID:-local-demo}
+      # Keep disabled by default until the runtime subscriber loop is implemented and explicitly smoke-tested.
+      ANALYSIS_ENGINE_ENABLE_SUBSCRIBER: ${ANALYSIS_ENGINE_ENABLE_SUBSCRIBER:-false}
+    depends_on:
+      - livekit
+
   livekit:
     image: ${LIVEKIT_IMAGE:-livekit/livekit-server:v1.8}
     ports:

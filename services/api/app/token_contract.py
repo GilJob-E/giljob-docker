@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import os
+import re
 import secrets
 import uuid
 
@@ -18,6 +19,7 @@ from app.livekit_tokens import issue_candidate_livekit_token
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TOKEN_TTL_SECONDS", "7200"))
 REPORT_TTL_SECONDS = int(os.getenv("REPORT_TOKEN_TTL_SECONDS", "2592000"))
 TOKEN_HASH_VERSION = "hmac-sha256:v1"
+SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 
 _DEFAULT_DEV_SECRETS = {
     "session": "giljob-v2-dev-session-hash-secret-change-before-production",
@@ -70,7 +72,21 @@ def hash_token(raw_token: str, purpose: str) -> str:
     return f"{TOKEN_HASH_VERSION}:{purpose}:{digest}"
 
 
-def issue_session(now: datetime | None = None, requested_role: str = "candidate") -> dict[str, dict[str, object]]:
+def normalize_requested_session_id(value: object | None) -> str | None:
+    """Return a safe caller-selected session id, or None for generated ids."""
+    if value is None:
+        return None
+    session_id = str(value).strip()
+    if not SESSION_ID_RE.fullmatch(session_id):
+        raise ValueError("invalid session id")
+    return session_id
+
+
+def issue_session(
+    now: datetime | None = None,
+    requested_role: str = "candidate",
+    requested_session_id: object | None = None,
+) -> dict[str, dict[str, object]]:
     """Create the public response and private record for a new interview session.
 
     The returned ``public`` object contains raw bearer tokens exactly once for
@@ -81,7 +97,7 @@ def issue_session(now: datetime | None = None, requested_role: str = "candidate"
     session_expires_at = created_at + timedelta(seconds=SESSION_TTL_SECONDS)
     report_expires_at = created_at + timedelta(seconds=REPORT_TTL_SECONDS)
 
-    session_id = str(uuid.uuid4())
+    session_id = normalize_requested_session_id(requested_session_id) or str(uuid.uuid4())
     room_name = f"giljob-session-{session_id}"
     session_token = generate_token("gj_session")
     report_token = generate_token("gj_report")

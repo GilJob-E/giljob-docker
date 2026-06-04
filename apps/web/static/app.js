@@ -43,6 +43,8 @@ let answerTurnAvailable = false;
 let nextQuestionRequested = false;
 let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
+let activeAnalysisSessionId = "";
+let answerTurnStartRecordCount = 0;
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
 const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
 
@@ -150,6 +152,106 @@ function renderInterviewQuestion(question) {
 function renderTranscriptStatus(message) {
   if (transcriptBody) {
     transcriptBody.textContent = message;
+  }
+}
+
+function analysisSessionId() {
+  return activeSession?.sessionId || activeInterviewId;
+}
+
+async function postAnalysis(path, body = {}) {
+  const response = await fetch(`/analysis${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `analysis request failed: HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+async function fetchAnalysisSignals(sessionId) {
+  const response = await fetch(`/analysis/signals?sessionId=${encodeURIComponent(sessionId)}`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `analysis signals failed: HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+function renderAnalysisTranscript(payload, sinceRecordCount = 0) {
+  const records = Array.isArray(payload?.records) ? payload.records.slice(sinceRecordCount) : [];
+  const latestTurnEnd = [...records].reverse().find((record) => record?.type === "turn_end");
+  const windowTranscripts = records
+    .filter((record) => record?.type === "window" && String(record?.transcript || "").trim())
+    .map((record) => String(record.transcript).trim());
+  const transcript = (latestTurnEnd?.transcript_full || windowTranscripts.join(" ") || "").trim();
+  if (transcript) {
+    renderTranscriptStatus(transcript);
+    return transcript;
+  }
+  const count = Number(payload?.recordCount || 0) - sinceRecordCount;
+  renderTranscriptStatus(count > 0 ? "전사 window는 수신됐지만 최종 turn transcript가 비어 있습니다." : "아직 수신된 전사 signal이 없습니다.");
+  return "";
+}
+
+async function restartAnalysisSubscriber(sessionId) {
+  try {
+    await postAnalysis("/subscriber/stop", {});
+  } catch (error) {
+    appendLog(`analysis subscriber stop skipped: ${error.message}`);
+  }
+  const payload = await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
+  activeAnalysisSessionId = sessionId;
+  appendLog(`analysis subscriber ready for session ${sessionId}; state ${payload.status || payload.state || "starting"}`);
+  renderTranscriptStatus("GilJobE analysis-engine이 답변 오디오를 기다리고 있습니다.");
+  return payload;
+}
+
+async function fetchSignalsAfterTurnFlush(sessionId, sinceRecordCount) {
+  let payload = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    payload = await fetchAnalysisSignals(sessionId);
+    const records = Array.isArray(payload.records) ? payload.records.slice(sinceRecordCount) : [];
+    const hasTurnEnd = records.some((record) => record?.type === "turn_end");
+    if (hasTurnEnd || (records.length > 0 && attempt >= 2)) {
+      return payload;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return payload || { records: [], recordCount: sinceRecordCount };
+}
+
+async function markAnalysisTurnStart(sessionId) {
+  try {
+    const payload = await fetchAnalysisSignals(sessionId);
+    answerTurnStartRecordCount = Number(payload.recordCount || 0);
+  } catch (error) {
+    answerTurnStartRecordCount = 0;
+    appendLog(`analysis turn baseline unavailable: ${error.message}`);
+  }
+}
+
+async function flushAnalysisTurn(sessionId) {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  try {
+    await postAnalysis("/subscriber/stop", {});
+    const payload = await fetchSignalsAfterTurnFlush(sessionId, answerTurnStartRecordCount);
+    const transcript = renderAnalysisTranscript(payload, answerTurnStartRecordCount);
+    appendLog(`analysis turn flushed for session ${sessionId}; records ${payload.recordCount || 0}`);
+    try {
+      await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
+      activeAnalysisSessionId = sessionId;
+    } catch (restartError) {
+      appendLog(`analysis subscriber restart failed: ${restartError.message}`);
+    }
+    return transcript;
+  } catch (error) {
+    renderTranscriptStatus(`전사 flush 실패: ${error.message}`);
+    appendLog(`analysis turn flush failed: ${error.message}`);
+    return "";
   }
 }
 
@@ -355,21 +457,24 @@ async function applyMediaStateToRoom() {
   appendLog(`room media updated: answer ${micEnabled ? "recording" : "ended"}, camera ${cameraEnabled ? "on" : "off"}`);
 }
 
-function startAnswerCapture() {
-  renderTranscriptStatus("답변 중입니다. 전사는 GilJobE analysis-engine 연결 전까지 생성하지 않습니다.");
-  appendLog("candidate answer turn started; STT boundary disabled pending GilJobE analysis-engine");
+async function startAnswerCapture() {
+  await markAnalysisTurnStart(analysisSessionId());
+  renderTranscriptStatus("답변 중입니다. GilJobE analysis-engine이 LiveKit 오디오를 수집하고 있습니다.");
+  appendLog("candidate answer turn started; GilJobE analysis-engine recording boundary active");
 }
 
 async function finishAnswerAndRequestNextQuestion() {
   micEnabled = false;
   await restartPreviewStream();
   await applyMediaStateToRoom();
-  lastAnswerTranscript = "후보자 답변 전사는 GilJobE analysis-engine 연결 전까지 비활성화되어 있습니다.";
-  renderTranscriptStatus("답변 종료. 전사는 다음 단계에서 GilJobE analysis-engine이 LiveKit track을 구독해 생성할 예정입니다.");
+  const sessionId = analysisSessionId();
+  renderTranscriptStatus("답변 종료. GilJobE analysis-engine에서 최종 전사를 가져오는 중입니다.");
+  const transcript = await flushAnalysisTurn(sessionId);
+  lastAnswerTranscript = transcript || "전사 결과가 비어 있습니다.";
   currentTurnIndex += 1;
   nextQuestionRequested = false;
   setAnswerTurnAvailability(false, "candidate answer ended; waiting for next interviewer question");
-  requestNextQuestion("candidate-answer-ended-no-stt");
+  requestNextQuestion("candidate-answer-ended-analysis-flushed");
 }
 
 async function toggleMic() {
@@ -382,7 +487,7 @@ async function toggleMic() {
       micEnabled = true;
       await restartPreviewStream();
       await applyMediaStateToRoom();
-      startAnswerCapture();
+      await startAnswerCapture();
       return;
     }
     await finishAnswerAndRequestNextQuestion();
@@ -430,7 +535,7 @@ async function createSession() {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role }),
+    body: JSON.stringify({ role, sessionId: activeInterviewId, interviewId: activeInterviewId }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -521,6 +626,12 @@ async function failClosedAfterJoinMediaError(room, error) {
 async function joinRoom() {
   const session = activeSession ?? (await createSession());
   const { url, token } = sessionLiveKitConfig(session);
+  try {
+    await restartAnalysisSubscriber(session.sessionId || activeInterviewId);
+  } catch (error) {
+    appendLog(`analysis subscriber unavailable before join: ${error.message}`);
+    renderTranscriptStatus("analysis-engine 연결을 확인하지 못했습니다. LiveKit 입장은 계속 진행합니다.");
+  }
   if (activeRoom) {
     activeRoom.disconnect();
   }
@@ -630,6 +741,6 @@ setRoomMode("prejoin");
 setAnswerTurnAvailability(false);
 syncMediaUi();
 hydrateProductionRoutes();
-renderTranscriptStatus("로컬 STT 경계는 제거되었습니다. GilJobE analysis-engine 연결 전까지 답변 전사는 생성하지 않습니다.");
+renderTranscriptStatus("GilJobE analysis-engine 연결 후 답변 종료 시 전사가 표시됩니다.");
 appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);
 autoJoinRoomRoute();
