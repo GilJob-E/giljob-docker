@@ -84,7 +84,7 @@ services:
       SERVICE_NAME: analysis-engine
       SERVICE_PORT: 8200
       GILJOBE_GIT_URL: ${GILJOBE_GIT_URL:-https://github.com/GilJob-E/GilJobE.git}
-      GILJOBE_GIT_REF: ${GILJOBE_GIT_REF:-b769120}
+      GILJOBE_GIT_REF: ${GILJOBE_GIT_REF:-88a4df5}
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://giljob-v2-gemma-e4b:8000}
       ANALYSIS_ENGINE_ENABLE_SUBSCRIBER: ${ANALYSIS_ENGINE_ENABLE_SUBSCRIBER:-false}
       LIVEKIT_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
