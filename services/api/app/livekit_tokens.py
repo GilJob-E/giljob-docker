@@ -87,7 +87,16 @@ def load_livekit_settings() -> LiveKitSettings | None:
     )
 
 
-def _create_livekit_join_token(settings: LiveKitSettings, *, identity: str, name: str, room_name: str) -> str:
+def _create_livekit_join_token(
+    settings: LiveKitSettings,
+    *,
+    identity: str,
+    name: str,
+    room_name: str,
+    can_publish: bool,
+    can_subscribe: bool,
+    can_publish_data: bool,
+) -> str:
     """Create a signed LiveKit room join token using the official Python SDK."""
     from livekit import api  # type: ignore[import-not-found]
 
@@ -100,9 +109,9 @@ def _create_livekit_join_token(settings: LiveKitSettings, *, identity: str, name
             api.VideoGrants(
                 room_join=True,
                 room=room_name,
-                can_publish=True,
-                can_subscribe=True,
-                can_publish_data=True,
+                can_publish=can_publish,
+                can_subscribe=can_subscribe,
+                can_publish_data=can_publish_data,
             )
         )
     )
@@ -132,6 +141,9 @@ def issue_candidate_livekit_token(*, room_name: str, session_id: str) -> dict[st
         identity=identity,
         name=participant_name,
         room_name=room_name,
+        can_publish=True,
+        can_subscribe=True,
+        can_publish_data=True,
     )
     return {
         # url is retained for existing clients; it is always browser-facing.
@@ -141,6 +153,49 @@ def issue_candidate_livekit_token(*, room_name: str, session_id: str) -> dict[st
         "participantIdentity": identity,
         "participantName": participant_name,
         "candidateToken": candidate_token,
+        "tokenStatus": "issued",
+        "tokenTtlSeconds": settings.token_ttl_seconds,
+    }
+
+
+def issue_avatar_viewer_livekit_token(*, room_name: str, session_id: str) -> dict[str, Any]:
+    """Return a subscribe-only LiveKit token for the SpatialReal RTC renderer.
+
+    The browser already joins as the candidate participant. AvatarKit RTC opens its
+    own LiveKit client, so it must not reuse the candidate token/identity.
+    """
+    identity = f"avatar-viewer-{session_id}"
+    participant_name = "spatialreal-avatar-viewer"
+    settings = load_livekit_settings()
+
+    if settings is None:
+        return {
+            "url": None,
+            "publicUrl": None,
+            "roomName": room_name,
+            "participantIdentity": identity,
+            "participantName": participant_name,
+            "avatarClientToken": None,
+            "tokenStatus": "not_configured",
+            "deferredReason": "livekit_credentials_missing",
+        }
+
+    avatar_token = _create_livekit_join_token(
+        settings,
+        identity=identity,
+        name=participant_name,
+        room_name=room_name,
+        can_publish=False,
+        can_subscribe=True,
+        can_publish_data=False,
+    )
+    return {
+        "url": settings.public_url,
+        "publicUrl": settings.public_url,
+        "roomName": room_name,
+        "participantIdentity": identity,
+        "participantName": participant_name,
+        "avatarClientToken": avatar_token,
         "tokenStatus": "issued",
         "tokenTtlSeconds": settings.token_ttl_seconds,
     }

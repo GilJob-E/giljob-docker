@@ -16,6 +16,8 @@ WORKDIR /app
 COPY server.py /app/server.py
 COPY static /app/static
 COPY --from=deps /deps/node_modules/livekit-client/dist /app/static/vendor/livekit-client/dist
+COPY --from=deps /deps/node_modules/@spatialwalk/avatarkit/dist /app/static/vendor/@spatialwalk/avatarkit/dist
+COPY --from=deps /deps/node_modules/@spatialwalk/avatarkit-rtc/dist /app/static/vendor/@spatialwalk/avatarkit-rtc/dist
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

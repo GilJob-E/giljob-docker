@@ -48,7 +48,9 @@
                 <small id="interviewer-media-state">질문 대기</small>
               </div>
               <div id="avatar-surface" class="avatar-surface" data-state="pending">
-                <div class="bot-orb" aria-hidden="true">G</div>
+                <div id="avatar-render-target" class="avatar-render-target" aria-hidden="true">
+                  <div class="bot-orb" aria-hidden="true">G</div>
+                </div>
                 <span id="avatar-status-text" class="avatar-status-text">Avatar 준비 중</span>
               </div>
               <strong>면접관</strong>
@@ -132,6 +134,14 @@
       </section>
     </main>
 
+    <script type="importmap">
+      {
+        "imports": {
+          "livekit-client": "/vendor/livekit-client/dist/livekit-client.esm.mjs",
+          "@spatialwalk/avatarkit": "/vendor/@spatialwalk/avatarkit/dist/index.js"
+        }
+      }
+    </script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

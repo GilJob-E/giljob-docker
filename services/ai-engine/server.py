@@ -9,6 +9,8 @@ analysis-engine boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import asyncio
 import base64
 import json
 import math
@@ -93,6 +95,13 @@ class AvatarSettings:
     failure_fallback_provider: str
     audio_sample_rate: int
     audio_channel_count: int
+    rtc_egress_enabled: bool
+    livekit_url: str
+    livekit_api_key: str
+    livekit_api_secret: str
+    rtc_publisher_id_prefix: str
+    rtc_idle_timeout_seconds: int
+    rtc_settle_seconds: float
 
     @property
     def key_configured(self) -> bool:
@@ -132,6 +141,20 @@ def _spatialreal_console_endpoint() -> str:
     return "https://console.ap-northeast.spatialwalk.cloud"
 
 
+def _spatialreal_ingress_endpoint() -> str:
+    configured = os.getenv("SPATIALREAL_INGRESS_ENDPOINT", "").strip().rstrip("/")
+    if configured:
+        return configured
+    region = os.getenv("SPATIALREAL_REGION", "ap-northeast").strip().lower() or "ap-northeast"
+    if region == "us-west":
+        return "wss://api.us-west.spatialwalk.cloud/v2/driveningress"
+    return "wss://api.ap-northeast.spatialwalk.cloud/v2/driveningress"
+
+
+def _env_truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def load_avatar_settings() -> AvatarSettings:
     return AvatarSettings(
         provider=os.getenv("AVATAR_PROVIDER", "disabled").strip().lower() or "disabled",
@@ -139,12 +162,19 @@ def load_avatar_settings() -> AvatarSettings:
         spatialreal_app_id=os.getenv("SPATIALREAL_APP_ID", "").strip(),
         spatialreal_avatar_id=os.getenv("SPATIALREAL_AVATAR_ID", "").strip(),
         console_endpoint=_spatialreal_console_endpoint(),
-        ingress_endpoint=os.getenv("SPATIALREAL_INGRESS_ENDPOINT", "").strip().rstrip("/"),
+        ingress_endpoint=_spatialreal_ingress_endpoint(),
         session_ttl_seconds=min(23 * 60 * 60, max(60, int(os.getenv("SPATIALREAL_SESSION_TTL_SECONDS", "900")))),
         timeout_seconds=float(os.getenv("SPATIALREAL_TIMEOUT_SECONDS", os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))),
         failure_fallback_provider=os.getenv("AVATAR_PROVIDER_FAILURE_FALLBACK", "").strip().lower(),
         audio_sample_rate=int(os.getenv("SPATIALREAL_AUDIO_SAMPLE_RATE", "16000")),
         audio_channel_count=int(os.getenv("SPATIALREAL_AUDIO_CHANNEL_COUNT", "1")),
+        rtc_egress_enabled=_env_truthy(os.getenv("SPATIALREAL_RTC_EGRESS_ENABLED")),
+        livekit_url=(os.getenv("SPATIALREAL_RTC_LIVEKIT_URL") or os.getenv("LIVEKIT_PUBLIC_URL") or os.getenv("LIVEKIT_URL") or "").strip(),
+        livekit_api_key=os.getenv("LIVEKIT_API_KEY", "").strip(),
+        livekit_api_secret=os.getenv("LIVEKIT_API_SECRET", "").strip(),
+        rtc_publisher_id_prefix=os.getenv("SPATIALREAL_RTC_PUBLISHER_ID_PREFIX", "spatialreal-avatar").strip() or "spatialreal-avatar",
+        rtc_idle_timeout_seconds=max(0, int(os.getenv("SPATIALREAL_RTC_IDLE_TIMEOUT_SECONDS", "30"))),
+        rtc_settle_seconds=max(0.0, float(os.getenv("SPATIALREAL_RTC_SETTLE_SECONDS", "1.0"))),
     )
 
 
@@ -495,8 +525,159 @@ def synthesize_gemini_tts(settings: TTSSettings, session_id: str, turn_id: str, 
     }
 
 
+def _room_name_for_session(session_id: str) -> str:
+    return f"giljob-session-{session_id}"
+
+
+def _publisher_id_for_turn(settings: AvatarSettings, session_id: str, turn_id: str) -> str:
+    raw = f"{settings.rtc_publisher_id_prefix}-{session_id}-{turn_id}"
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", raw)[:120]
+
+
+def _extract_wav_pcm(audio: bytes) -> tuple[bytes, int, int] | None:
+    try:
+        with wave.open(BytesIO(audio), "rb") as wav:
+            channels = wav.getnchannels()
+            sample_width = wav.getsampwidth()
+            sample_rate = wav.getframerate()
+            frames = wav.readframes(wav.getnframes())
+    except (wave.Error, EOFError):
+        return None
+    if channels != 1 or sample_width != 2 or not frames:
+        return None
+    return frames, sample_rate, channels
+
+
+def _avatar_rtc_disabled_payload(settings: AvatarSettings, reason: str) -> dict[str, object]:
+    return {
+        "mode": "livekit-egress",
+        "provider": "spatialreal",
+        "status": "skipped",
+        "reason": reason,
+        "enabled": settings.rtc_egress_enabled,
+    }
+
+
+def _is_loopback_livekit_url(url: str) -> bool:
+    return any(marker in url.lower() for marker in ("127.0.0.1", "localhost", "[::1]", "://::1"))
+
+
+async def _send_spatialreal_rtc_audio_async(
+    settings: AvatarSettings,
+    *,
+    session_id: str,
+    turn_id: str,
+    audio: bytes,
+    sample_rate: int,
+) -> dict[str, object]:
+    # Import lazily so fake/local question generation can run without the optional
+    # server SDK installed, and so provider secrets never enter frontend code.
+    from avatarkit import LiveKitEgressConfig, new_avatar_session  # type: ignore[import-not-found]
+
+    expires_at = int(time.time()) + settings.session_ttl_seconds
+    session_token, error_payload = fetch_spatialreal_session_token(settings, expires_at)
+    if error_payload is not None:
+        return {**_avatar_rtc_disabled_payload(settings, "session_token_failed"), "status": "failed"}
+    assert session_token is not None
+
+    room_name = _room_name_for_session(session_id)
+    publisher_id = _publisher_id_for_turn(settings, session_id, turn_id)
+    avatar_session = new_avatar_session(
+        api_key=settings.spatialreal_api_key,
+        app_id=settings.spatialreal_app_id,
+        avatar_id=settings.spatialreal_avatar_id,
+        console_endpoint_url=settings.console_endpoint,
+        ingress_endpoint_url=settings.ingress_endpoint,
+        expire_at=datetime.now(timezone.utc) + timedelta(seconds=settings.session_ttl_seconds),
+        sample_rate=sample_rate,
+        livekit_egress=LiveKitEgressConfig(
+            url=settings.livekit_url,
+            api_key=settings.livekit_api_key,
+            api_secret=settings.livekit_api_secret,
+            room_name=room_name,
+            publisher_id=publisher_id,
+            idle_timeout=settings.rtc_idle_timeout_seconds,
+        ),
+    )
+    # The official SDK currently creates session tokens with aiohttp default
+    # headers; this service brokers tokens itself with a provider-accepted
+    # User-Agent, then starts the SDK session with that short-lived token.
+    avatar_session._session_token = session_token  # noqa: SLF001 - provider-token mediation boundary
+    try:
+        connection_id = await avatar_session.start()
+        request_id = await avatar_session.send_audio(audio, end=True)
+        if settings.rtc_settle_seconds:
+            await asyncio.sleep(settings.rtc_settle_seconds)
+        return {
+            "mode": "livekit-egress",
+            "provider": "spatialreal",
+            "status": "sent",
+            "roomName": room_name,
+            "publisherId": publisher_id,
+            "connectionId": connection_id,
+            "requestId": request_id,
+            "tokenHidden": True,
+            "sampleRate": sample_rate,
+        }
+    finally:
+        await avatar_session.close()
+
+
+def maybe_send_spatialreal_rtc_audio(
+    settings: AvatarSettings,
+    *,
+    session_id: str,
+    turn_id: str,
+    audio_payload: dict[str, object],
+) -> dict[str, object]:
+    if not settings.rtc_egress_enabled:
+        return _avatar_rtc_disabled_payload(settings, "rtc_egress_disabled")
+    if settings.provider != "spatialreal":
+        return _avatar_rtc_disabled_payload(settings, "avatar_provider_not_spatialreal")
+    if not (settings.key_configured and settings.app_configured and settings.avatar_configured):
+        return _avatar_rtc_disabled_payload(settings, "spatialreal_credentials_missing")
+    if not settings.ingress_endpoint:
+        return _avatar_rtc_disabled_payload(settings, "spatialreal_ingress_endpoint_missing")
+    if not (settings.livekit_url and settings.livekit_api_key and settings.livekit_api_secret):
+        return _avatar_rtc_disabled_payload(settings, "livekit_egress_credentials_missing")
+    if _is_loopback_livekit_url(settings.livekit_url):
+        return _avatar_rtc_disabled_payload(settings, "livekit_egress_url_not_public")
+
+    audio_base64 = _safe_str(audio_payload.get("base64") or "", 10_000_000)
+    if not audio_base64:
+        return _avatar_rtc_disabled_payload(settings, "audio_missing")
+    try:
+        audio = base64.b64decode(audio_base64)
+    except ValueError:
+        return _avatar_rtc_disabled_payload(settings, "audio_base64_invalid")
+    wav = _extract_wav_pcm(audio)
+    if wav is None:
+        return _avatar_rtc_disabled_payload(settings, "only_pcm_wav_supported_for_rtc_egress")
+    pcm, sample_rate, _channels = wav
+    try:
+        return asyncio.run(asyncio.wait_for(
+            _send_spatialreal_rtc_audio_async(
+                settings,
+                session_id=session_id,
+                turn_id=turn_id,
+                audio=pcm,
+                sample_rate=sample_rate,
+            ),
+            timeout=settings.timeout_seconds,
+        ))
+    except Exception:
+        return {
+            "mode": "livekit-egress",
+            "provider": "spatialreal",
+            "status": "failed",
+            "reason": "provider_request_failed",
+            "tokenHidden": True,
+        }
+
+
 def tts_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
     settings = load_tts_settings()
+    avatar_settings = load_avatar_settings()
     session_id = _safe_str(payload.get("sessionId") or payload.get("interviewId") or "local-demo", 96)
     turn_id = _safe_str(payload.get("turnId") or payload.get("questionId") or "turn-0001", 120)
     text = _safe_str(payload.get("text") or payload.get("question") or "", MAX_TTS_TEXT_CHARS)
@@ -504,21 +685,30 @@ def tts_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
         return 400, {"error": "invalid_session_id"}
     if not text:
         return 400, {"error": "missing_text"}
+
     if settings.provider == "fake":
-        return synthesize_fake_tts(session_id, turn_id, text)
-    if settings.provider == "elevenlabs":
+        status, response = synthesize_fake_tts(session_id, turn_id, text)
+    elif settings.provider == "elevenlabs":
         status, response = synthesize_elevenlabs_tts(settings, session_id, turn_id, text)
         if status != 200 and settings.failure_fallback_provider == "fake":
             reason = _safe_str(response.get("error") or "provider_failed", 80)
-            return synthesize_fake_tts(session_id, turn_id, text, fallback_from="elevenlabs", fallback_reason=reason)
-        return status, response
-    if settings.provider == "gemini":
+            status, response = synthesize_fake_tts(session_id, turn_id, text, fallback_from="elevenlabs", fallback_reason=reason)
+    elif settings.provider == "gemini":
         status, response = synthesize_gemini_tts(settings, session_id, turn_id, text)
         if status != 200 and settings.failure_fallback_provider == "fake":
             reason = _safe_str(response.get("error") or "provider_failed", 80)
-            return synthesize_fake_tts(session_id, turn_id, text, fallback_from="gemini", fallback_reason=reason)
-        return status, response
-    return 400, {"error": "unsupported_tts_provider", "provider": settings.provider}
+            status, response = synthesize_fake_tts(session_id, turn_id, text, fallback_from="gemini", fallback_reason=reason)
+    else:
+        return 400, {"error": "unsupported_tts_provider", "provider": settings.provider}
+
+    if status == 200 and isinstance(response.get("audio"), dict):
+        response["avatarRtc"] = maybe_send_spatialreal_rtc_audio(
+            avatar_settings,
+            session_id=session_id,
+            turn_id=turn_id,
+            audio_payload=response["audio"],
+        )
+    return status, response
 
 
 def _avatar_client_config(settings: AvatarSettings, *, include_session_token: str | None = None, expires_at: int | None = None) -> dict[str, object]:
@@ -530,7 +720,7 @@ def _avatar_client_config(settings: AvatarSettings, *, include_session_token: st
             "sampleRate": settings.audio_sample_rate,
             "sampleEncoding": "pcm_s16le",
         },
-        "drivingServiceMode": "sdk",
+        "drivingServiceMode": "host",
         "environment": "intl",
         "tokenSource": "server-mediated",
     }

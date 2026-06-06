@@ -268,6 +268,10 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["interviewId"], "local-demo")
         self.assertEqual(payload["status"], "session_issued")
         self.assertEqual(payload["delivery"]["mode"], "api-mediated-spatialreal-session")
+        client = payload["client"]
+        self.assertIn("livekit", client)
+        self.assertEqual(client["livekit"]["tokenStatus"], "not_configured")
+        self.assertIsNone(client["livekit"]["avatarClientToken"])
         self.assertEqual(captured[0]["path"], "/avatar/session")
         upstream_payload = json.loads(str(captured[0]["body"]))
         self.assertEqual(upstream_payload["interviewId"], "local-demo")

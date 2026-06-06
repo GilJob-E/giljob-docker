@@ -16,6 +16,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from app.livekit_tokens import issue_avatar_viewer_livekit_token
 from app.token_contract import issue_session
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "api")
@@ -167,6 +168,12 @@ def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[i
             "publicDirectAvatarRoutes": "blocked",
         }
         return upstream_status, public_failure
+    client = upstream.get("client")
+    if isinstance(client, dict):
+        client["livekit"] = issue_avatar_viewer_livekit_token(
+            room_name=f"giljob-session-{interview_id}",
+            session_id=interview_id,
+        )
     upstream["interviewId"] = interview_id
     upstream["delivery"] = {
         "mode": "api-mediated-spatialreal-session",

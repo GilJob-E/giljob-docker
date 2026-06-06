@@ -48,6 +48,14 @@ LLM_ENV_NAMES = (
     "AVATAR_PROVIDER_FAILURE_FALLBACK",
     "SPATIALREAL_AUDIO_SAMPLE_RATE",
     "SPATIALREAL_AUDIO_CHANNEL_COUNT",
+    "SPATIALREAL_RTC_EGRESS_ENABLED",
+    "SPATIALREAL_RTC_LIVEKIT_URL",
+    "SPATIALREAL_RTC_PUBLISHER_ID_PREFIX",
+    "SPATIALREAL_RTC_IDLE_TIMEOUT_SECONDS",
+    "SPATIALREAL_RTC_SETTLE_SECONDS",
+    "LIVEKIT_PUBLIC_URL",
+    "LIVEKIT_API_KEY",
+    "LIVEKIT_API_SECRET",
 )
 
 
@@ -448,6 +456,7 @@ class AIEngineContractTest(unittest.TestCase):
         audio_format = cast(dict[str, object], client["audioFormat"])
         self.assertEqual(audio_format["channelCount"], 1)
         self.assertEqual(audio_format["sampleRate"], 16000)
+        self.assertEqual(client["drivingServiceMode"], "host")
         request = mocked.call_args.args[0]
         self.assertEqual(request.full_url, "https://console.ap-northeast.spatialwalk.cloud/v1/console/session-tokens")
         self.assertEqual(request.headers["X-api-key"], "secret-spatialreal-key")
@@ -508,6 +517,47 @@ class AIEngineContractTest(unittest.TestCase):
         self.assertLess(caddyfile.index("@blocked_tts"), caddyfile.index("@blocked_ai"))
         self.assertLess(caddyfile.index("@blocked_avatar"), caddyfile.index("@blocked_ai"))
 
+
+    def test_tts_response_reports_avatar_rtc_skipped_when_disabled(self) -> None:
+        os.environ["VOICE_PROVIDER"] = "fake"
+        os.environ["AVATAR_PROVIDER"] = "spatialreal"
+        os.environ["SPATIALREAL_API_KEY"] = "secret-spatialreal-key"
+        os.environ["SPATIALREAL_APP_ID"] = "app-123"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-456"
+        status, payload = ai_engine.tts_response({"sessionId": "local-demo", "turnId": "turn-0001", "text": "테스트 질문"})
+        body = json.dumps(payload, ensure_ascii=False)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(payload["avatarRtc"]["mode"], "livekit-egress")
+        self.assertEqual(payload["avatarRtc"]["status"], "skipped")
+        self.assertEqual(payload["avatarRtc"]["reason"], "rtc_egress_disabled")
+        self.assertNotIn("secret-spatialreal-key", body)
+
+    def test_spatialreal_ingress_endpoint_defaults_by_region_for_rtc_egress(self) -> None:
+        os.environ["SPATIALREAL_REGION"] = "us-west"
+        settings = ai_engine.load_avatar_settings()
+        self.assertEqual(settings.ingress_endpoint, "wss://api.us-west.spatialwalk.cloud/v2/driveningress")
+
+        os.environ["SPATIALREAL_REGION"] = "ap-northeast"
+        settings = ai_engine.load_avatar_settings()
+        self.assertEqual(settings.ingress_endpoint, "wss://api.ap-northeast.spatialwalk.cloud/v2/driveningress")
+
+    def test_avatar_rtc_egress_fails_fast_for_loopback_livekit_url(self) -> None:
+        os.environ["VOICE_PROVIDER"] = "fake"
+        os.environ["AVATAR_PROVIDER"] = "spatialreal"
+        os.environ["SPATIALREAL_RTC_EGRESS_ENABLED"] = "true"
+        os.environ["SPATIALREAL_API_KEY"] = "secret-spatialreal-key"
+        os.environ["SPATIALREAL_APP_ID"] = "app-123"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-456"
+        os.environ["LIVEKIT_PUBLIC_URL"] = "ws://127.0.0.1:7880"
+        os.environ["LIVEKIT_API_KEY"] = "devkey"
+        os.environ["LIVEKIT_API_SECRET"] = "devsecret-minimum-32-bytes"
+        status, payload = ai_engine.tts_response({"sessionId": "local-demo", "turnId": "turn-0001", "text": "테스트 질문"})
+        body = json.dumps(payload, ensure_ascii=False)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(payload["avatarRtc"]["status"], "skipped")
+        self.assertEqual(payload["avatarRtc"]["reason"], "livekit_egress_url_not_public")
+        self.assertNotIn("secret-spatialreal-key", body)
+
     def test_compose_wires_tts_and_avatar_env_to_ai_engine(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
         for name in (
@@ -528,6 +578,14 @@ class AIEngineContractTest(unittest.TestCase):
             "AVATAR_PROVIDER_FAILURE_FALLBACK",
             "SPATIALREAL_AUDIO_SAMPLE_RATE",
             "SPATIALREAL_AUDIO_CHANNEL_COUNT",
+            "SPATIALREAL_RTC_EGRESS_ENABLED",
+            "SPATIALREAL_RTC_LIVEKIT_URL",
+            "SPATIALREAL_RTC_PUBLISHER_ID_PREFIX",
+            "SPATIALREAL_RTC_IDLE_TIMEOUT_SECONDS",
+            "SPATIALREAL_RTC_SETTLE_SECONDS",
+            "LIVEKIT_PUBLIC_URL",
+            "LIVEKIT_API_KEY",
+            "LIVEKIT_API_SECRET",
         ):
             self.assertIn(name, compose)
 

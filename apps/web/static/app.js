@@ -34,6 +34,7 @@ const interviewerQuestionText = document.querySelector("#interviewer-question-te
 const interviewerMediaState = document.querySelector("#interviewer-media-state");
 const interviewerAudio = document.querySelector("#interviewer-audio");
 const avatarSurface = document.querySelector("#avatar-surface");
+const avatarRenderTarget = document.querySelector("#avatar-render-target");
 const avatarStatusText = document.querySelector("#avatar-status-text");
 const avatarPanelTitle = document.querySelector("#avatar-panel-title");
 const avatarPanelBody = document.querySelector("#avatar-panel-body");
@@ -50,6 +51,8 @@ let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
 let activeAnalysisSessionId = "";
 let activeAvatarSession = null;
+let avatarRtcRuntime = { sdkInitialized: false, player: null, view: null, provider: null, avatarId: "" };
+let avatarRtcInitializing = null;
 let answerTurnStartRecordCount = 0;
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
 const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
@@ -152,6 +155,154 @@ function avatarStatusLabel(payload) {
   return "Avatar 대기";
 }
 
+function avatarLiveKitConfig(payload) {
+  const livekit = payload?.client?.livekit || {};
+  const url = livekit.publicUrl || livekit.url;
+  const token = livekit.avatarClientToken;
+  const roomName = livekit.roomName || activeSession?.livekit?.roomName || activeSession?.roomName;
+  if (!url || !token || !roomName || livekit.tokenStatus !== "issued") {
+    return null;
+  }
+  return { url, token, roomName };
+}
+
+function setAvatarPanelMessage(message) {
+  if (avatarPanelBody) {
+    avatarPanelBody.textContent = message;
+  }
+}
+
+function setAvatarRtcState(state, message) {
+  if (avatarSurface) {
+    avatarSurface.dataset.state = state;
+  }
+  if (avatarStatusText) {
+    avatarStatusText.textContent = message;
+  }
+  if (avatarPanelTitle) {
+    avatarPanelTitle.textContent = message;
+  }
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function renderAvatarRtcEgressStatus(avatarRtc) {
+  if (!avatarRtc) {
+    return;
+  }
+  const status = String(avatarRtc.status || "unknown");
+  const reason = String(avatarRtc.reason || "");
+  if (status === "sent") {
+    setAvatarPanelMessage(`SpatialReal egress가 LiveKit room(${avatarRtc.roomName || "room"})으로 avatar stream을 보냈습니다. token은 숨겨집니다.`);
+    appendLog(`avatar rtc egress sent; publisher ${avatarRtc.publisherId || "unknown"}; tokens hidden`);
+    return;
+  }
+  if (status === "skipped") {
+    setAvatarPanelMessage(`Avatar RTC egress 대기: ${reason || "not ready"}. TTS 오디오는 계속 재생됩니다.`);
+    appendLog(`avatar rtc egress skipped: ${reason || "unknown"}; tokens hidden`);
+    return;
+  }
+  if (status === "failed") {
+    setAvatarPanelMessage(`Avatar RTC egress 실패: ${reason || "provider_request_failed"}. TTS 오디오는 계속 재생됩니다.`);
+    appendLog(`avatar rtc egress failed: ${reason || "unknown"}; tokens hidden`);
+  }
+}
+
+async function disconnectAvatarRtc() {
+  const { player, view } = avatarRtcRuntime;
+  avatarRtcRuntime = { sdkInitialized: avatarRtcRuntime.sdkInitialized, player: null, view: null, provider: null, avatarId: "" };
+  if (player) {
+    await player.disconnect().catch((error) => appendLog(`avatar rtc disconnect skipped: ${errorMessage(error)}`));
+  }
+  if (view) {
+    view.dispose();
+  }
+  avatarRenderTarget?.classList.remove("is-rtc-active");
+}
+
+async function initializeAvatarRtc(payload) {
+  if (!payload?.ready || payload?.provider !== "spatialreal") {
+    return;
+  }
+  if (avatarRtcInitializing) {
+    return avatarRtcInitializing;
+  }
+  avatarRtcInitializing = (async () => {
+    const client = payload.client || {};
+    const appId = client.appId;
+    const avatarId = client.avatarId;
+    const sessionToken = client.sessionToken;
+    const livekitConfig = avatarLiveKitConfig(payload);
+    if (!appId || !avatarId || !sessionToken || !livekitConfig) {
+      setAvatarPanelMessage("SpatialReal session은 준비됐지만 AvatarKit RTC용 LiveKit viewer token이 아직 없습니다. token은 화면과 로그에 출력하지 않습니다.");
+      appendLog("avatar rtc waiting for app/avatar/session/livekit viewer config; tokens hidden");
+      return;
+    }
+
+    try {
+      setAvatarRtcState("ready", "Avatar RTC 준비 중");
+      const [{ AvatarSDK, AvatarManager, AvatarView, DrivingServiceMode, Environment, LogLevel }, { AvatarPlayer, LiveKitProvider }] = await Promise.all([
+        import("./vendor/@spatialwalk/avatarkit/dist/index.js"),
+        import("./vendor/@spatialwalk/avatarkit-rtc/dist/index.js"),
+      ]);
+
+      if (!AvatarSDK.isInitialized) {
+        await AvatarSDK.initialize(appId, {
+          environment: Environment.intl,
+          drivingServiceMode: DrivingServiceMode.host,
+          logLevel: LogLevel.warning,
+          audioFormat: {
+            channelCount: client.audioFormat?.channelCount || 1,
+            sampleRate: client.audioFormat?.sampleRate || 16000,
+          },
+        });
+        avatarRtcRuntime.sdkInitialized = true;
+      }
+      AvatarSDK.setSessionToken(sessionToken);
+
+      if (!avatarRenderTarget) {
+        throw new Error("avatar render target is missing");
+      }
+      await disconnectAvatarRtc();
+      setAvatarPanelMessage("AvatarKit RTC가 avatar asset을 불러오는 중입니다. token은 숨겨집니다.");
+      const avatar = await AvatarManager.shared.load(avatarId, (progress) => {
+        if (progress?.type === "downloading" && typeof progress.progress === "number") {
+          setAvatarPanelMessage(`Avatar asset 다운로드 중 ${Math.round(progress.progress * 100)}%. token은 숨겨집니다.`);
+        }
+      }, true);
+      const view = new AvatarView(avatar, avatarRenderTarget);
+      const provider = new LiveKitProvider();
+      const player = new AvatarPlayer(provider, view, { logLevel: "warning" });
+      player.on("connected", () => {
+        setAvatarRtcState("ready", "Avatar RTC 연결됨");
+        setAvatarPanelMessage("SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다.");
+        appendLog("avatar rtc connected through LiveKit; tokens hidden");
+      });
+      player.on("disconnected", () => appendLog("avatar rtc disconnected"));
+      player.on("stalled", () => appendLog("avatar rtc stalled; waiting for SpatialReal publisher frames"));
+      player.on("error", (error) => {
+        const message = errorMessage(error);
+        setAvatarRtcState("error", "Avatar RTC 오류");
+        setAvatarPanelMessage(`AvatarKit RTC 오류: ${message}`);
+        appendLog(`avatar rtc error: ${message}`);
+      });
+      await player.connect(livekitConfig);
+      avatarRenderTarget.classList.add("is-rtc-active");
+      avatarRtcRuntime = { sdkInitialized: true, player, view, provider, avatarId };
+    } catch (error) {
+      const message = errorMessage(error);
+      setAvatarRtcState("error", "Avatar RTC 연결 실패");
+      setAvatarPanelMessage(`AvatarKit RTC 연결 실패: ${message}`);
+      appendLog(`avatar rtc failed: ${message}`);
+    } finally {
+      avatarRtcInitializing = null;
+    }
+  })();
+  return avatarRtcInitializing;
+}
+
 function renderAvatarState(payload) {
   activeAvatarSession = payload || null;
   const state = payload?.ready ? "ready" : payload?.error ? "error" : payload?.status === "disabled" ? "disabled" : "pending";
@@ -168,7 +319,9 @@ function renderAvatarState(payload) {
   if (avatarPanelBody) {
     if (payload?.ready) {
       const audio = payload?.client?.audioFormat || {};
-      avatarPanelBody.textContent = `SpatialReal session이 발급되었습니다. session token은 화면에 표시하지 않습니다. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz.`;
+      const livekit = payload?.client?.livekit || {};
+      const rtcStatus = livekit.tokenStatus === "issued" ? "AvatarKit RTC viewer token 준비됨" : "AvatarKit RTC viewer token 대기";
+      avatarPanelBody.textContent = `SpatialReal session이 발급되었습니다. session token은 화면에 표시하지 않습니다. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${rtcStatus}.`;
     } else if (payload?.reason) {
       avatarPanelBody.textContent = `상태: ${payload.reason}. 키가 구성되면 서버가 session token을 중개합니다.`;
     } else if (payload?.error) {
@@ -193,11 +346,13 @@ async function requestAvatarSession(reason = "room-join") {
     }
     renderAvatarState(payload);
     appendLog(`avatar session state: ${payload.status || "unknown"}; provider ${payload.provider || "unknown"}; session token hidden`);
+    initializeAvatarRtc(payload);
     return payload;
   } catch (error) {
-    const payload = { error: "avatar_session_failed", message: error.message, ready: false };
+    const message = errorMessage(error);
+    const payload = { error: "avatar_session_failed", message, ready: false };
     renderAvatarState(payload);
-    appendLog(`avatar session failed: ${error.message}`);
+    appendLog(`avatar session failed: ${message}`);
     return payload;
   }
 }
@@ -274,7 +429,7 @@ async function restartAnalysisSubscriber(sessionId) {
   try {
     await postAnalysis("/subscriber/stop", {});
   } catch (error) {
-    appendLog(`analysis subscriber stop skipped: ${error.message}`);
+    appendLog(`analysis subscriber stop skipped: ${errorMessage(error)}`);
   }
   const payload = await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
   activeAnalysisSessionId = sessionId;
@@ -303,7 +458,7 @@ async function markAnalysisTurnStart(sessionId) {
     answerTurnStartRecordCount = Number(payload.recordCount || 0);
   } catch (error) {
     answerTurnStartRecordCount = 0;
-    appendLog(`analysis turn baseline unavailable: ${error.message}`);
+    appendLog(`analysis turn baseline unavailable: ${errorMessage(error)}`);
   }
 }
 
@@ -318,12 +473,13 @@ async function flushAnalysisTurn(sessionId) {
       await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
       activeAnalysisSessionId = sessionId;
     } catch (restartError) {
-      appendLog(`analysis subscriber restart failed: ${restartError.message}`);
+      appendLog(`analysis subscriber restart failed: ${errorMessage(restartError)}`);
     }
     return transcript;
   } catch (error) {
-    renderTranscriptStatus(`전사 flush 실패: ${error.message}`);
-    appendLog(`analysis turn flush failed: ${error.message}`);
+    const message = errorMessage(error);
+    renderTranscriptStatus(`전사 flush 실패: ${message}`);
+    appendLog(`analysis turn flush failed: ${message}`);
     return "";
   }
 }
@@ -380,6 +536,7 @@ async function playInterviewerQuestion(payload) {
     if (!response.ok) {
       throw new Error(ttsPayload.message || ttsPayload.error || `tts request failed: HTTP ${response.status}`);
     }
+    renderAvatarRtcEgressStatus(ttsPayload.avatarRtc);
     const dataUrl = audioDataUrl(ttsPayload.audio);
     if (!dataUrl || !interviewerAudio) {
       appendLog(`tts audio unavailable; provider ${ttsPayload.audio?.provider || "unknown"}`);
@@ -408,7 +565,7 @@ async function playInterviewerQuestion(payload) {
       interviewerAudio.addEventListener("error", done, { once: true });
     });
   } catch (error) {
-    appendLog(`interviewer tts playback skipped: ${error.message}`);
+    appendLog(`interviewer tts playback skipped: ${errorMessage(error)}`);
   } finally {
     if (interviewerMediaState) {
       interviewerMediaState.textContent = "질문 완료";
@@ -444,13 +601,14 @@ async function requestNextQuestion(reason = "manual") {
     await playInterviewerQuestion(payload);
     markInterviewerQuestionEnded(payload);
   } catch (error) {
+    const message = errorMessage(error);
     nextQuestionRequested = false;
     renderInterviewQuestion(null);
     if (interviewerMediaState) {
       interviewerMediaState.textContent = "질문 실패";
     }
-    setStatus(`question request failed: ${error.message}`, "error");
-    appendLog(`question request failed: ${error.message}`);
+    setStatus(`question request failed: ${message}`, "error");
+    appendLog(`question request failed: ${message}`);
   }
 }
 
@@ -635,11 +793,12 @@ async function toggleMic() {
     }
     await finishAnswerAndRequestNextQuestion();
   } catch (error) {
+    const message = errorMessage(error);
     micEnabled = false;
     stopPreviewStream();
     syncMediaUi();
-    setStatus(`answer turn failed: ${error.message}`, "error");
-    appendLog(`answer turn failed: ${error.message}`);
+    setStatus(`answer turn failed: ${message}`, "error");
+    appendLog(`answer turn failed: ${message}`);
   }
 }
 
@@ -649,12 +808,13 @@ async function toggleCamera() {
     await restartPreviewStream();
     await applyMediaStateToRoom();
   } catch (error) {
+    const message = errorMessage(error);
     micEnabled = false;
     cameraEnabled = false;
     stopPreviewStream();
     syncMediaUi();
-    setStatus(`media permission failed: ${error.message}`, "error");
-    appendLog(`media permission failed: ${error.message}`);
+    setStatus(`media permission failed: ${message}`, "error");
+    appendLog(`media permission failed: ${message}`);
   }
 }
 
@@ -752,7 +912,7 @@ async function disableLocalMedia(room) {
 }
 
 async function failClosedAfterJoinMediaError(room, error) {
-  appendLog(`media publish failed after join; disconnecting room fail-closed: ${error.message}`);
+  appendLog(`media publish failed after join; disconnecting room fail-closed: ${errorMessage(error)}`);
   await disableLocalMedia(room);
   room.disconnect();
   if (activeRoom === room) {
@@ -773,7 +933,7 @@ async function joinRoom() {
   try {
     await restartAnalysisSubscriber(session.sessionId || activeInterviewId);
   } catch (error) {
-    appendLog(`analysis subscriber unavailable before join: ${error.message}`);
+    appendLog(`analysis subscriber unavailable before join: ${errorMessage(error)}`);
     renderTranscriptStatus("analysis-engine 연결을 확인하지 못했습니다. LiveKit 입장은 계속 진행합니다.");
   }
   if (activeRoom) {
@@ -801,9 +961,10 @@ async function autoJoinRoomRoute() {
   try {
     await joinRoom();
   } catch (error) {
+    const message = errorMessage(error);
     setRoomMode("prejoin");
-    setStatus(error.message, "error");
-    appendLog(`error: ${error.message}`);
+    setStatus(message, "error");
+    appendLog(`error: ${message}`);
     if (leaveButton) {
       leaveButton.disabled = true;
     }
@@ -815,6 +976,7 @@ function leaveRoom() {
     return;
   }
   appendLog("leaving LiveKit room");
+  disconnectAvatarRtc();
   activeRoom.disconnect();
   activeRoom = null;
   if (leaveButton) {
@@ -829,8 +991,9 @@ createButton?.addEventListener("click", async () => {
   try {
     await createSession();
   } catch (error) {
-    setStatus(error.message, "error");
-    appendLog(`error: ${error.message}`);
+    const message = errorMessage(error);
+    setStatus(message, "error");
+    appendLog(`error: ${message}`);
   }
 });
 
@@ -838,12 +1001,13 @@ previewButton?.addEventListener("click", async () => {
   try {
     await startPreview();
   } catch (error) {
+    const message = errorMessage(error);
     micEnabled = false;
     cameraEnabled = false;
     stopPreviewStream();
     syncMediaUi();
-    setStatus(`media permission failed: ${error.message}`, "error");
-    appendLog(`media permission failed: ${error.message}`);
+    setStatus(`media permission failed: ${message}`, "error");
+    appendLog(`media permission failed: ${message}`);
   }
 });
 
@@ -865,9 +1029,10 @@ form?.addEventListener("submit", async (event) => {
   try {
     await joinRoom();
   } catch (error) {
+    const message = errorMessage(error);
     setRoomMode("prejoin");
-    setStatus(error.message, "error");
-    appendLog(`error: ${error.message}`);
+    setStatus(message, "error");
+    appendLog(`error: ${message}`);
     if (leaveButton) {
       leaveButton.disabled = true;
     }

@@ -12,7 +12,7 @@ from typing import Any, cast
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
-from app.livekit_tokens import LiveKitConfigurationError, load_livekit_settings  # noqa: E402
+from app.livekit_tokens import LiveKitConfigurationError, issue_avatar_viewer_livekit_token, load_livekit_settings  # noqa: E402
 from app.token_contract import (  # noqa: E402
     REPORT_TTL_SECONDS,
     SESSION_TTL_SECONDS,
@@ -124,6 +124,26 @@ class TokenContractTest(unittest.TestCase):
             self.assertIsNotNone(settings)
             assert settings is not None
             self.assertEqual(settings.internal_url, "ws://livekit:7880")
+        finally:
+            restore_env(old_env)
+
+    def test_issue_avatar_viewer_token_uses_distinct_subscribe_only_identity(self) -> None:
+        old_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
+        try:
+            os.environ.pop("LIVEKIT_URL", None)
+            os.environ["LIVEKIT_INTERNAL_URL"] = "ws://livekit:7880"
+            os.environ["LIVEKIT_PUBLIC_URL"] = "ws://127.0.0.1:7880"
+            os.environ["LIVEKIT_API_KEY"] = "devkey"
+            os.environ["LIVEKIT_API_SECRET"] = "devsecret-with-at-least-32-bytes"
+            with patch("app.livekit_tokens._create_livekit_join_token", return_value="avatar-viewer-jwt") as mocked:
+                livekit = issue_avatar_viewer_livekit_token(room_name="giljob-session-local-demo", session_id="local-demo")
+            self.assertEqual(livekit["tokenStatus"], "issued")
+            self.assertEqual(livekit["avatarClientToken"], "avatar-viewer-jwt")
+            self.assertEqual(livekit["participantIdentity"], "avatar-viewer-local-demo")
+            kwargs = mocked.call_args.kwargs
+            self.assertEqual(kwargs["can_publish"], False)
+            self.assertEqual(kwargs["can_subscribe"], True)
+            self.assertEqual(kwargs["can_publish_data"], False)
         finally:
             restore_env(old_env)
 

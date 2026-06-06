@@ -102,6 +102,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("avatar-panel-body", body)
         self.assertIn("interviewer-audio", body)
         self.assertIn("SpatialReal Avatar", body)
+        self.assertIn('type="importmap"', body)
+        self.assertIn('"livekit-client": "/vendor/livekit-client/dist/livekit-client.esm.mjs"', body)
+        self.assertIn('"@spatialwalk/avatarkit": "/vendor/@spatialwalk/avatarkit/dist/index.js"', body)
         self.assertIn('src="/app.js"', body)
         self.assertIn('data-interview-route="report"', body)
         self.assertIn('id="session-summary"', body)
@@ -134,6 +137,8 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("text/javascript", content_type)
         self.assertIn("livekit-client.esm.mjs", body)
+        self.assertIn("@spatialwalk/avatarkit", body)
+        self.assertIn("@spatialwalk/avatarkit-rtc", body)
         self.assertIn("setLogLevel", body)
         self.assertIn('setLogLevel("silent")', body)
         self.assertIn("publicUrl", body)
@@ -160,6 +165,13 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/avatar/session", body)
         self.assertIn("session token hidden", body)
         self.assertIn("renderAvatarState", body)
+        self.assertIn("function initializeAvatarRtc", body)
+        self.assertIn("AvatarSDK.initialize", body)
+        self.assertIn("DrivingServiceMode.host", body)
+        self.assertIn("new LiveKitProvider", body)
+        self.assertIn("new AvatarPlayer", body)
+        self.assertIn("avatarClientToken", body)
+        self.assertIn("tokens hidden", body)
         self.assertIn("function playInterviewerQuestion", body)
         self.assertIn("function markInterviewerQuestionEnded", body)
         self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/tts", body)
@@ -215,9 +227,28 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn('payload["livekit"]', smoke_script)
         self.assertNotIn('candidateToken"], payload', smoke_script)
 
-    def test_package_declares_exact_livekit_client_dependency(self) -> None:
+    def test_package_declares_spatialreal_rtc_compatible_dependencies(self) -> None:
         package_json = json.loads((WEB_ROOT / "package.json").read_text())
-        self.assertEqual(package_json["dependencies"]["livekit-client"], "2.19.1")
+        self.assertEqual(package_json["dependencies"]["livekit-client"], "2.16.1")
+        self.assertEqual(package_json["dependencies"]["@spatialwalk/avatarkit"], "1.0.0-beta.104")
+        self.assertEqual(package_json["dependencies"]["@spatialwalk/avatarkit-rtc"], "1.0.0-beta.10")
+
+    def test_web_dockerfile_vendors_spatialreal_rtc_assets(self) -> None:
+        dockerfile = (WEB_ROOT / "Dockerfile").read_text()
+        self.assertIn("node_modules/livekit-client/dist", dockerfile)
+        self.assertIn("node_modules/@spatialwalk/avatarkit/dist", dockerfile)
+        self.assertIn("node_modules/@spatialwalk/avatarkit-rtc/dist", dockerfile)
+
+    def test_web_server_serves_allowed_spatialreal_vendor_assets(self) -> None:
+        status, content_type, body = self._get("/vendor/@spatialwalk/avatarkit-rtc/dist/index.js")
+        self.assertEqual(status, 200)
+        self.assertIn("text/javascript", content_type)
+        self.assertIn("AvatarPlayer", body)
+
+        status, content_type, body = self._get("/vendor/@spatialwalk/avatarkit/dist/index.js")
+        self.assertEqual(status, 200)
+        self.assertIn("text/javascript", content_type)
+        self.assertIn("AvatarSDK", body)
 
 
 if __name__ == "__main__":
