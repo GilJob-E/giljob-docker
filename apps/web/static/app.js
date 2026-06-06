@@ -32,6 +32,11 @@ const currentQuestionTitle = document.querySelector("#current-question-title");
 const currentQuestionBody = document.querySelector("#current-question-body");
 const interviewerQuestionText = document.querySelector("#interviewer-question-text");
 const interviewerMediaState = document.querySelector("#interviewer-media-state");
+const interviewerAudio = document.querySelector("#interviewer-audio");
+const avatarSurface = document.querySelector("#avatar-surface");
+const avatarStatusText = document.querySelector("#avatar-status-text");
+const avatarPanelTitle = document.querySelector("#avatar-panel-title");
+const avatarPanelBody = document.querySelector("#avatar-panel-body");
 const transcriptBody = document.querySelector("#transcript-body");
 
 let activeSession = null;
@@ -44,6 +49,7 @@ let nextQuestionRequested = false;
 let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
 let activeAnalysisSessionId = "";
+let activeAvatarSession = null;
 let answerTurnStartRecordCount = 0;
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
 const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
@@ -132,6 +138,70 @@ function valueOrDash(value) {
   return value ? String(value) : "-";
 }
 
+function avatarStatusLabel(payload) {
+  const provider = payload?.provider || "disabled";
+  if (payload?.ready) {
+    return provider === "spatialreal" ? "SpatialReal 준비됨" : "Avatar 준비됨";
+  }
+  if (payload?.status === "disabled") {
+    return "Avatar 비활성";
+  }
+  if (payload?.error) {
+    return "Avatar 연결 실패";
+  }
+  return "Avatar 대기";
+}
+
+function renderAvatarState(payload) {
+  activeAvatarSession = payload || null;
+  const state = payload?.ready ? "ready" : payload?.error ? "error" : payload?.status === "disabled" ? "disabled" : "pending";
+  const label = avatarStatusLabel(payload);
+  if (avatarSurface) {
+    avatarSurface.dataset.state = state;
+  }
+  if (avatarStatusText) {
+    avatarStatusText.textContent = label;
+  }
+  if (avatarPanelTitle) {
+    avatarPanelTitle.textContent = label;
+  }
+  if (avatarPanelBody) {
+    if (payload?.ready) {
+      const audio = payload?.client?.audioFormat || {};
+      avatarPanelBody.textContent = `SpatialReal session이 발급되었습니다. session token은 화면에 표시하지 않습니다. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz.`;
+    } else if (payload?.reason) {
+      avatarPanelBody.textContent = `상태: ${payload.reason}. 키가 구성되면 서버가 session token을 중개합니다.`;
+    } else if (payload?.error) {
+      avatarPanelBody.textContent = `Avatar provider 오류: ${payload.message || payload.error}`;
+    } else {
+      avatarPanelBody.textContent = "Provider 상태를 확인하는 중입니다.";
+    }
+  }
+}
+
+async function requestAvatarSession(reason = "room-join") {
+  renderAvatarState({ status: "pending", provider: "spatialreal", ready: false });
+  try {
+    const response = await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/avatar/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || payload.error || `avatar session failed: HTTP ${response.status}`);
+    }
+    renderAvatarState(payload);
+    appendLog(`avatar session state: ${payload.status || "unknown"}; provider ${payload.provider || "unknown"}; session token hidden`);
+    return payload;
+  } catch (error) {
+    const payload = { error: "avatar_session_failed", message: error.message, ready: false };
+    renderAvatarState(payload);
+    appendLog(`avatar session failed: ${error.message}`);
+    return payload;
+  }
+}
+
 function renderInterviewQuestion(question) {
   const text = question?.question || "질문을 불러오지 못했습니다.";
   const title = question?.questionId ? `질문 ${question.turnIndex || currentTurnIndex}` : "질문 준비 실패";
@@ -146,6 +216,9 @@ function renderInterviewQuestion(question) {
   }
   if (interviewerMediaState) {
     interviewerMediaState.textContent = "질문 완료";
+  }
+  if (avatarSurface) {
+    avatarSurface.dataset.state = activeAvatarSession?.ready ? "speaking" : avatarSurface.dataset.state || "disabled";
   }
 }
 
@@ -268,6 +341,79 @@ function renderQuestionLoading() {
   if (interviewerMediaState) {
     interviewerMediaState.textContent = "질문 생성 중";
   }
+  if (avatarSurface && activeAvatarSession?.ready) {
+    avatarSurface.dataset.state = "ready";
+  }
+}
+
+function audioDataUrl(audio) {
+  if (!audio?.base64 || !audio?.contentType) {
+    return "";
+  }
+  return `data:${audio.contentType};base64,${audio.base64}`;
+}
+
+function markInterviewerQuestionEnded(payload) {
+  if (avatarSurface && activeAvatarSession?.ready) {
+    avatarSurface.dataset.state = "ready";
+  }
+  document.dispatchEvent(new CustomEvent("giljob:interviewer-question-ended", { detail: payload }));
+}
+
+async function playInterviewerQuestion(payload) {
+  const turnIndex = Number(payload?.turnIndex || currentTurnIndex);
+  const questionText = String(payload?.question || "").trim();
+  if (!questionText) {
+    appendLog("tts skipped: empty interviewer question");
+    return;
+  }
+  if (interviewerMediaState) {
+    interviewerMediaState.textContent = "TTS 준비 중";
+  }
+  try {
+    const response = await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: questionText }),
+    });
+    const ttsPayload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(ttsPayload.message || ttsPayload.error || `tts request failed: HTTP ${response.status}`);
+    }
+    const dataUrl = audioDataUrl(ttsPayload.audio);
+    if (!dataUrl || !interviewerAudio) {
+      appendLog(`tts audio unavailable; provider ${ttsPayload.audio?.provider || "unknown"}`);
+      return;
+    }
+    interviewerAudio.src = dataUrl;
+    if (interviewerMediaState) {
+      interviewerMediaState.textContent = "질문 재생 중";
+    }
+    if (avatarSurface && activeAvatarSession?.ready) {
+      avatarSurface.dataset.state = "speaking";
+    }
+    appendLog(`interviewer tts ready; provider ${ttsPayload.audio?.provider || "unknown"}; audio bytes ${ttsPayload.audio?.byteLength || 0}; audio hidden`);
+    await interviewerAudio.play();
+    await new Promise((resolve) => {
+      if (interviewerAudio.ended || interviewerAudio.paused) {
+        resolve();
+        return;
+      }
+      const done = () => {
+        interviewerAudio.removeEventListener("ended", done);
+        interviewerAudio.removeEventListener("error", done);
+        resolve();
+      };
+      interviewerAudio.addEventListener("ended", done, { once: true });
+      interviewerAudio.addEventListener("error", done, { once: true });
+    });
+  } catch (error) {
+    appendLog(`interviewer tts playback skipped: ${error.message}`);
+  } finally {
+    if (interviewerMediaState) {
+      interviewerMediaState.textContent = "질문 완료";
+    }
+  }
 }
 
 async function requestNextQuestion(reason = "manual") {
@@ -279,12 +425,10 @@ async function requestNextQuestion(reason = "manual") {
   renderQuestionLoading();
   appendLog(`requesting next interviewer question: ${reason}`);
   try {
-    const response = await fetch("/ai/interview/next-question", {
+    const response = await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${currentTurnIndex}/question`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        interviewId: activeInterviewId,
-        turnIndex: currentTurnIndex,
         persona: "차분하고 명확한 한국어 면접관",
         candidateProfile: "not provided in this slice",
         job: "not provided in this slice",
@@ -297,9 +441,8 @@ async function requestNextQuestion(reason = "manual") {
     }
     renderInterviewQuestion(payload);
     appendLog(`interviewer question ready: ${payload.questionId || "question"}; provider ${payload.provider || "unknown"}`);
-    setTimeout(() => {
-      document.dispatchEvent(new CustomEvent("giljob:interviewer-question-ended", { detail: payload }));
-    }, 800);
+    await playInterviewerQuestion(payload);
+    markInterviewerQuestionEnded(payload);
   } catch (error) {
     nextQuestionRequested = false;
     renderInterviewQuestion(null);
@@ -546,6 +689,7 @@ async function createSession() {
   renderSessionSummary(activeSession);
   setStatus(`session created: ${payload.roomName}`, "idle");
   appendLog(`session created for room ${payload.roomName}; tokens hidden`);
+  await requestAvatarSession("session-created");
   return activeSession;
 }
 
@@ -736,6 +880,7 @@ form?.addEventListener("submit", async (event) => {
 leaveButton?.addEventListener("click", leaveRoom);
 
 renderSessionSummary(null);
+renderAvatarState({ status: "pending", provider: "spatialreal", ready: false });
 setContextDrawerOpen(false);
 setRoomMode("prejoin");
 setAnswerTurnAvailability(false);

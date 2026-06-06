@@ -68,6 +68,7 @@
 
 [<service> AI Engine|
   Gemini next-question boundary
+  Gemini native TTS voice boundary
   analysis signal + transcript 입력
   질문 생성 / turn policy
 ]

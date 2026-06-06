@@ -9,6 +9,8 @@ This module owns the session/token API scaffold. Follow the root `AGENTS.md` plu
 - Issue LiveKit candidate join tokens when LiveKit is configured.
 - Preserve the `LIVEKIT_INTERNAL_URL` and `LIVEKIT_PUBLIC_URL` split.
 - Fail closed for production secret requirements and required LiveKit configuration.
+- Broker browser-facing interview question, TTS, and avatar-session routes to internal `ai-engine` routes; never expose provider keys, raw session tokens, or internal upstream error bodies.
+- Keep direct `/ai/*`, `/tts/*`, and `/avatar/*` provider paths blocked at ingress; browser code should use `/api/interviews/...` routes.
 
 ## Forbidden changes
 - Do not store raw token values in records, fixtures, logs, test output, or docs.

@@ -687,6 +687,40 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
   font-size: 1.65rem;
   box-shadow: 0 16px 48px rgb(0 0 0 / 0.12);
 }
+.avatar-surface {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+.avatar-status-text {
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 0.88);
+  color: var(--color-muted);
+  padding: 5px 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.avatar-surface[data-state="ready"] .avatar-status-text,
+.avatar-surface[data-state="speaking"] .avatar-status-text {
+  border-color: rgb(16 185 129 / 0.32);
+  background: rgb(16 185 129 / 0.12);
+  color: #047857;
+}
+.avatar-surface[data-state="speaking"] .bot-orb {
+  box-shadow: 0 0 0 4px rgb(16 185 129 / 0.16), 0 16px 48px rgb(0 0 0 / 0.12);
+}
+.avatar-surface[data-state="disabled"] .bot-orb {
+  background: linear-gradient(145deg, #6b7280, #898989);
+}
+.avatar-surface[data-state="error"] .avatar-status-text {
+  border-color: rgb(239 68 68 / 0.32);
+  background: rgb(239 68 68 / 0.12);
+  color: #b91c1c;
+}
+.avatar-card {
+  border-color: var(--color-hairline);
+}
 .video-tile .tile-placeholder strong { color: var(--color-ink); }
 .video-tile .tile-placeholder small { color: var(--color-muted); }
 .video-tile .avatar-circle { font-size: 1.75rem; }

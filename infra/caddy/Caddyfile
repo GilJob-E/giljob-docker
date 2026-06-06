@@ -17,12 +17,23 @@
       respond 404
     }
 
+    @blocked_tts path /tts /tts/* /ai/tts /ai/tts/*
+    handle @blocked_tts {
+      respond 404
+    }
+
+    @blocked_avatar path /avatar /avatar/* /ai/avatar /ai/avatar/*
+    handle @blocked_avatar {
+      respond 404
+    }
+
     handle_path /api/* {
       reverse_proxy api:8000
     }
 
-    handle_path /ai/* {
-      reverse_proxy ai-engine:8100
+    @blocked_ai path /ai /ai/*
+    handle @blocked_ai {
+      respond 404
     }
 
     # Development transcript/signal boundary for the room shell. Keep payloads token/media-safe.

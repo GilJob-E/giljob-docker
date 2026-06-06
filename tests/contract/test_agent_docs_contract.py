@@ -25,7 +25,7 @@ PATH_SPECIFIC_TERMS = {
     "services/api/AGENTS.md": ["hash-only", "raw token", "LIVEKIT_INTERNAL_URL", "LIVEKIT_PUBLIC_URL"],
     "services/ai-engine/AGENTS.md": ["GEMINI_API_KEY", "next-question provider", "LLM_PROVIDER=gemini"],
     "services/agent1/AGENTS.md": ["future multimodal placeholder", "structured signal", "raw media"],
-    "infra/AGENTS.md": ["Caddy", "LiveKit", "coturn", "direct media", "/ai/*", "ingress tension"],
+    "infra/AGENTS.md": ["Caddy", "LiveKit", "coturn", "direct media", "/ai/*", "broker routes", "Direct public"],
     "tests/AGENTS.md": ["tests/contract", "tests/integration", "path-specific"],
     "docs/AGENTS.md": ["architecture.noml", "generated", "English"],
     "packages/shared/AGENTS.md": ["shared contracts", "premature abstractions"],

@@ -54,7 +54,7 @@ class WebStaticContractTest(unittest.TestCase):
         route_expectations = {
             "/interviews/new": ["Production flow · Step 1", "local-demo", "CV upload"],
             "/interviews/prod-demo_01/lobby": ["Production flow · Step 2", "Pre-join lobby", "Device check"],
-            "/interviews/prod-demo_01/room": ["production-room-shell", "light-media-room-shell", "room-context-drawer", 'src="/app.js"'],
+            "/interviews/prod-demo_01/room": ["production-room-shell", "light-media-room-shell", "room-context-drawer", "avatar-surface", 'src="/app.js"'],
             "/interviews/prod-demo_01/report": ["Production flow · Step 4", "리포트 placeholder", "Background analysis"],
         }
         for path, expected_strings in route_expectations.items():
@@ -97,6 +97,11 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("current-question-title", body)
         self.assertIn("transcript-body", body)
         self.assertIn("interviewer-question-text", body)
+        self.assertIn("avatar-surface", body)
+        self.assertIn("avatar-status-text", body)
+        self.assertIn("avatar-panel-body", body)
+        self.assertIn("interviewer-audio", body)
+        self.assertIn("SpatialReal Avatar", body)
         self.assertIn('src="/app.js"', body)
         self.assertIn('data-interview-route="report"', body)
         self.assertIn('id="session-summary"', body)
@@ -149,6 +154,18 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("GilJobE analysis-engine", body)
         self.assertIn("/analysis/signals", body)
         self.assertIn("candidate-answer-ended-analysis-flushed", body)
+        self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${currentTurnIndex}/question", body)
+        self.assertNotIn("/ai/interview/next-question", body)
+        self.assertIn("function requestAvatarSession", body)
+        self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/avatar/session", body)
+        self.assertIn("session token hidden", body)
+        self.assertIn("renderAvatarState", body)
+        self.assertIn("function playInterviewerQuestion", body)
+        self.assertIn("function markInterviewerQuestionEnded", body)
+        self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/tts", body)
+        self.assertIn("interviewerAudio.play", body)
+        self.assertIn("interviewer tts ready", body)
+        self.assertIn("audio hidden", body)
         self.assertNotIn("candidate-answer-ended-no-stt", body)
         self.assertNotIn("/stt/", body)
         self.assertIn("answer start blocked until interviewer question ends", body)
@@ -167,6 +184,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("replaceChildren", body)
         self.assertNotIn("innerHTML", body)
         self.assertNotIn("localStorage", body)
+        self.assertNotIn("SPATIALREAL_API_KEY", body)
+        self.assertNotIn("/ai/tts", body)
+        self.assertNotIn("/tts/synthesize", body)
 
     def test_styles_are_served_and_path_traversal_is_rejected(self) -> None:
         status, content_type, body = self._get("/styles.css")
