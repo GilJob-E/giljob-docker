@@ -7,23 +7,22 @@
 #.analysis: fill=#fef3c7 stroke=#a16207
 
 [<external> 후보자 브라우저|
-  /interviews/new
-  /interviews/:id/lobby
   /interviews/:id/room
-  /interviews/:id/report
+  LiveKit candidate participant
+  AvatarKit RTC viewer
 ]
 
 [<service> Caddy Ingress|
   :80/:443
   정적 Web 라우팅
   /api/* reverse proxy
-  /api/internal/* 차단
+  direct /ai,/tts,/avatar 차단
 ]
 
 [<service> Web App|
   vanilla HTML/CSS/JS
-  production route shell
-  room 진입 시 LiveKit 자동 join
+  production room shell
+  LiveKit 자동 join
   push-to-talk answer turn UI
   token-safe hidden diagnostics
 ]
@@ -33,11 +32,12 @@
   session/report token 발급
   purpose-separated hash contract
   LiveKit candidate token 발급
-  LiveKit analyzer token 발급 예정
+  AvatarKit RTC viewer token 발급
+  /api/interviews/:id/* broker
 ]
 
 [<store> Postgres|
-  향후 durable session state
+  durable session state 예정
   token hash only
   raw public token 저장 금지
 ]
@@ -45,61 +45,60 @@
 [<media> LiveKit Server|
   self-hosted signaling/media
   browser candidate participant
-  hidden analysis participant
+  analysis subscriber participant
+  avatar publisher/viewer participants
   7880/tcp WebSocket
   7881/tcp ICE/TCP
   50000-50100/udp media
 ]
 
 [<media> coturn|
-  direct TURN/STUN overlay
-  3478 udp/tcp
-  5349 tcp
+  TURN/STUN relay 후보
+  direct media 실패 시 relay
 ]
 
 [<analysis> Analysis Engine Service\n(GilJobE)|
-  services/analysis-engine 예정
   LiveKit room subscribe participant
   candidate audio/video track consume
   GemmaNativeTranscriber STT
-  nonverbal/vision windowing
   transcript_full + structured signal emit
 ]
 
 [<service> AI Engine|
   Gemini next-question boundary
   Gemini native TTS voice boundary
-  analysis signal + transcript 입력
-  질문 생성 / turn policy
+  SpatialReal session broker
+  SpatialReal LiveKit egress attempt
 ]
 
-
-[<future> Avatar / SpatialReal|
-  면접관 화면 participant
-  LiveKit publish 후보
-  interviewer voice/video output
+[<media> SpatialReal Cloud|
+  session token API
+  AvatarKit RTC assets/session
+  TTS audio -> avatar stream
+  LiveKit room publish
 ]
 
 [<future> Main LLM / Interview Controller|
-  질문 정책 orchestration
+  질문 정책 orchestration 강화 예정
   후보자 답변 loop
   최종 report trigger
 ]
 
 [후보자 브라우저] - HTTP app/API -> [Caddy Ingress]
 [Caddy Ingress] - static pages -> [Web App]
-[Caddy Ingress] - /api/sessions -> [API Service]
+[Caddy Ingress] - /api/* -> [API Service]
 [API Service] - token hash 저장 -> [Postgres]
 [API Service] - candidate room URL + token -> [후보자 브라우저]
-[API Service] - analyzer subscribe token -> [Analysis Engine Service\n(GilJobE)]
+[API Service] - avatar viewer URL + token -> [후보자 브라우저]
 [후보자 브라우저] - direct WebRTC publish/subscribe -> [LiveKit Server]
+[후보자 브라우저] - AvatarKit RTC subscribe -> [LiveKit Server]
 [후보자 브라우저] - push-to-talk turn_start/turn_end -> [API Service]
-[후보자 브라우저] - relay 필요 시 -> [coturn]
-[LiveKit Server] - TURN boundary -> [coturn]
 [LiveKit Server] - candidate audio/video tracks -> [Analysis Engine Service\n(GilJobE)]
 [Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [AI Engine]
-[Analysis Engine Service\n(GilJobE)] - structured session events -> [API Service]
+[AI Engine] - next question + TTS audio -> [API Service]
+[AI Engine] - session token / egress audio -> [SpatialReal Cloud]
+[SpatialReal Cloud] - avatar stream publish -> [LiveKit Server]
 [AI Engine] - next question / policy update -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
-[Main LLM / Interview Controller] - interviewer utterance -> [Avatar / SpatialReal]
-[Avatar / SpatialReal] - interviewer participant media -> [LiveKit Server]
+[후보자 브라우저] - relay 필요 시 -> [coturn]
+[LiveKit Server] - TURN boundary -> [coturn]
