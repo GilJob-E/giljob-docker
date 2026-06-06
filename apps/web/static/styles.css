@@ -736,6 +736,78 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
   background: rgb(239 68 68 / 0.12);
   color: #b91c1c;
 }
+.interviewer-tile.placeholder-tile {
+  display: block;
+  padding: 0;
+  text-align: left;
+}
+.interviewer-tile .avatar-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+}
+.interviewer-tile .avatar-render-target {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.interviewer-tile .avatar-render-target canvas,
+.interviewer-tile .avatar-render-target video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+}
+.interviewer-tile .bot-orb {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+}
+.interviewer-tile .avatar-status-text {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  right: 12px;
+}
+.interviewer-tile .tile-topline {
+  z-index: 4;
+  inset: 12px auto auto 12px;
+}
+.interviewer-tile > strong,
+.interviewer-tile > p {
+  position: absolute;
+  z-index: 4;
+  left: 14px;
+  right: 14px;
+  margin: 0;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.82);
+  color: var(--color-ink);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  backdrop-filter: blur(8px);
+}
+.interviewer-tile > strong {
+  bottom: 76px;
+  width: fit-content;
+  padding: 4px 8px;
+  font-size: 0.875rem;
+}
+.interviewer-tile > p {
+  bottom: 14px;
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: none;
+  padding: 8px 10px;
+  color: var(--color-body);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
+  text-align: left;
+}
 .avatar-card {
   border-color: var(--color-hairline);
 }
