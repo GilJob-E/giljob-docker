@@ -47,9 +47,15 @@
                 <span>Interviewer</span>
                 <small id="interviewer-media-state">질문 대기</small>
               </div>
-              <div class="bot-orb" aria-hidden="true">G</div>
+              <div id="avatar-surface" class="avatar-surface" data-state="pending">
+                <div id="avatar-render-target" class="avatar-render-target" aria-hidden="true">
+                  <div class="bot-orb" aria-hidden="true">G</div>
+                </div>
+                <span id="avatar-status-text" class="avatar-status-text">Avatar 준비 중</span>
+              </div>
               <strong>면접관</strong>
               <p id="interviewer-question-text">질문이 생성되면 이 타일에 표시되고, 질문 종료 후 답변 시작 버튼이 활성화됩니다.</p>
+              <audio id="interviewer-audio" preload="auto" hidden></audio>
             </article>
           </section>
         </div>
@@ -77,6 +83,11 @@
             <p class="badge-pill muted-pill">Current question</p>
             <h3 id="current-question-title">질문 준비 중</h3>
             <p id="current-question-body">면접관 질문이 생성되면 우측 패널에 표시됩니다.</p>
+          </div>
+          <div class="panel-card avatar-card">
+            <p class="badge-pill muted-pill">SpatialReal Avatar</p>
+            <h3 id="avatar-panel-title">아바타 세션 대기</h3>
+            <p id="avatar-panel-body">Provider key가 없으면 안전하게 비활성 상태로 표시하고, session token은 화면과 로그에 출력하지 않습니다.</p>
           </div>
           <div class="panel-card transcript-card">
             <p class="badge-pill muted-pill">Transcript</p>
@@ -123,6 +134,14 @@
       </section>
     </main>
 
+    <script type="importmap">
+      {
+        "imports": {
+          "livekit-client": "/vendor/livekit-client/dist/livekit-client.esm.mjs",
+          "@spatialwalk/avatarkit": "/vendor/@spatialwalk/avatarkit/dist/index.js"
+        }
+      }
+    </script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

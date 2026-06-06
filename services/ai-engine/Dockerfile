@@ -6,6 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SERVICE_PORT=8100
 
 WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY server.py /app/server.py
 
 EXPOSE 8100

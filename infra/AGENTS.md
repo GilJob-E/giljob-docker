@@ -3,14 +3,14 @@
 This module owns single-server, multi-container deployment wiring. Follow the root `AGENTS.md` plus these local rules.
 
 ## Current responsibilities
-- Maintain Docker Compose wiring for Caddy, web, API, ai-engine, agent1 placeholders, Postgres, LiveKit, and coturn.
+- Maintain Docker Compose wiring for Caddy, web, API, ai-engine, analysis-engine, agent1 placeholders, Postgres, LiveKit, and coturn.
 - Keep Caddy ingress explicit and block internal API surfaces such as `/api/internal/*`.
 - Preserve self-hosted LiveKit direct media behavior: `7880/tcp` signaling, `7881/tcp` ICE/TCP, and `50000-50100/udp` media ports.
 - Preserve TURN/coturn notes and direct media port documentation.
 - Preserve `LIVEKIT_INTERNAL_URL` for server/container access and `LIVEKIT_PUBLIC_URL` for browser access.
 
-## Known architecture tension
-Caddy currently proxies `/ai/*` to `ai-engine` for the current question-generation slice, while ADR 0002 treats AI Engine and Agent1 as internal components. Document this `/ai/*` ingress tension clearly before expanding public AI routes. Do not reintroduce a public `/stt/*` route without a new Realtime/STT plan and tests.
+## Ingress invariants
+Caddy keeps provider and AI engine routes internal. Browser traffic for question generation, TTS, and avatar session metadata must go through `services/api` broker routes under `/api/interviews/...`. Direct public `/ai/*`, `/tts/*`, and `/avatar/*` routes must stay blocked. Do not reintroduce a public `/stt/*` route; STT belongs to the GilJobE analysis-engine boundary unless a later ADR changes it.
 
 ## Security
 - Do not commit `.env` files or real secrets.

@@ -13,6 +13,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 - 단일 서버 Docker Compose 기반 scaffold
 - Caddy ingress
 - Python stdlib 기반 `api`, `web`, `ai-engine`, `agent1` placeholder service
+- `services/analysis-engine` GilJobE dependency/health scaffold
 - Postgres service 및 token hash 저장 계약
 - optional self-hosted LiveKit/coturn media overlay
 - `POST /api/sessions` 후보자 session 생성
@@ -31,7 +32,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 
 - CV/job parsing
 - 실제 Main LLM 전체 orchestration loop
-- SpatialReal / ElevenLabs avatar 또는 TTS
+- SpatialReal avatar 및 ElevenLabs TTS 본구현. Gemini TTS provider는 room voice boundary에 연결되어 있으며, provider env/security contract는 [`docs/runbooks/tts-avatar-contract.md`](docs/runbooks/tts-avatar-contract.md)에 정의되어 있습니다.
 - `GilJobE` 기반 `services/analysis-engine` LiveKit subscribe 실연결
 - 최종 report 생성
 - production domain/TLS/hardening
@@ -59,7 +60,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 3. API는 LiveKit candidate token을 발급합니다.
 4. 브라우저는 Caddy를 통해 LiveKit media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다.
 5. 로컬 Whisper/STT 경계는 제거되었습니다. 후보자 답변 STT는 `GilJobE`를 `services/analysis-engine`로 붙여 LiveKit audio/video track을 구독하는 구조로 진행합니다.
-6. SpatialReal/Avatar, TTS 출력, 최종 report generator는 아직 future slice입니다.
+6. SpatialReal/Avatar, TTS 출력, 최종 report generator는 아직 future slice입니다. Phase 1에서는 TTS/Avatar provider 환경변수와 secret/token surface contract만 고정합니다. 자세한 내용은 [`docs/runbooks/tts-avatar-contract.md`](docs/runbooks/tts-avatar-contract.md)를 봅니다.
 
 위 다이어그램의 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
 
@@ -134,6 +135,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 
 [<service> AI Engine|
   Gemini next-question boundary
+  Gemini native TTS voice boundary
   analysis signal + transcript 입력
   질문 생성 / turn policy
 ]
@@ -181,8 +183,9 @@ npx nomnoml docs/architecture.noml docs/assets/architecture.svg
 ```text
 apps/web/                 # 정적 web shell + LiveKit browser join UI
 services/api/             # session/token API scaffold
-services/ai-engine/       # Gemini next-question provider boundary
-services/agent1/          # 향후 multimodal module placeholder
+services/ai-engine/       # Gemini next-question + Gemini TTS provider boundary
+services/analysis-engine/ # GilJobE STT/multimodal analysis boundary
+services/agent1/          # legacy/future multimodal placeholder
 infra/docker-compose.yml  # base single-server stack
 infra/docker-compose.media.yml # LiveKit/coturn overlay
 docs/                     # planning, ADR, runbook, source docs
@@ -300,9 +303,9 @@ npx --yes pyright
 
 ## 다음 구현 후보
 
-1. lobby에 device readiness check 추가
-2. fake 3-turn interview loop
-3. Agent1 multimodal signal schema 정의
+1. `services/analysis-engine` LiveKit subscriber runtime loop 구현
+2. analyzer token API contract 추가
+3. analysis-engine → ai-engine signal delivery 연결
 4. TTS / SpatialReal avatar 연결
 5. Main LLM / InterviewController turn orchestration 강화
 6. final report placeholder를 실제 report generator로 교체

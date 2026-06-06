@@ -32,6 +32,12 @@ const currentQuestionTitle = document.querySelector("#current-question-title");
 const currentQuestionBody = document.querySelector("#current-question-body");
 const interviewerQuestionText = document.querySelector("#interviewer-question-text");
 const interviewerMediaState = document.querySelector("#interviewer-media-state");
+const interviewerAudio = document.querySelector("#interviewer-audio");
+const avatarSurface = document.querySelector("#avatar-surface");
+const avatarRenderTarget = document.querySelector("#avatar-render-target");
+const avatarStatusText = document.querySelector("#avatar-status-text");
+const avatarPanelTitle = document.querySelector("#avatar-panel-title");
+const avatarPanelBody = document.querySelector("#avatar-panel-body");
 const transcriptBody = document.querySelector("#transcript-body");
 
 let activeSession = null;
@@ -43,6 +49,11 @@ let answerTurnAvailable = false;
 let nextQuestionRequested = false;
 let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
+let activeAnalysisSessionId = "";
+let activeAvatarSession = null;
+let avatarRtcRuntime = { sdkInitialized: false, player: null, view: null, provider: null, avatarId: "" };
+let avatarRtcInitializing = null;
+let answerTurnStartRecordCount = 0;
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
 const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
 
@@ -130,6 +141,222 @@ function valueOrDash(value) {
   return value ? String(value) : "-";
 }
 
+function avatarStatusLabel(payload) {
+  const provider = payload?.provider || "disabled";
+  if (payload?.ready) {
+    return provider === "spatialreal" ? "SpatialReal 준비됨" : "Avatar 준비됨";
+  }
+  if (payload?.status === "disabled") {
+    return "Avatar 비활성";
+  }
+  if (payload?.error) {
+    return "Avatar 연결 실패";
+  }
+  return "Avatar 대기";
+}
+
+function avatarLiveKitConfig(payload) {
+  const livekit = payload?.client?.livekit || {};
+  const url = livekit.publicUrl || livekit.url;
+  const token = livekit.avatarClientToken;
+  const roomName = livekit.roomName || activeSession?.livekit?.roomName || activeSession?.roomName;
+  if (!url || !token || !roomName || livekit.tokenStatus !== "issued") {
+    return null;
+  }
+  return { url, token, roomName };
+}
+
+function setAvatarPanelMessage(message) {
+  if (avatarPanelBody) {
+    avatarPanelBody.textContent = message;
+  }
+}
+
+function setAvatarRtcState(state, message) {
+  if (avatarSurface) {
+    avatarSurface.dataset.state = state;
+  }
+  if (avatarStatusText) {
+    avatarStatusText.textContent = message;
+  }
+  if (avatarPanelTitle) {
+    avatarPanelTitle.textContent = message;
+  }
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function renderAvatarRtcEgressStatus(avatarRtc) {
+  if (!avatarRtc) {
+    return;
+  }
+  const status = String(avatarRtc.status || "unknown");
+  const reason = String(avatarRtc.reason || "");
+  if (status === "sent") {
+    setAvatarPanelMessage(`SpatialReal egress가 LiveKit room(${avatarRtc.roomName || "room"})으로 avatar stream을 보냈습니다. token은 숨겨집니다.`);
+    appendLog(`avatar rtc egress sent; publisher ${avatarRtc.publisherId || "unknown"}; tokens hidden`);
+    return;
+  }
+  if (status === "skipped") {
+    setAvatarPanelMessage(`Avatar RTC egress 대기: ${reason || "not ready"}. TTS 오디오는 계속 재생됩니다.`);
+    appendLog(`avatar rtc egress skipped: ${reason || "unknown"}; tokens hidden`);
+    return;
+  }
+  if (status === "failed") {
+    setAvatarPanelMessage(`Avatar RTC egress 실패: ${reason || "provider_request_failed"}. TTS 오디오는 계속 재생됩니다.`);
+    appendLog(`avatar rtc egress failed: ${reason || "unknown"}; tokens hidden`);
+  }
+}
+
+async function disconnectAvatarRtc() {
+  const { player, view } = avatarRtcRuntime;
+  avatarRtcRuntime = { sdkInitialized: avatarRtcRuntime.sdkInitialized, player: null, view: null, provider: null, avatarId: "" };
+  if (player) {
+    await player.disconnect().catch((error) => appendLog(`avatar rtc disconnect skipped: ${errorMessage(error)}`));
+  }
+  if (view) {
+    view.dispose();
+  }
+  avatarRenderTarget?.classList.remove("is-rtc-active");
+}
+
+async function initializeAvatarRtc(payload) {
+  if (!payload?.ready || payload?.provider !== "spatialreal") {
+    return;
+  }
+  if (avatarRtcInitializing) {
+    return avatarRtcInitializing;
+  }
+  avatarRtcInitializing = (async () => {
+    const client = payload.client || {};
+    const appId = client.appId;
+    const avatarId = client.avatarId;
+    const sessionToken = client.sessionToken;
+    const livekitConfig = avatarLiveKitConfig(payload);
+    if (!appId || !avatarId || !sessionToken || !livekitConfig) {
+      setAvatarPanelMessage("SpatialReal session은 준비됐지만 AvatarKit RTC용 LiveKit viewer token이 아직 없습니다. token은 화면과 로그에 출력하지 않습니다.");
+      appendLog("avatar rtc waiting for app/avatar/session/livekit viewer config; tokens hidden");
+      return;
+    }
+
+    try {
+      setAvatarRtcState("ready", "Avatar RTC 준비 중");
+      const [{ AvatarSDK, AvatarManager, AvatarView, DrivingServiceMode, Environment, LogLevel }, { AvatarPlayer, LiveKitProvider }] = await Promise.all([
+        import("./vendor/@spatialwalk/avatarkit/dist/index.js"),
+        import("./vendor/@spatialwalk/avatarkit-rtc/dist/index.js"),
+      ]);
+
+      if (!AvatarSDK.isInitialized) {
+        await AvatarSDK.initialize(appId, {
+          environment: Environment.intl,
+          drivingServiceMode: DrivingServiceMode.host,
+          logLevel: LogLevel.warning,
+          audioFormat: {
+            channelCount: client.audioFormat?.channelCount || 1,
+            sampleRate: client.audioFormat?.sampleRate || 16000,
+          },
+        });
+        avatarRtcRuntime.sdkInitialized = true;
+      }
+      AvatarSDK.setSessionToken(sessionToken);
+
+      if (!avatarRenderTarget) {
+        throw new Error("avatar render target is missing");
+      }
+      await disconnectAvatarRtc();
+      setAvatarPanelMessage("AvatarKit RTC가 avatar asset을 불러오는 중입니다. token은 숨겨집니다.");
+      const avatar = await AvatarManager.shared.load(avatarId, (progress) => {
+        if (progress?.type === "downloading" && typeof progress.progress === "number") {
+          setAvatarPanelMessage(`Avatar asset 다운로드 중 ${Math.round(progress.progress * 100)}%. token은 숨겨집니다.`);
+        }
+      }, true);
+      const view = new AvatarView(avatar, avatarRenderTarget);
+      const provider = new LiveKitProvider();
+      const player = new AvatarPlayer(provider, view, { logLevel: "warning" });
+      player.on("connected", () => {
+        setAvatarRtcState("ready", "Avatar RTC 연결됨");
+        setAvatarPanelMessage("SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다.");
+        appendLog("avatar rtc connected through LiveKit; tokens hidden");
+      });
+      player.on("disconnected", () => appendLog("avatar rtc disconnected"));
+      player.on("stalled", () => appendLog("avatar rtc stalled; waiting for SpatialReal publisher frames"));
+      player.on("error", (error) => {
+        const message = errorMessage(error);
+        setAvatarRtcState("error", "Avatar RTC 오류");
+        setAvatarPanelMessage(`AvatarKit RTC 오류: ${message}`);
+        appendLog(`avatar rtc error: ${message}`);
+      });
+      await player.connect(livekitConfig);
+      avatarRenderTarget.classList.add("is-rtc-active");
+      avatarRtcRuntime = { sdkInitialized: true, player, view, provider, avatarId };
+    } catch (error) {
+      const message = errorMessage(error);
+      setAvatarRtcState("error", "Avatar RTC 연결 실패");
+      setAvatarPanelMessage(`AvatarKit RTC 연결 실패: ${message}`);
+      appendLog(`avatar rtc failed: ${message}`);
+    } finally {
+      avatarRtcInitializing = null;
+    }
+  })();
+  return avatarRtcInitializing;
+}
+
+function renderAvatarState(payload) {
+  activeAvatarSession = payload || null;
+  const state = payload?.ready ? "ready" : payload?.error ? "error" : payload?.status === "disabled" ? "disabled" : "pending";
+  const label = avatarStatusLabel(payload);
+  if (avatarSurface) {
+    avatarSurface.dataset.state = state;
+  }
+  if (avatarStatusText) {
+    avatarStatusText.textContent = label;
+  }
+  if (avatarPanelTitle) {
+    avatarPanelTitle.textContent = label;
+  }
+  if (avatarPanelBody) {
+    if (payload?.ready) {
+      const audio = payload?.client?.audioFormat || {};
+      const livekit = payload?.client?.livekit || {};
+      const rtcStatus = livekit.tokenStatus === "issued" ? "AvatarKit RTC viewer token 준비됨" : "AvatarKit RTC viewer token 대기";
+      avatarPanelBody.textContent = `SpatialReal session이 발급되었습니다. session token은 화면에 표시하지 않습니다. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${rtcStatus}.`;
+    } else if (payload?.reason) {
+      avatarPanelBody.textContent = `상태: ${payload.reason}. 키가 구성되면 서버가 session token을 중개합니다.`;
+    } else if (payload?.error) {
+      avatarPanelBody.textContent = `Avatar provider 오류: ${payload.message || payload.error}`;
+    } else {
+      avatarPanelBody.textContent = "Provider 상태를 확인하는 중입니다.";
+    }
+  }
+}
+
+async function requestAvatarSession(reason = "room-join") {
+  renderAvatarState({ status: "pending", provider: "spatialreal", ready: false });
+  try {
+    const response = await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/avatar/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.message || payload.error || `avatar session failed: HTTP ${response.status}`);
+    }
+    renderAvatarState(payload);
+    appendLog(`avatar session state: ${payload.status || "unknown"}; provider ${payload.provider || "unknown"}; session token hidden`);
+    initializeAvatarRtc(payload);
+    return payload;
+  } catch (error) {
+    const message = errorMessage(error);
+    const payload = { error: "avatar_session_failed", message, ready: false };
+    renderAvatarState(payload);
+    appendLog(`avatar session failed: ${message}`);
+    return payload;
+  }
+}
+
 function renderInterviewQuestion(question) {
   const text = question?.question || "질문을 불러오지 못했습니다.";
   const title = question?.questionId ? `질문 ${question.turnIndex || currentTurnIndex}` : "질문 준비 실패";
@@ -145,11 +372,115 @@ function renderInterviewQuestion(question) {
   if (interviewerMediaState) {
     interviewerMediaState.textContent = "질문 완료";
   }
+  if (avatarSurface) {
+    avatarSurface.dataset.state = activeAvatarSession?.ready ? "speaking" : avatarSurface.dataset.state || "disabled";
+  }
 }
 
 function renderTranscriptStatus(message) {
   if (transcriptBody) {
     transcriptBody.textContent = message;
+  }
+}
+
+function analysisSessionId() {
+  return activeSession?.sessionId || activeInterviewId;
+}
+
+async function postAnalysis(path, body = {}) {
+  const response = await fetch(`/analysis${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `analysis request failed: HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+async function fetchAnalysisSignals(sessionId) {
+  const response = await fetch(`/analysis/signals?sessionId=${encodeURIComponent(sessionId)}`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `analysis signals failed: HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+function renderAnalysisTranscript(payload, sinceRecordCount = 0) {
+  const records = Array.isArray(payload?.records) ? payload.records.slice(sinceRecordCount) : [];
+  const latestTurnEnd = [...records].reverse().find((record) => record?.type === "turn_end");
+  const windowTranscripts = records
+    .filter((record) => record?.type === "window" && String(record?.transcript || "").trim())
+    .map((record) => String(record.transcript).trim());
+  const transcript = (latestTurnEnd?.transcript_full || windowTranscripts.join(" ") || "").trim();
+  if (transcript) {
+    renderTranscriptStatus(transcript);
+    return transcript;
+  }
+  const count = Number(payload?.recordCount || 0) - sinceRecordCount;
+  renderTranscriptStatus(count > 0 ? "전사 window는 수신됐지만 최종 turn transcript가 비어 있습니다." : "아직 수신된 전사 signal이 없습니다.");
+  return "";
+}
+
+async function restartAnalysisSubscriber(sessionId) {
+  try {
+    await postAnalysis("/subscriber/stop", {});
+  } catch (error) {
+    appendLog(`analysis subscriber stop skipped: ${errorMessage(error)}`);
+  }
+  const payload = await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
+  activeAnalysisSessionId = sessionId;
+  appendLog(`analysis subscriber ready for session ${sessionId}; state ${payload.status || payload.state || "starting"}`);
+  renderTranscriptStatus("GilJobE analysis-engine이 답변 오디오를 기다리고 있습니다.");
+  return payload;
+}
+
+async function fetchSignalsAfterTurnFlush(sessionId, sinceRecordCount) {
+  let payload = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    payload = await fetchAnalysisSignals(sessionId);
+    const records = Array.isArray(payload.records) ? payload.records.slice(sinceRecordCount) : [];
+    const hasTurnEnd = records.some((record) => record?.type === "turn_end");
+    if (hasTurnEnd || (records.length > 0 && attempt >= 2)) {
+      return payload;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return payload || { records: [], recordCount: sinceRecordCount };
+}
+
+async function markAnalysisTurnStart(sessionId) {
+  try {
+    const payload = await fetchAnalysisSignals(sessionId);
+    answerTurnStartRecordCount = Number(payload.recordCount || 0);
+  } catch (error) {
+    answerTurnStartRecordCount = 0;
+    appendLog(`analysis turn baseline unavailable: ${errorMessage(error)}`);
+  }
+}
+
+async function flushAnalysisTurn(sessionId) {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  try {
+    await postAnalysis("/subscriber/stop", {});
+    const payload = await fetchSignalsAfterTurnFlush(sessionId, answerTurnStartRecordCount);
+    const transcript = renderAnalysisTranscript(payload, answerTurnStartRecordCount);
+    appendLog(`analysis turn flushed for session ${sessionId}; records ${payload.recordCount || 0}`);
+    try {
+      await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
+      activeAnalysisSessionId = sessionId;
+    } catch (restartError) {
+      appendLog(`analysis subscriber restart failed: ${errorMessage(restartError)}`);
+    }
+    return transcript;
+  } catch (error) {
+    const message = errorMessage(error);
+    renderTranscriptStatus(`전사 flush 실패: ${message}`);
+    appendLog(`analysis turn flush failed: ${message}`);
+    return "";
   }
 }
 
@@ -166,6 +497,80 @@ function renderQuestionLoading() {
   if (interviewerMediaState) {
     interviewerMediaState.textContent = "질문 생성 중";
   }
+  if (avatarSurface && activeAvatarSession?.ready) {
+    avatarSurface.dataset.state = "ready";
+  }
+}
+
+function audioDataUrl(audio) {
+  if (!audio?.base64 || !audio?.contentType) {
+    return "";
+  }
+  return `data:${audio.contentType};base64,${audio.base64}`;
+}
+
+function markInterviewerQuestionEnded(payload) {
+  if (avatarSurface && activeAvatarSession?.ready) {
+    avatarSurface.dataset.state = "ready";
+  }
+  document.dispatchEvent(new CustomEvent("giljob:interviewer-question-ended", { detail: payload }));
+}
+
+async function playInterviewerQuestion(payload) {
+  const turnIndex = Number(payload?.turnIndex || currentTurnIndex);
+  const questionText = String(payload?.question || "").trim();
+  if (!questionText) {
+    appendLog("tts skipped: empty interviewer question");
+    return;
+  }
+  if (interviewerMediaState) {
+    interviewerMediaState.textContent = "TTS 준비 중";
+  }
+  try {
+    const response = await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: questionText }),
+    });
+    const ttsPayload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(ttsPayload.message || ttsPayload.error || `tts request failed: HTTP ${response.status}`);
+    }
+    renderAvatarRtcEgressStatus(ttsPayload.avatarRtc);
+    const dataUrl = audioDataUrl(ttsPayload.audio);
+    if (!dataUrl || !interviewerAudio) {
+      appendLog(`tts audio unavailable; provider ${ttsPayload.audio?.provider || "unknown"}`);
+      return;
+    }
+    interviewerAudio.src = dataUrl;
+    if (interviewerMediaState) {
+      interviewerMediaState.textContent = "질문 재생 중";
+    }
+    if (avatarSurface && activeAvatarSession?.ready) {
+      avatarSurface.dataset.state = "speaking";
+    }
+    appendLog(`interviewer tts ready; provider ${ttsPayload.audio?.provider || "unknown"}; audio bytes ${ttsPayload.audio?.byteLength || 0}; audio hidden`);
+    await interviewerAudio.play();
+    await new Promise((resolve) => {
+      if (interviewerAudio.ended || interviewerAudio.paused) {
+        resolve();
+        return;
+      }
+      const done = () => {
+        interviewerAudio.removeEventListener("ended", done);
+        interviewerAudio.removeEventListener("error", done);
+        resolve();
+      };
+      interviewerAudio.addEventListener("ended", done, { once: true });
+      interviewerAudio.addEventListener("error", done, { once: true });
+    });
+  } catch (error) {
+    appendLog(`interviewer tts playback skipped: ${errorMessage(error)}`);
+  } finally {
+    if (interviewerMediaState) {
+      interviewerMediaState.textContent = "질문 완료";
+    }
+  }
 }
 
 async function requestNextQuestion(reason = "manual") {
@@ -177,12 +582,10 @@ async function requestNextQuestion(reason = "manual") {
   renderQuestionLoading();
   appendLog(`requesting next interviewer question: ${reason}`);
   try {
-    const response = await fetch("/ai/interview/next-question", {
+    const response = await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${currentTurnIndex}/question`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        interviewId: activeInterviewId,
-        turnIndex: currentTurnIndex,
         persona: "차분하고 명확한 한국어 면접관",
         candidateProfile: "not provided in this slice",
         job: "not provided in this slice",
@@ -195,17 +598,17 @@ async function requestNextQuestion(reason = "manual") {
     }
     renderInterviewQuestion(payload);
     appendLog(`interviewer question ready: ${payload.questionId || "question"}; provider ${payload.provider || "unknown"}`);
-    setTimeout(() => {
-      document.dispatchEvent(new CustomEvent("giljob:interviewer-question-ended", { detail: payload }));
-    }, 800);
+    await playInterviewerQuestion(payload);
+    markInterviewerQuestionEnded(payload);
   } catch (error) {
+    const message = errorMessage(error);
     nextQuestionRequested = false;
     renderInterviewQuestion(null);
     if (interviewerMediaState) {
       interviewerMediaState.textContent = "질문 실패";
     }
-    setStatus(`question request failed: ${error.message}`, "error");
-    appendLog(`question request failed: ${error.message}`);
+    setStatus(`question request failed: ${message}`, "error");
+    appendLog(`question request failed: ${message}`);
   }
 }
 
@@ -355,21 +758,24 @@ async function applyMediaStateToRoom() {
   appendLog(`room media updated: answer ${micEnabled ? "recording" : "ended"}, camera ${cameraEnabled ? "on" : "off"}`);
 }
 
-function startAnswerCapture() {
-  renderTranscriptStatus("답변 중입니다. 전사는 GilJobE analysis-engine 연결 전까지 생성하지 않습니다.");
-  appendLog("candidate answer turn started; STT boundary disabled pending GilJobE analysis-engine");
+async function startAnswerCapture() {
+  await markAnalysisTurnStart(analysisSessionId());
+  renderTranscriptStatus("답변 중입니다. GilJobE analysis-engine이 LiveKit 오디오를 수집하고 있습니다.");
+  appendLog("candidate answer turn started; GilJobE analysis-engine recording boundary active");
 }
 
 async function finishAnswerAndRequestNextQuestion() {
   micEnabled = false;
   await restartPreviewStream();
   await applyMediaStateToRoom();
-  lastAnswerTranscript = "후보자 답변 전사는 GilJobE analysis-engine 연결 전까지 비활성화되어 있습니다.";
-  renderTranscriptStatus("답변 종료. 전사는 다음 단계에서 GilJobE analysis-engine이 LiveKit track을 구독해 생성할 예정입니다.");
+  const sessionId = analysisSessionId();
+  renderTranscriptStatus("답변 종료. GilJobE analysis-engine에서 최종 전사를 가져오는 중입니다.");
+  const transcript = await flushAnalysisTurn(sessionId);
+  lastAnswerTranscript = transcript || "전사 결과가 비어 있습니다.";
   currentTurnIndex += 1;
   nextQuestionRequested = false;
   setAnswerTurnAvailability(false, "candidate answer ended; waiting for next interviewer question");
-  requestNextQuestion("candidate-answer-ended-no-stt");
+  requestNextQuestion("candidate-answer-ended-analysis-flushed");
 }
 
 async function toggleMic() {
@@ -382,16 +788,17 @@ async function toggleMic() {
       micEnabled = true;
       await restartPreviewStream();
       await applyMediaStateToRoom();
-      startAnswerCapture();
+      await startAnswerCapture();
       return;
     }
     await finishAnswerAndRequestNextQuestion();
   } catch (error) {
+    const message = errorMessage(error);
     micEnabled = false;
     stopPreviewStream();
     syncMediaUi();
-    setStatus(`answer turn failed: ${error.message}`, "error");
-    appendLog(`answer turn failed: ${error.message}`);
+    setStatus(`answer turn failed: ${message}`, "error");
+    appendLog(`answer turn failed: ${message}`);
   }
 }
 
@@ -401,12 +808,13 @@ async function toggleCamera() {
     await restartPreviewStream();
     await applyMediaStateToRoom();
   } catch (error) {
+    const message = errorMessage(error);
     micEnabled = false;
     cameraEnabled = false;
     stopPreviewStream();
     syncMediaUi();
-    setStatus(`media permission failed: ${error.message}`, "error");
-    appendLog(`media permission failed: ${error.message}`);
+    setStatus(`media permission failed: ${message}`, "error");
+    appendLog(`media permission failed: ${message}`);
   }
 }
 
@@ -430,7 +838,7 @@ async function createSession() {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role }),
+    body: JSON.stringify({ role, sessionId: activeInterviewId, interviewId: activeInterviewId }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -441,6 +849,7 @@ async function createSession() {
   renderSessionSummary(activeSession);
   setStatus(`session created: ${payload.roomName}`, "idle");
   appendLog(`session created for room ${payload.roomName}; tokens hidden`);
+  await requestAvatarSession("session-created");
   return activeSession;
 }
 
@@ -503,7 +912,7 @@ async function disableLocalMedia(room) {
 }
 
 async function failClosedAfterJoinMediaError(room, error) {
-  appendLog(`media publish failed after join; disconnecting room fail-closed: ${error.message}`);
+  appendLog(`media publish failed after join; disconnecting room fail-closed: ${errorMessage(error)}`);
   await disableLocalMedia(room);
   room.disconnect();
   if (activeRoom === room) {
@@ -521,6 +930,12 @@ async function failClosedAfterJoinMediaError(room, error) {
 async function joinRoom() {
   const session = activeSession ?? (await createSession());
   const { url, token } = sessionLiveKitConfig(session);
+  try {
+    await restartAnalysisSubscriber(session.sessionId || activeInterviewId);
+  } catch (error) {
+    appendLog(`analysis subscriber unavailable before join: ${errorMessage(error)}`);
+    renderTranscriptStatus("analysis-engine 연결을 확인하지 못했습니다. LiveKit 입장은 계속 진행합니다.");
+  }
   if (activeRoom) {
     activeRoom.disconnect();
   }
@@ -546,9 +961,10 @@ async function autoJoinRoomRoute() {
   try {
     await joinRoom();
   } catch (error) {
+    const message = errorMessage(error);
     setRoomMode("prejoin");
-    setStatus(error.message, "error");
-    appendLog(`error: ${error.message}`);
+    setStatus(message, "error");
+    appendLog(`error: ${message}`);
     if (leaveButton) {
       leaveButton.disabled = true;
     }
@@ -560,6 +976,7 @@ function leaveRoom() {
     return;
   }
   appendLog("leaving LiveKit room");
+  disconnectAvatarRtc();
   activeRoom.disconnect();
   activeRoom = null;
   if (leaveButton) {
@@ -574,8 +991,9 @@ createButton?.addEventListener("click", async () => {
   try {
     await createSession();
   } catch (error) {
-    setStatus(error.message, "error");
-    appendLog(`error: ${error.message}`);
+    const message = errorMessage(error);
+    setStatus(message, "error");
+    appendLog(`error: ${message}`);
   }
 });
 
@@ -583,12 +1001,13 @@ previewButton?.addEventListener("click", async () => {
   try {
     await startPreview();
   } catch (error) {
+    const message = errorMessage(error);
     micEnabled = false;
     cameraEnabled = false;
     stopPreviewStream();
     syncMediaUi();
-    setStatus(`media permission failed: ${error.message}`, "error");
-    appendLog(`media permission failed: ${error.message}`);
+    setStatus(`media permission failed: ${message}`, "error");
+    appendLog(`media permission failed: ${message}`);
   }
 });
 
@@ -610,9 +1029,10 @@ form?.addEventListener("submit", async (event) => {
   try {
     await joinRoom();
   } catch (error) {
+    const message = errorMessage(error);
     setRoomMode("prejoin");
-    setStatus(error.message, "error");
-    appendLog(`error: ${error.message}`);
+    setStatus(message, "error");
+    appendLog(`error: ${message}`);
     if (leaveButton) {
       leaveButton.disabled = true;
     }
@@ -625,11 +1045,12 @@ form?.addEventListener("submit", async (event) => {
 leaveButton?.addEventListener("click", leaveRoom);
 
 renderSessionSummary(null);
+renderAvatarState({ status: "pending", provider: "spatialreal", ready: false });
 setContextDrawerOpen(false);
 setRoomMode("prejoin");
 setAnswerTurnAvailability(false);
 syncMediaUi();
 hydrateProductionRoutes();
-renderTranscriptStatus("로컬 STT 경계는 제거되었습니다. GilJobE analysis-engine 연결 전까지 답변 전사는 생성하지 않습니다.");
+renderTranscriptStatus("GilJobE analysis-engine 연결 후 답변 종료 시 전사가 표시됩니다.");
 appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);
 autoJoinRoomRoute();

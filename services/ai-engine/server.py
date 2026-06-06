@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
-"""GilJob v2 AI engine scaffold with a Gemini-backed question generator.
+"""GilJob v2 AI engine provider boundary.
 
-This service is intentionally small for the current slice: it owns the Main LLM
-provider contract and returns the next interviewer question. It does not ingest
-raw media, run STT, drive SpatialReal, or generate final reports yet. STT belongs to the GilJobE analysis-engine boundary.
+This service owns server-mediated provider adapters for question generation,
+room TTS, and avatar session metadata. It does not ingest raw media, run STT,
+own browser rendering, or generate final reports. STT belongs to the GilJobE
+analysis-engine boundary.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import asyncio
+import base64
 import json
+import math
 import os
 import re
+import struct
+import time
+import wave
+from io import BytesIO
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 import urllib.error
@@ -19,6 +28,7 @@ import urllib.request
 SERVICE_NAME = os.getenv("SERVICE_NAME", "ai-engine")
 PORT = int(os.getenv("SERVICE_PORT", "8100"))
 MAX_REQUEST_BYTES = 32_768
+MAX_TTS_TEXT_CHARS = 1_200
 INTERVIEW_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 
 
@@ -32,6 +42,140 @@ class LLMSettings:
     @property
     def key_configured(self) -> bool:
         return bool(self.gemini_api_key and not self.gemini_api_key.startswith("replace-me"))
+
+
+@dataclass(frozen=True)
+class TTSSettings:
+    provider: str
+    elevenlabs_api_key: str
+    elevenlabs_voice_id: str
+    elevenlabs_model: str
+    output_format: str
+    gemini_api_key: str
+    gemini_model: str
+    gemini_voice_name: str
+    timeout_seconds: float
+    failure_fallback_provider: str
+
+    @property
+    def key_configured(self) -> bool:
+        return self.elevenlabs_key_configured
+
+    @property
+    def voice_configured(self) -> bool:
+        return self.elevenlabs_voice_configured
+
+    @property
+    def elevenlabs_key_configured(self) -> bool:
+        return bool(self.elevenlabs_api_key and not self.elevenlabs_api_key.startswith("replace-me"))
+
+    @property
+    def elevenlabs_voice_configured(self) -> bool:
+        return bool(self.elevenlabs_voice_id and not self.elevenlabs_voice_id.startswith("replace-me"))
+
+    @property
+    def gemini_key_configured(self) -> bool:
+        return bool(self.gemini_api_key and not self.gemini_api_key.startswith("replace-me"))
+
+    @property
+    def gemini_voice_configured(self) -> bool:
+        return bool(self.gemini_voice_name and not self.gemini_voice_name.startswith("replace-me"))
+
+
+@dataclass(frozen=True)
+class AvatarSettings:
+    provider: str
+    spatialreal_api_key: str
+    spatialreal_app_id: str
+    spatialreal_avatar_id: str
+    console_endpoint: str
+    ingress_endpoint: str
+    session_ttl_seconds: int
+    timeout_seconds: float
+    failure_fallback_provider: str
+    audio_sample_rate: int
+    audio_channel_count: int
+    rtc_egress_enabled: bool
+    livekit_url: str
+    livekit_api_key: str
+    livekit_api_secret: str
+    rtc_publisher_id_prefix: str
+    rtc_idle_timeout_seconds: int
+    rtc_settle_seconds: float
+
+    @property
+    def key_configured(self) -> bool:
+        return bool(self.spatialreal_api_key and not self.spatialreal_api_key.startswith("replace-me"))
+
+    @property
+    def app_configured(self) -> bool:
+        return bool(self.spatialreal_app_id and not self.spatialreal_app_id.startswith("replace-me"))
+
+    @property
+    def avatar_configured(self) -> bool:
+        return bool(self.spatialreal_avatar_id and not self.spatialreal_avatar_id.startswith("replace-me"))
+
+
+def load_tts_settings() -> TTSSettings:
+    return TTSSettings(
+        provider=os.getenv("VOICE_PROVIDER", "fake").strip().lower() or "fake",
+        elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY", "").strip(),
+        elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "").strip(),
+        elevenlabs_model=os.getenv("ELEVENLABS_TTS_MODEL", "eleven_flash_v2_5").strip() or "eleven_flash_v2_5",
+        output_format=os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_22050_32").strip() or "mp3_22050_32",
+        gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
+        gemini_model=os.getenv("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview").strip() or "gemini-3.1-flash-tts-preview",
+        gemini_voice_name=os.getenv("GEMINI_TTS_VOICE", "Kore").strip() or "Kore",
+        timeout_seconds=float(os.getenv("TTS_TIMEOUT_SECONDS", os.getenv("ELEVENLABS_TIMEOUT_SECONDS", os.getenv("GEMINI_TIMEOUT_SECONDS", "30")))),
+        failure_fallback_provider=os.getenv("TTS_PROVIDER_FAILURE_FALLBACK", "").strip().lower(),
+    )
+
+
+def _spatialreal_console_endpoint() -> str:
+    configured = os.getenv("SPATIALREAL_CONSOLE_ENDPOINT", "").strip().rstrip("/")
+    if configured:
+        return configured
+    region = os.getenv("SPATIALREAL_REGION", "ap-northeast").strip().lower() or "ap-northeast"
+    if region == "us-west":
+        return "https://console.us-west.spatialwalk.cloud"
+    return "https://console.ap-northeast.spatialwalk.cloud"
+
+
+def _spatialreal_ingress_endpoint() -> str:
+    configured = os.getenv("SPATIALREAL_INGRESS_ENDPOINT", "").strip().rstrip("/")
+    if configured:
+        return configured
+    region = os.getenv("SPATIALREAL_REGION", "ap-northeast").strip().lower() or "ap-northeast"
+    if region == "us-west":
+        return "wss://api.us-west.spatialwalk.cloud/v2/driveningress"
+    return "wss://api.ap-northeast.spatialwalk.cloud/v2/driveningress"
+
+
+def _env_truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def load_avatar_settings() -> AvatarSettings:
+    return AvatarSettings(
+        provider=os.getenv("AVATAR_PROVIDER", "disabled").strip().lower() or "disabled",
+        spatialreal_api_key=os.getenv("SPATIALREAL_API_KEY", "").strip(),
+        spatialreal_app_id=os.getenv("SPATIALREAL_APP_ID", "").strip(),
+        spatialreal_avatar_id=os.getenv("SPATIALREAL_AVATAR_ID", "").strip(),
+        console_endpoint=_spatialreal_console_endpoint(),
+        ingress_endpoint=_spatialreal_ingress_endpoint(),
+        session_ttl_seconds=min(23 * 60 * 60, max(60, int(os.getenv("SPATIALREAL_SESSION_TTL_SECONDS", "900")))),
+        timeout_seconds=float(os.getenv("SPATIALREAL_TIMEOUT_SECONDS", os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))),
+        failure_fallback_provider=os.getenv("AVATAR_PROVIDER_FAILURE_FALLBACK", "").strip().lower(),
+        audio_sample_rate=int(os.getenv("SPATIALREAL_AUDIO_SAMPLE_RATE", "16000")),
+        audio_channel_count=int(os.getenv("SPATIALREAL_AUDIO_CHANNEL_COUNT", "1")),
+        rtc_egress_enabled=_env_truthy(os.getenv("SPATIALREAL_RTC_EGRESS_ENABLED")),
+        livekit_url=(os.getenv("SPATIALREAL_RTC_LIVEKIT_URL") or os.getenv("LIVEKIT_PUBLIC_URL") or os.getenv("LIVEKIT_URL") or "").strip(),
+        livekit_api_key=os.getenv("LIVEKIT_API_KEY", "").strip(),
+        livekit_api_secret=os.getenv("LIVEKIT_API_SECRET", "").strip(),
+        rtc_publisher_id_prefix=os.getenv("SPATIALREAL_RTC_PUBLISHER_ID_PREFIX", "spatialreal-avatar").strip() or "spatialreal-avatar",
+        rtc_idle_timeout_seconds=max(0, int(os.getenv("SPATIALREAL_RTC_IDLE_TIMEOUT_SECONDS", "30"))),
+        rtc_settle_seconds=max(0.0, float(os.getenv("SPATIALREAL_RTC_SETTLE_SECONDS", "1.0"))),
+    )
 
 
 def load_llm_settings() -> LLMSettings:
@@ -111,8 +255,10 @@ def generate_gemini_question(settings: LLMSettings, payload: dict[str, Any], tur
         with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
             response_body = response.read().decode("utf-8")
     except urllib.error.HTTPError as error:
-        error_body = error.read().decode("utf-8", errors="replace")[:500]
-        raise RuntimeError(f"Gemini request failed: HTTP {error.code} {error_body}") from error
+        error.read()  # consume upstream body without exposing provider diagnostics publicly
+        raise RuntimeError(f"Gemini request failed: HTTP {error.code}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError("Gemini request failed") from error
     data = json.loads(response_body)
     text = _extract_gemini_text(data)
     if not text:
@@ -125,6 +271,546 @@ def fake_question(payload: dict[str, Any], turn_index: int) -> str:
     if turn_index <= 1:
         return "먼저 본인의 핵심 경험 하나를 선택해서, 지원한 직무와 어떻게 연결되는지 설명해 주세요."
     return f"방금 답변을 바탕으로, {context['job']} 관점에서 가장 어려웠던 의사결정과 그 결과를 구체적으로 설명해 주세요."
+
+
+def _parse_output_format(output_format: str) -> tuple[str, int | None]:
+    parts = output_format.split("_")
+    codec = parts[0] if parts else "unknown"
+    sample_rate: int | None = None
+    if len(parts) >= 2:
+        try:
+            sample_rate = int(parts[1])
+        except ValueError:
+            sample_rate = None
+    return codec, sample_rate
+
+
+def _fake_wav_bytes(text: str) -> bytes:
+    sample_rate = 16_000
+    duration_seconds = min(1.2, max(0.25, len(text) / 120.0))
+    frame_count = int(sample_rate * duration_seconds)
+    buffer = BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        for index in range(frame_count):
+            amplitude = int(1000 * math.sin(2 * math.pi * 440 * index / sample_rate))
+            wav.writeframesraw(struct.pack("<h", amplitude))
+    return buffer.getvalue()
+
+
+def _wav_container_bytes(pcm: bytes, *, channels: int = 1, rate: int = 24_000, sample_width: int = 2) -> bytes:
+    buffer = BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(sample_width)
+        wav.setframerate(rate)
+        wav.writeframes(pcm)
+    return buffer.getvalue()
+
+
+def _extract_gemini_audio_base64(data: dict[str, Any]) -> str:
+    candidates = data.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return ""
+    content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
+    parts = content.get("parts") if isinstance(content, dict) else None
+    if not isinstance(parts, list):
+        return ""
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        inline_data = part.get("inlineData") or part.get("inline_data")
+        if isinstance(inline_data, dict) and inline_data.get("data"):
+            return str(inline_data.get("data"))
+    return ""
+
+
+def _tts_metadata(
+    provider: str,
+    content_type: str,
+    codec: str,
+    sample_rate: int | None,
+    channels: int,
+    data: bytes,
+    request_id: str,
+) -> dict[str, object]:
+    return {
+        "provider": provider,
+        "contentType": content_type,
+        "codec": codec,
+        "sampleRate": sample_rate,
+        "channels": channels,
+        "byteLength": len(data),
+        "requestId": request_id,
+    }
+
+
+def _safe_request_id(session_id: str, turn_id: str, provider: str) -> str:
+    raw = f"{session_id}-{turn_id}-{provider}"
+    return "tts_" + re.sub(r"[^A-Za-z0-9._-]+", "-", raw)[:120]
+
+
+def synthesize_fake_tts(
+    session_id: str,
+    turn_id: str,
+    text: str,
+    *,
+    fallback_from: str | None = None,
+    fallback_reason: str | None = None,
+) -> tuple[int, dict[str, object]]:
+    # Fake is the required keyless contract provider and the optional fail-open room fallback.
+    audio = _fake_wav_bytes(text)
+    metadata = _tts_metadata(
+        "fake",
+        "audio/wav",
+        "wav",
+        16_000,
+        1,
+        audio,
+        _safe_request_id(session_id, turn_id, "fake"),
+    )
+    audio_payload: dict[str, object] = {**metadata, "base64": base64.b64encode(audio).decode("ascii")}
+    response: dict[str, object] = {
+        "sessionId": session_id,
+        "turnId": turn_id,
+        "status": "ok",
+        "audio": audio_payload,
+    }
+    if fallback_from:
+        audio_payload["fallbackFrom"] = fallback_from
+        audio_payload["fallbackReason"] = fallback_reason or "provider_failed"
+        response["providerStatus"] = "fallback"
+    return 200, response
+
+
+def synthesize_elevenlabs_tts(settings: TTSSettings, session_id: str, turn_id: str, text: str) -> tuple[int, dict[str, object]]:
+    if not settings.key_configured or not settings.voice_configured:
+        return 503, {
+            "error": "tts_provider_unavailable",
+            "provider": "elevenlabs",
+            "reason": "missing_api_key_or_voice_id",
+        }
+    codec, sample_rate = _parse_output_format(settings.output_format)
+    body = json.dumps({"text": text, "model_id": settings.elevenlabs_model}).encode("utf-8")
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{settings.elevenlabs_voice_id}?output_format={settings.output_format}"
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "xi-api-key": settings.elevenlabs_api_key,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
+            audio = response.read()
+            content_type = response.headers.get("Content-Type", "application/octet-stream")
+    except urllib.error.HTTPError as error:
+        error.read()  # consume upstream body without exposing provider diagnostics publicly
+        return 502, {
+            "error": "tts_provider_failed",
+            "provider": "elevenlabs",
+            "statusCode": error.code,
+            "message": "provider request failed",
+        }
+    except urllib.error.URLError:
+        return 502, {
+            "error": "tts_provider_failed",
+            "provider": "elevenlabs",
+            "message": "provider request failed",
+        }
+    metadata = _tts_metadata(
+        "elevenlabs",
+        content_type,
+        codec,
+        sample_rate,
+        1,
+        audio,
+        _safe_request_id(session_id, turn_id, "elevenlabs"),
+    )
+    return 200, {
+        "sessionId": session_id,
+        "turnId": turn_id,
+        "status": "ok",
+        "audio": {**metadata, "base64": base64.b64encode(audio).decode("ascii")},
+    }
+
+
+def synthesize_gemini_tts(settings: TTSSettings, session_id: str, turn_id: str, text: str) -> tuple[int, dict[str, object]]:
+    if not settings.gemini_key_configured or not settings.gemini_voice_configured:
+        return 503, {
+            "error": "tts_provider_unavailable",
+            "provider": "gemini",
+            "reason": "missing_api_key_or_voice_name",
+        }
+
+    prompt = f"Say in a calm, professional Korean interviewer voice: {text}"
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {"voiceName": settings.gemini_voice_name}
+                }
+            },
+        },
+        "model": settings.gemini_model,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": settings.gemini_api_key,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
+            response_body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        error.read()  # consume upstream body without exposing provider diagnostics publicly
+        return 502, {
+            "error": "tts_provider_failed",
+            "provider": "gemini",
+            "statusCode": error.code,
+            "message": "provider request failed",
+        }
+    except urllib.error.URLError:
+        return 502, {
+            "error": "tts_provider_failed",
+            "provider": "gemini",
+            "message": "provider request failed",
+        }
+
+    try:
+        data = json.loads(response_body)
+        pcm_base64 = _extract_gemini_audio_base64(data)
+        if not pcm_base64:
+            raise ValueError("missing audio data")
+        pcm = base64.b64decode(pcm_base64)
+    except (ValueError, json.JSONDecodeError):
+        return 502, {
+            "error": "tts_provider_failed",
+            "provider": "gemini",
+            "message": "invalid audio response",
+        }
+
+    sample_rate = 24_000
+    audio = _wav_container_bytes(pcm, channels=1, rate=sample_rate, sample_width=2)
+    metadata = _tts_metadata(
+        "gemini",
+        "audio/wav",
+        "wav",
+        sample_rate,
+        1,
+        audio,
+        _safe_request_id(session_id, turn_id, "gemini"),
+    )
+    return 200, {
+        "sessionId": session_id,
+        "turnId": turn_id,
+        "status": "ok",
+        "audio": {
+            **metadata,
+            "base64": base64.b64encode(audio).decode("ascii"),
+            "model": settings.gemini_model,
+            "voiceName": settings.gemini_voice_name,
+            "sourceCodec": "pcm_s16le",
+        },
+    }
+
+
+def _room_name_for_session(session_id: str) -> str:
+    return f"giljob-session-{session_id}"
+
+
+def _publisher_id_for_turn(settings: AvatarSettings, session_id: str, turn_id: str) -> str:
+    raw = f"{settings.rtc_publisher_id_prefix}-{session_id}-{turn_id}"
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", raw)[:120]
+
+
+def _extract_wav_pcm(audio: bytes) -> tuple[bytes, int, int] | None:
+    try:
+        with wave.open(BytesIO(audio), "rb") as wav:
+            channels = wav.getnchannels()
+            sample_width = wav.getsampwidth()
+            sample_rate = wav.getframerate()
+            frames = wav.readframes(wav.getnframes())
+    except (wave.Error, EOFError):
+        return None
+    if channels != 1 or sample_width != 2 or not frames:
+        return None
+    return frames, sample_rate, channels
+
+
+def _avatar_rtc_disabled_payload(settings: AvatarSettings, reason: str) -> dict[str, object]:
+    return {
+        "mode": "livekit-egress",
+        "provider": "spatialreal",
+        "status": "skipped",
+        "reason": reason,
+        "enabled": settings.rtc_egress_enabled,
+    }
+
+
+def _is_loopback_livekit_url(url: str) -> bool:
+    return any(marker in url.lower() for marker in ("127.0.0.1", "localhost", "[::1]", "://::1"))
+
+
+async def _send_spatialreal_rtc_audio_async(
+    settings: AvatarSettings,
+    *,
+    session_id: str,
+    turn_id: str,
+    audio: bytes,
+    sample_rate: int,
+) -> dict[str, object]:
+    # Import lazily so fake/local question generation can run without the optional
+    # server SDK installed, and so provider secrets never enter frontend code.
+    from avatarkit import LiveKitEgressConfig, new_avatar_session  # type: ignore[import-not-found]
+
+    expires_at = int(time.time()) + settings.session_ttl_seconds
+    session_token, error_payload = fetch_spatialreal_session_token(settings, expires_at)
+    if error_payload is not None:
+        return {**_avatar_rtc_disabled_payload(settings, "session_token_failed"), "status": "failed"}
+    assert session_token is not None
+
+    room_name = _room_name_for_session(session_id)
+    publisher_id = _publisher_id_for_turn(settings, session_id, turn_id)
+    avatar_session = new_avatar_session(
+        api_key=settings.spatialreal_api_key,
+        app_id=settings.spatialreal_app_id,
+        avatar_id=settings.spatialreal_avatar_id,
+        console_endpoint_url=settings.console_endpoint,
+        ingress_endpoint_url=settings.ingress_endpoint,
+        expire_at=datetime.now(timezone.utc) + timedelta(seconds=settings.session_ttl_seconds),
+        sample_rate=sample_rate,
+        livekit_egress=LiveKitEgressConfig(
+            url=settings.livekit_url,
+            api_key=settings.livekit_api_key,
+            api_secret=settings.livekit_api_secret,
+            room_name=room_name,
+            publisher_id=publisher_id,
+            idle_timeout=settings.rtc_idle_timeout_seconds,
+        ),
+    )
+    # The official SDK currently creates session tokens with aiohttp default
+    # headers; this service brokers tokens itself with a provider-accepted
+    # User-Agent, then starts the SDK session with that short-lived token.
+    avatar_session._session_token = session_token  # noqa: SLF001 - provider-token mediation boundary
+    try:
+        connection_id = await avatar_session.start()
+        request_id = await avatar_session.send_audio(audio, end=True)
+        if settings.rtc_settle_seconds:
+            await asyncio.sleep(settings.rtc_settle_seconds)
+        return {
+            "mode": "livekit-egress",
+            "provider": "spatialreal",
+            "status": "sent",
+            "roomName": room_name,
+            "publisherId": publisher_id,
+            "connectionId": connection_id,
+            "requestId": request_id,
+            "tokenHidden": True,
+            "sampleRate": sample_rate,
+        }
+    finally:
+        await avatar_session.close()
+
+
+def maybe_send_spatialreal_rtc_audio(
+    settings: AvatarSettings,
+    *,
+    session_id: str,
+    turn_id: str,
+    audio_payload: dict[str, object],
+) -> dict[str, object]:
+    if not settings.rtc_egress_enabled:
+        return _avatar_rtc_disabled_payload(settings, "rtc_egress_disabled")
+    if settings.provider != "spatialreal":
+        return _avatar_rtc_disabled_payload(settings, "avatar_provider_not_spatialreal")
+    if not (settings.key_configured and settings.app_configured and settings.avatar_configured):
+        return _avatar_rtc_disabled_payload(settings, "spatialreal_credentials_missing")
+    if not settings.ingress_endpoint:
+        return _avatar_rtc_disabled_payload(settings, "spatialreal_ingress_endpoint_missing")
+    if not (settings.livekit_url and settings.livekit_api_key and settings.livekit_api_secret):
+        return _avatar_rtc_disabled_payload(settings, "livekit_egress_credentials_missing")
+    if _is_loopback_livekit_url(settings.livekit_url):
+        return _avatar_rtc_disabled_payload(settings, "livekit_egress_url_not_public")
+
+    audio_base64 = _safe_str(audio_payload.get("base64") or "", 10_000_000)
+    if not audio_base64:
+        return _avatar_rtc_disabled_payload(settings, "audio_missing")
+    try:
+        audio = base64.b64decode(audio_base64)
+    except ValueError:
+        return _avatar_rtc_disabled_payload(settings, "audio_base64_invalid")
+    wav = _extract_wav_pcm(audio)
+    if wav is None:
+        return _avatar_rtc_disabled_payload(settings, "only_pcm_wav_supported_for_rtc_egress")
+    pcm, sample_rate, _channels = wav
+    try:
+        return asyncio.run(asyncio.wait_for(
+            _send_spatialreal_rtc_audio_async(
+                settings,
+                session_id=session_id,
+                turn_id=turn_id,
+                audio=pcm,
+                sample_rate=sample_rate,
+            ),
+            timeout=settings.timeout_seconds,
+        ))
+    except Exception:
+        return {
+            "mode": "livekit-egress",
+            "provider": "spatialreal",
+            "status": "failed",
+            "reason": "provider_request_failed",
+            "tokenHidden": True,
+        }
+
+
+def tts_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
+    settings = load_tts_settings()
+    avatar_settings = load_avatar_settings()
+    session_id = _safe_str(payload.get("sessionId") or payload.get("interviewId") or "local-demo", 96)
+    turn_id = _safe_str(payload.get("turnId") or payload.get("questionId") or "turn-0001", 120)
+    text = _safe_str(payload.get("text") or payload.get("question") or "", MAX_TTS_TEXT_CHARS)
+    if not INTERVIEW_ID_PATTERN.fullmatch(session_id):
+        return 400, {"error": "invalid_session_id"}
+    if not text:
+        return 400, {"error": "missing_text"}
+
+    if settings.provider == "fake":
+        status, response = synthesize_fake_tts(session_id, turn_id, text)
+    elif settings.provider == "elevenlabs":
+        status, response = synthesize_elevenlabs_tts(settings, session_id, turn_id, text)
+        if status != 200 and settings.failure_fallback_provider == "fake":
+            reason = _safe_str(response.get("error") or "provider_failed", 80)
+            status, response = synthesize_fake_tts(session_id, turn_id, text, fallback_from="elevenlabs", fallback_reason=reason)
+    elif settings.provider == "gemini":
+        status, response = synthesize_gemini_tts(settings, session_id, turn_id, text)
+        if status != 200 and settings.failure_fallback_provider == "fake":
+            reason = _safe_str(response.get("error") or "provider_failed", 80)
+            status, response = synthesize_fake_tts(session_id, turn_id, text, fallback_from="gemini", fallback_reason=reason)
+    else:
+        return 400, {"error": "unsupported_tts_provider", "provider": settings.provider}
+
+    if status == 200 and isinstance(response.get("audio"), dict):
+        response["avatarRtc"] = maybe_send_spatialreal_rtc_audio(
+            avatar_settings,
+            session_id=session_id,
+            turn_id=turn_id,
+            audio_payload=response["audio"],
+        )
+    return status, response
+
+
+def _avatar_client_config(settings: AvatarSettings, *, include_session_token: str | None = None, expires_at: int | None = None) -> dict[str, object]:
+    client: dict[str, object] = {
+        "appId": settings.spatialreal_app_id if settings.app_configured else None,
+        "avatarId": settings.spatialreal_avatar_id if settings.avatar_configured else None,
+        "audioFormat": {
+            "channelCount": settings.audio_channel_count,
+            "sampleRate": settings.audio_sample_rate,
+            "sampleEncoding": "pcm_s16le",
+        },
+        "drivingServiceMode": "host",
+        "environment": "intl",
+        "tokenSource": "server-mediated",
+    }
+    if settings.ingress_endpoint:
+        client["ingressEndpoint"] = settings.ingress_endpoint
+    if include_session_token is not None:
+        client["sessionToken"] = include_session_token
+        client["expiresAt"] = expires_at
+    return client
+
+
+def fetch_spatialreal_session_token(settings: AvatarSettings, expires_at: int) -> tuple[str | None, dict[str, object] | None]:
+    body = json.dumps({"expireAt": expires_at}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{settings.console_endpoint}/v1/console/session-tokens",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Api-Key": settings.spatialreal_api_key,
+            "User-Agent": "GilJobV2/0.1 (+server-mediated-avatar-token)",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
+            response_body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        error.read()  # consume upstream body without exposing provider diagnostics publicly
+        return None, {"error": "avatar_provider_failed", "provider": "spatialreal", "statusCode": error.code, "message": "provider request failed"}
+    except urllib.error.URLError:
+        return None, {"error": "avatar_provider_failed", "provider": "spatialreal", "message": "provider request failed"}
+
+    try:
+        data = json.loads(response_body)
+    except json.JSONDecodeError:
+        return None, {"error": "avatar_provider_failed", "provider": "spatialreal", "message": "invalid session token response"}
+    session_token = _safe_str(data.get("sessionToken") if isinstance(data, dict) else "", 4096)
+    if not session_token:
+        return None, {"error": "avatar_provider_failed", "provider": "spatialreal", "message": "missing sessionToken"}
+    return session_token, None
+
+
+def _disabled_avatar_payload(settings: AvatarSettings, interview_id: str, *, fallback_from: str | None = None, reason: str = "avatar_provider_disabled") -> dict[str, object]:
+    payload: dict[str, object] = {
+        "interviewId": interview_id,
+        "provider": "disabled" if fallback_from else (settings.provider or "disabled"),
+        "ready": False,
+        "status": "disabled",
+        "reason": reason,
+        "client": _avatar_client_config(settings),
+    }
+    if fallback_from:
+        payload["providerStatus"] = "fallback"
+        payload["fallbackFrom"] = fallback_from
+    return payload
+
+
+def avatar_session_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
+    settings = load_avatar_settings()
+    interview_id = _safe_str(payload.get("interviewId") or payload.get("sessionId") or "local-demo", 96)
+    if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
+        return 400, {"error": "invalid_interview_id"}
+    if settings.provider in {"", "disabled", "none", "fake"}:
+        return 200, _disabled_avatar_payload(settings, interview_id)
+    if settings.provider != "spatialreal":
+        return 400, {"error": "unsupported_avatar_provider", "provider": settings.provider}
+    if not settings.key_configured or not settings.app_configured:
+        return 503, {
+            "error": "avatar_provider_unavailable",
+            "provider": "spatialreal",
+            "ready": False,
+            "reason": "missing_api_key_or_app_id",
+            "client": _avatar_client_config(settings),
+        }
+
+    expires_at = int(time.time()) + settings.session_ttl_seconds
+    session_token, error_payload = fetch_spatialreal_session_token(settings, expires_at)
+    if error_payload is not None:
+        if settings.failure_fallback_provider in {"disabled", "none"}:
+            return 200, _disabled_avatar_payload(settings, interview_id, fallback_from="spatialreal", reason="avatar_provider_failed")
+        return 502, error_payload
+    assert session_token is not None
+    return 200, {
+        "interviewId": interview_id,
+        "provider": "spatialreal",
+        "ready": True,
+        "status": "session_issued",
+        "client": _avatar_client_config(settings, include_session_token=session_token, expires_at=expires_at),
+    }
 
 
 def question_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
@@ -143,12 +829,12 @@ def question_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
         try:
             question = generate_gemini_question(settings, payload, turn_index)
             provider_status = "ok"
-        except Exception as error:  # fail closed into explicit error; do not leak key
+        except Exception:  # fail closed into explicit generic error; do not leak provider diagnostics
             return 502, {
                 "error": "llm_provider_failed",
                 "provider": "gemini",
                 "model": settings.gemini_model,
-                "message": str(error).replace(settings.gemini_api_key, "<redacted>"),
+                "message": "provider request failed",
             }
     elif settings.provider == "fake":
         question = fake_question(payload, turn_index)
@@ -203,6 +889,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
         if self.path in {"/healthz", "/readyz"}:
             settings = load_llm_settings()
+            tts_settings = load_tts_settings()
+            avatar_settings = load_avatar_settings()
             self._json(200, {
                 "service": SERVICE_NAME,
                 "status": "ok",
@@ -210,6 +898,22 @@ class Handler(BaseHTTPRequestHandler):
                 "llmProvider": settings.provider,
                 "geminiModel": settings.gemini_model,
                 "geminiKeyConfigured": settings.key_configured,
+                "voiceProvider": tts_settings.provider,
+                "elevenLabsKeyConfigured": tts_settings.elevenlabs_key_configured,
+                "elevenLabsVoiceConfigured": tts_settings.elevenlabs_voice_configured,
+                "elevenLabsModel": tts_settings.elevenlabs_model,
+                "geminiTtsKeyConfigured": tts_settings.gemini_key_configured,
+                "geminiTtsModel": tts_settings.gemini_model,
+                "geminiTtsVoice": tts_settings.gemini_voice_name,
+                "avatarProvider": avatar_settings.provider,
+                "spatialRealKeyConfigured": avatar_settings.key_configured,
+                "spatialRealAppConfigured": avatar_settings.app_configured,
+                "spatialRealAvatarConfigured": avatar_settings.avatar_configured,
+                "spatialRealAudioFormat": {
+                    "channelCount": avatar_settings.audio_channel_count,
+                    "sampleRate": avatar_settings.audio_sample_rate,
+                    "sampleEncoding": "pcm_s16le",
+                },
             })
             return
         self._json(404, {"error": "not_found", "path": self.path})
@@ -223,6 +927,26 @@ class Handler(BaseHTTPRequestHandler):
                 return
             assert payload is not None
             status, response = question_response(payload)
+            self._json(status, response)
+            return
+        if self.path == "/avatar/session":
+            payload, error = self._read_json()
+            if error:
+                status = 413 if error == "request_too_large" else 400
+                self._json(status, {"error": error})
+                return
+            assert payload is not None
+            status, response = avatar_session_response(payload)
+            self._json(status, response)
+            return
+        if self.path == "/tts/synthesize":
+            payload, error = self._read_json()
+            if error:
+                status = 413 if error == "request_too_large" else 400
+                self._json(status, {"error": error})
+                return
+            assert payload is not None
+            status, response = tts_response(payload)
             self._json(status, response)
             return
         if self.path == "/turn-evaluations":

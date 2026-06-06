@@ -8,6 +8,10 @@
     "check:js": "node --check static/app.js"
   },
   "dependencies": {
-    "livekit-client": "2.19.1"
+    "@spatialwalk/avatarkit": "1.0.0-beta.104",
+    "@spatialwalk/avatarkit-rtc": "1.0.0-beta.10",
+    "@types/dom-mediacapture-record": "1.0.22",
+    "@webgpu/types": "0.1.70",
+    "livekit-client": "2.16.1"
   }
 }

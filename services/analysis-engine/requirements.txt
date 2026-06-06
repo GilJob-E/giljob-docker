@@ -1,0 +1,3 @@
+# GilJobE already owns STT + multimodal LiveKit subscriber logic.
+# Pin the integration source so Docker builds are reproducible enough for this scaffold slice.
+git+https://github.com/GilJob-E/GilJobE.git@b769120

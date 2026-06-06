@@ -19,10 +19,15 @@ from urllib.parse import unquote, urlsplit
 SERVICE_NAME = os.getenv("SERVICE_NAME", "web")
 PORT = int(os.getenv("SERVICE_PORT", "3000"))
 STATIC_ROOT = Path(os.getenv("STATIC_ROOT", Path(__file__).with_name("static"))).resolve()
+NODE_MODULES_ROOT = Path(os.getenv("NODE_MODULES_ROOT", Path(__file__).with_name("node_modules"))).resolve()
 LIVEKIT_CLIENT_DIST = Path(
-    os.getenv("LIVEKIT_CLIENT_DIST", Path(__file__).with_name("node_modules") / "livekit-client" / "dist")
+    os.getenv("LIVEKIT_CLIENT_DIST", NODE_MODULES_ROOT / "livekit-client" / "dist")
 ).resolve()
 VENDOR_PREFIX = "vendor/livekit-client/dist/"
+ALLOWED_NODE_VENDOR_PREFIXES = (
+    "vendor/@spatialwalk/avatarkit/dist/",
+    "vendor/@spatialwalk/avatarkit-rtc/dist/",
+)
 INTERVIEW_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 
 CONTENT_TYPES = {
@@ -112,6 +117,10 @@ class Handler(BaseHTTPRequestHandler):
         if relative_path.startswith(VENDOR_PREFIX):
             vendor_relative = relative_path.removeprefix(VENDOR_PREFIX)
             return _safe_file(LIVEKIT_CLIENT_DIST, vendor_relative)
+        for vendor_prefix in ALLOWED_NODE_VENDOR_PREFIXES:
+            if relative_path.startswith(vendor_prefix):
+                vendor_relative = relative_path.removeprefix("vendor/")
+                return _safe_file(NODE_MODULES_ROOT, vendor_relative)
         return None
 
     def _send_static(self, file_path: Path, *, write_body: bool = True) -> None:
