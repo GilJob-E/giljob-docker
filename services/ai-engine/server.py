@@ -548,7 +548,12 @@ def fetch_spatialreal_session_token(settings: AvatarSettings, expires_at: int) -
         f"{settings.console_endpoint}/v1/console/session-tokens",
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "X-Api-Key": settings.spatialreal_api_key},
+        headers={
+            "Content-Type": "application/json",
+            "X-Api-Key": settings.spatialreal_api_key,
+            "User-Agent": "GilJobV2/0.1 (+server-mediated-avatar-token)",
+            "Accept": "application/json",
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:

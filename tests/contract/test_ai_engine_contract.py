@@ -451,6 +451,8 @@ class AIEngineContractTest(unittest.TestCase):
         request = mocked.call_args.args[0]
         self.assertEqual(request.full_url, "https://console.ap-northeast.spatialwalk.cloud/v1/console/session-tokens")
         self.assertEqual(request.headers["X-api-key"], "secret-spatialreal-key")
+        self.assertEqual(request.headers.get("User-agent") or request.headers.get("User-Agent"), "GilJobV2/0.1 (+server-mediated-avatar-token)")
+        self.assertEqual(request.headers.get("Accept"), "application/json")
         request_body = json.loads(request.data.decode("utf-8"))
         self.assertIn("expireAt", request_body)
         self.assertNotIn("secret-spatialreal-key", body)
