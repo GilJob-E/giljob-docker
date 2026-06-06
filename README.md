@@ -397,10 +397,10 @@ python3 -m py_compile \
   services/api/server.py \
   services/api/app/livekit_tokens.py \
   services/ai-engine/server.py \
-  services/analysis-engine/server.py \
   apps/web/server.py
 node --check apps/web/static/app.js
 node --check scripts/browser-join-smoke.mjs
+docker build -q services/analysis-engine >/tmp/giljob-analysis-engine-image.txt
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -p 'test_*_contract.py' -v
 (cd apps/web && npm run check:js)
 (cd apps/web && npm audit --omit=dev --audit-level=high)
