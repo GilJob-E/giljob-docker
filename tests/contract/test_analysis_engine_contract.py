@@ -5,8 +5,9 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
-PINNED_GILJOBE_REF = "88a4df5"
-OLD_GILJOBE_REF = "b769120"
+PINNED_GILJOBE_REF = "e0671f5"
+# Superseded pins must not resurface anywhere a stale copy could mislead operators.
+OLD_GILJOBE_REFS = ("b769120", "88a4df5")
 
 
 class AnalysisEngineContractTest(unittest.TestCase):
@@ -37,9 +38,29 @@ class AnalysisEngineContractTest(unittest.TestCase):
             "dockerfile": dockerfile,
         }.items():
             self.assertIn(PINNED_GILJOBE_REF, text, label)
-            self.assertNotIn(OLD_GILJOBE_REF, text, label)
+            for old_ref in OLD_GILJOBE_REFS:
+                self.assertNotIn(old_ref, text, label)
         self.assertIn(f"git+https://github.com/GilJob-E/GilJobE.git@{PINNED_GILJOBE_REF}", requirements)
         self.assertIn("python -m giljobe.server", requirements)
+
+    def test_grounding_lane_assets_and_toggles_are_wired(self) -> None:
+        """GilJobE objective grounding lanes (vision/prosody): the image must install the
+        extras and bake the MediaPipe models; compose must pass the lane toggles through."""
+        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
+        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
+        env_example = (REPO_ROOT / ".env.example").read_text()
+        self.assertIn("giljobe[vision,prosody]", requirements)
+        self.assertIn("GILJOBE_VISION_MODELS_DIR=/app/models", dockerfile)
+        self.assertIn("face_landmarker.task", dockerfile)
+        self.assertIn("pose_landmarker.task", dockerfile)
+        # MediaPipe C bindings dlopen GLES/EGL even for CPU inference (verified in-container);
+        # dropping these silently disables the vision lane at runtime.
+        self.assertIn("libegl1", dockerfile)
+        self.assertIn("libgles2", dockerfile)
+        for text in (compose, env_example):
+            self.assertIn("GILJOBE_VISION", text)
+            self.assertIn("GILJOBE_PROSODY", text)
 
     def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()

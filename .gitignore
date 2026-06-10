@@ -11,3 +11,9 @@ node_modules/
 
 # OS/editor noise
 .DS_Store
+
+# oh-my-claudecode session state (AI tooling litter — never commit)
+.omc/
+
+# local Claude settings (personal hooks/overrides — never commit)
+.claude/settings.local.json

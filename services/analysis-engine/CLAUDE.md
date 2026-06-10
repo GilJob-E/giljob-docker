@@ -10,4 +10,6 @@ Claude reminders:
 - Keep token handling redacted; never log raw LiveKit tokens/JWTs/API secrets, media, or transcripts.
 - The subscriber starts per turn via `/subscriber/start`; `ANALYSIS_ENGINE_ENABLE_SUBSCRIBER` is a
   legacy scaffold flag and is not consulted.
+- Objective grounding lanes (vision/prosody) are optional-by-design: extras + baked models +
+  `GILJOBE_VISION`/`GILJOBE_PROSODY` env. Never gate startup or health on them.
 - Local Whisper is not an STT path for this service.
