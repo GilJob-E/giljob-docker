@@ -36,7 +36,7 @@ controller relays to `services/ai-engine` as `lastAnswer`.
   by GilJobE against this stack's `livekit` and shared `gemma-e4b` (vLLM) backend.
 - Record delivery to `services/ai-engine` is pull-based: the interview controller polls `/signals`
   and forwards `transcriptFull` to the next-question endpoint.
-- Objective grounding lanes (GilJobE `e0671f5`): CPU-only vision (MediaPipe Face+Pose at full fps)
+- Objective grounding lanes (GilJobE `6bef78b`): CPU-only vision (MediaPipe Face+Pose at full fps)
   and audio prosody (pitch/rate/pauses/energy) measurements are injected into the Gemma prompts
   with anti-hallucination rules and additionally emitted raw on records as `objective_nonverbal`
   / `objective_vocal` / `objective_visual` (additive fields — existing consumers are unaffected).

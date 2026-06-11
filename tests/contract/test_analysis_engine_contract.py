@@ -5,9 +5,9 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
-PINNED_GILJOBE_REF = "e0671f5"
+PINNED_GILJOBE_REF = "6bef78b"
 # Superseded pins must not resurface anywhere a stale copy could mislead operators.
-OLD_GILJOBE_REFS = ("b769120", "88a4df5")
+OLD_GILJOBE_REFS = ("b769120", "88a4df5", "e0671f5")
 
 
 class AnalysisEngineContractTest(unittest.TestCase):
