@@ -14,8 +14,10 @@ Boundary (see AGENTS.md):
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
+import urllib.parse
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -70,14 +72,48 @@ def _build_engine(
     topics: Optional[List[str]],
     topic_count: int,
     config: Optional[HashimotoConfig],
+    job_url: Optional[str] = None,
 ) -> LowLatencyHashimotoEngine:
     """엔진 생성(동기·블로킹: from_resume가 topic 추출 LLM을 1회 호출).
+    job_url이 주어지면 from_*가 공고를 fetch해 focus_keywords를 채운다(실패 시 graceful).
     테스트는 이 함수를 monkeypatch해 네트워크 없이 fake 엔진을 주입한다."""
     if topics:
-        return LowLatencyHashimotoEngine.from_topics(topics, config=config)
+        return LowLatencyHashimotoEngine.from_topics(topics, config=config, job_url=job_url)
     if resume_text:
-        return LowLatencyHashimotoEngine.from_resume(resume_text, topic_count, config=config)
+        return LowLatencyHashimotoEngine.from_resume(resume_text, topic_count, config=config, job_url=job_url)
     raise ValueError("resume_text 또는 topics 중 하나가 필요합니다.")
+
+
+# ── job_url boundary guard (optional JD feature) ──────────────────────────────
+_MAX_JOB_URL_LEN = 2048
+
+
+def _validate_job_url(url: str) -> None:
+    """Boundary guard for the optional JD feature: hashimoto fetches this URL to
+    derive focus keywords, so an unvalidated value is an SSRF/egress surface on an
+    internal-only service. Allow only external http(s); reject loopback/private/
+    link-local/reserved/multicast hosts. Raises ValueError on rejection.
+
+    Best-effort boundary check only: DNS-rebinding/TOCTOU are out of scope and
+    should be handled by an egress firewall in production."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("job_url must be an http(s) URL")
+    host = parsed.hostname
+    if not host:
+        raise ValueError("job_url has no host")
+    lowered = host.lower()
+    if lowered == "localhost" or lowered.endswith(".local") or lowered.endswith(".internal"):
+        raise ValueError("job_url host is not allowed")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and (
+        ip.is_private or ip.is_loopback or ip.is_link_local
+        or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+    ):
+        raise ValueError("job_url host is not allowed")
 
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -95,6 +131,21 @@ class OpenSessionRequest(BaseModel):
     topics: Optional[List[str]] = Field(default=None, max_length=_MAX_TOPICS)
     topic_count: int = Field(default=3, ge=1, le=_MAX_TOPICS)
     config: Optional[HashimotoConfig] = None
+    # Optional JD feature: job-posting URL analyzed once at engine creation to
+    # derive session focus keywords (metadata only). None disables it.
+    job_url: Optional[str] = Field(default=None, max_length=_MAX_JOB_URL_LEN)
+
+    @field_validator("job_url")
+    @classmethod
+    def _check_job_url(cls, v: Optional[str]) -> Optional[str]:
+        """Reject non-external / non-http(s) job_url at the request boundary."""
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        _validate_job_url(v)
+        return v
 
     @field_validator("topics")
     @classmethod
@@ -140,7 +191,7 @@ async def open_session(req: OpenSessionRequest) -> JSONResponse:
     loop = asyncio.get_running_loop()
     try:
         engine = await loop.run_in_executor(
-            None, _build_engine, req.resume_text, req.topics, req.topic_count, config
+            None, _build_engine, req.resume_text, req.topics, req.topic_count, config, req.job_url
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

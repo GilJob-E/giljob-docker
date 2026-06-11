@@ -31,9 +31,13 @@ The analysis LLM uses `GEMINI_API_KEY`. Do not commit `.env` or real API keys.
 
 ### POST /session
 ```json
-{ "session_id": "sess_01J...", "resume_text": "...", "topic_count": 3 }
+{ "session_id": "sess_01J...", "resume_text": "...", "topic_count": 3, "job_url": "https://..." }
 ```
 → `201 { "session_id": "...", "current_topic": "...", "topics": ["...", "..."] }`
+
+`job_url` is optional (JD focus keywords, see below). It is validated at the boundary
+(http(s) only; loopback/private/link-local/reserved hosts rejected) and a `422` is
+returned for a disallowed URL.
 
 ### POST /submit_turn
 ```json
@@ -70,6 +74,12 @@ The AI engine pulls `/strategy` with a short timeout and merges the package into
 
 > `as_of_turn_id` reports the turn whose analysis the returned package was actually computed from (set when the background worker completes), **not** merely the last submitted turn. A turn that was submitted but not yet analyzed is never reported here, so `as_of_turn_id` always matches the package contents.
 
+## JD (job-description) focus keywords
+Optional. Pass `job_url` to `POST /session`; the posting is fetched once at engine
+creation and analyzed into session focus keywords carried as metadata in the strategy
+package (`current_context.focus_keywords`). No engine logic consumes them — they are a
+hint for the question LLM. The fetch is an outbound call, so `job_url` is validated at
+the request boundary and the whole step degrades gracefully (empty list) on failure.
+
 ## Not implemented yet
 - Redis event-stream (`stt.final`) subscription; v1 uses HTTP `POST /submit_turn`.
-- JD (job-description) analysis.

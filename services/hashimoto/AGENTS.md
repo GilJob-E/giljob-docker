@@ -17,10 +17,17 @@ This module owns the bounded hashimoto strategy engine as an internal service. F
 - Do not ingest raw media or audio. Input is transcript text only.
 - Multimodal anxiety/confidence input is accepted for API compatibility but is unused in this slice and defaults to neutral values.
 
+## Job-description (JD) focus keywords
+- Optional. `POST /session` accepts `job_url`; the posting is fetched once at engine
+  creation and analyzed into session `focus_keywords` that ride along as metadata in
+  the strategy package (`current_context.focus_keywords`). No engine logic uses them.
+- `job_url` is validated at the request boundary (http(s) only; loopback/private/
+  link-local/reserved hosts rejected) because this internal service makes the fetch.
+  Fetch/analysis failure degrades gracefully to an empty keyword list.
+
 ## Not implemented here yet
 - Redis event-stream subscription; the v1 boundary is HTTP `POST /submit_turn`, and the event-bus form is a later slice.
 - Multi-process or multi-worker scaling; one asyncio event loop hosts one worker per session.
-- Job-description (JD) analysis is not included yet.
 
 ## Tests
 Run the hashimoto contract test after changes:

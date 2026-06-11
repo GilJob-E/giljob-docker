@@ -124,7 +124,7 @@ class HashimotoContractTest(unittest.TestCase):
     def setUp(self) -> None:
         hashimoto_server._sessions.clear()
         self._orig_build = hashimoto_server._build_engine
-        hashimoto_server._build_engine = lambda resume_text, topics, topic_count, config: _FakeEngine(
+        hashimoto_server._build_engine = lambda resume_text, topics, topic_count, config, job_url=None: _FakeEngine(
             topics or ["주제1", "주제2"]
         )
 
@@ -149,6 +149,27 @@ class HashimotoContractTest(unittest.TestCase):
         res = self._open("sess_a")
         self.assertEqual(res.status_code, 200)
         self.assertTrue(_body(res)["already_open"])
+
+    def test_open_session_accepts_external_job_url(self) -> None:
+        req = hashimoto_server.OpenSessionRequest(
+            session_id="sess_a", topics=["주제1"], job_url="https://jobs.example.com/posting/42")
+        self.assertEqual(req.job_url, "https://jobs.example.com/posting/42")
+        res = asyncio.run(hashimoto_server.open_session(req))
+        self.assertEqual(res.status_code, 201)
+
+    def test_open_session_rejects_unsafe_job_url(self) -> None:
+        import pydantic
+        # SSRF / egress boundary: internal + non-http(s) targets are rejected at parse time.
+        for bad in (
+            "http://localhost:8200/x",
+            "http://127.0.0.1/x",
+            "http://169.254.169.254/latest/meta-data",  # cloud metadata
+            "http://10.0.0.5/x",
+            "file:///etc/passwd",
+            "ftp://example.com/x",
+        ):
+            with self.assertRaises(pydantic.ValidationError, msg=f"should reject {bad}"):
+                hashimoto_server.OpenSessionRequest(session_id="s", topics=["t"], job_url=bad)
 
     def test_submit_turn_dedupes_same_turn_id(self) -> None:
         self._open("sess_a")
