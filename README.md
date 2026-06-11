@@ -1,20 +1,22 @@
 # GilJob v2
 
-GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 LiveKit 기반 면접룸, GilJobE STT/분석, Gemini 질문/TTS, SpatialReal RTC 아바타를 단계적으로 붙이는 것입니다.
+GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 LiveKit 기반 면접룸, GilJobE STT/분석, Gemini 질문/TTS, SpatialReal RTC 아바타를 단계적으로 붙이는 것입니다. 현재 `main`은 scaffold/contract-test 단계이며, production-ready 또는 전체 compose-build green 상태로 간주하지 않습니다.
 
 ![GilJob v2 아키텍처](docs/assets/architecture.svg)
 
 > 중요: 이 repository/worktree는 기존 `/home/hoddukzoa/GilJob`와 분리된 v2 작업 공간입니다. 기존 GilJob 폴더를 복사·삭제·수정하지 않습니다.
+>
+> Release-readiness note: 2026-06-11 main-branch audit 기준, `analysis-engine` Docker build failure, public `/analysis/*` exposure, unauthenticated session/provider broker routes, and stale verification docs are known gaps. See [`docs/reviews/main-branch-readiness-20260611.md`](docs/reviews/main-branch-readiness-20260611.md).
 
 ## 현재 구현 상태
 
 구현됨:
 
 - 단일 서버 Docker Compose 기반 scaffold
-- Caddy ingress (`/api/*` broker, direct `/ai/*`, `/tts/*`, `/avatar/*` 차단)
+- Caddy ingress (`/api/*` broker, direct `/ai/*`, `/tts/*`, `/avatar/*` 차단; 현재 `/analysis/*`는 development boundary로 public proxy됨)
 - Python 기반 `api`, `web`, `ai-engine`, `agent1` scaffold
-- `services/analysis-engine` GilJobE dependency/health/subscriber boundary
-- Postgres service 및 token hash 저장 계약
+- `services/analysis-engine` GilJobE dependency/health/subscriber boundary (현재 Docker build blocker 있음)
+- Postgres service 및 token-hash schema contract (runtime API persistence는 아직 in-memory)
 - optional self-hosted LiveKit/coturn media overlay
 - `POST /api/sessions` 후보자 session 생성
 - LiveKit candidate join token 발급
@@ -46,6 +48,10 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 - final report generator
 - production domain/TLS/hardening
 - Redis/event bus 전환
+- `analysis-engine` Docker image build green 상태 (`praat-parselmouth` native build toolchain issue가 남아 있음)
+- `/analysis/*` production auth boundary; 현재는 browser가 development proxy를 직접 호출합니다.
+- session/provider broker auth hardening; 현재 `/api/sessions`와 question/TTS/avatar broker는 production user-auth gate가 없습니다.
+- Postgres runtime persistence; 현재 schema/service만 있고 API token hash store는 process memory입니다.
 - SpatialReal 아바타 영상의 end-to-end 검증은 LiveKit이 SpatialReal cloud에서 접근 가능한 public `wss://...`와 WebRTC media/TURN 구성이 필요합니다. Cloudflare Tunnel은 signaling/WebSocket에는 유용하지만, WebRTC media 경로는 추가 검증이 필요합니다.
 
 ## Production UX 기준
@@ -66,13 +72,14 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 핵심 경계:
 
 1. 브라우저는 GilJob Web/API HTTP 요청을 Caddy로 보냅니다.
-2. API는 session/report token을 발급하되, 서버 쪽에는 purpose-separated hash만 저장합니다.
+2. API는 session/report token을 발급하되, 현재 runtime store는 process memory의 purpose-separated hash입니다. Postgres는 service/schema contract만 있고 insert/query wiring은 deferred입니다.
 3. API는 LiveKit candidate token과 SpatialReal AvatarKit RTC viewer token을 분리해 발급합니다.
 4. 브라우저는 Caddy를 통해 LiveKit media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다.
-5. 후보자 답변 STT/분석은 `GilJobE`를 `services/analysis-engine`로 붙여 LiveKit audio/video track을 구독하는 구조입니다.
-6. `ai-engine`은 Gemini 질문 생성과 Gemini TTS를 담당합니다.
-7. SpatialReal 아바타는 서버가 session token을 중개하고, 브라우저는 AvatarKit RTC renderer로 LiveKit room에 subscribe합니다.
-8. SpatialReal 서버 SDK egress는 TTS audio를 SpatialReal에 보내고, SpatialReal이 LiveKit room에 avatar stream을 publish하는 구조입니다. 이때 `SPATIALREAL_RTC_LIVEKIT_URL`은 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다.
+5. 후보자 답변 STT/분석은 `GilJobE`를 `services/analysis-engine`로 붙여 LiveKit audio/video track을 구독하는 구조입니다. 현재 browser는 development `/analysis/*` proxy로 subscriber start/stop/signals를 직접 호출합니다.
+6. Production target은 `/analysis/*`를 public Caddy에서 숨기고 API broker가 session token + turn id를 검증한 뒤 analysis-engine을 호출하는 구조입니다.
+7. `ai-engine`은 Gemini 질문 생성, Gemini TTS, SpatialReal session broker, SpatialReal LiveKit egress attempt를 담당합니다.
+8. SpatialReal 아바타는 서버가 session token을 중개하고, 브라우저는 AvatarKit RTC renderer로 LiveKit room에 subscribe합니다.
+9. SpatialReal 서버 SDK egress는 TTS audio를 SpatialReal에 보내고, SpatialReal이 LiveKit room에 avatar stream을 publish하는 구조입니다. 이때 `SPATIALREAL_RTC_LIVEKIT_URL`은 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다.
 
 위 다이어그램의 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
 
@@ -89,12 +96,14 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   /interviews/:id/room
   LiveKit candidate participant
   AvatarKit RTC viewer
+  dev: /analysis poll/control
 ]
 
 [<service> Caddy Ingress|
   :80/:443
   정적 Web 라우팅
   /api/* reverse proxy
+  /analysis/* dev proxy (known gap)
   direct /ai,/tts,/avatar 차단
 ]
 
@@ -109,16 +118,16 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 [<secure> API Service|
   POST /api/sessions
   session/report token 발급
-  purpose-separated hash contract
+  in-process hash store (current)
   LiveKit candidate token 발급
   AvatarKit RTC viewer token 발급
   /api/interviews/:id/* broker
 ]
 
 [<store> Postgres|
+  service + schema contract
   durable session state 예정
-  token hash only
-  raw public token 저장 금지
+  runtime persistence not wired yet
 ]
 
 [<media> LiveKit Server|
@@ -132,8 +141,8 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 ]
 
 [<media> coturn|
-  TURN/STUN relay 후보
-  direct media 실패 시 relay
+  TURN/STUN relay container
+  LiveKit TURN advertisement not wired
 ]
 
 [<analysis> Analysis Engine Service\n(GilJobE)|
@@ -141,6 +150,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   candidate audio/video track consume
   GemmaNativeTranscriber STT
   transcript_full + structured signal emit
+  Docker build currently blocked
 ]
 
 [<service> AI Engine|
@@ -157,6 +167,12 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   LiveKit room publish
 ]
 
+[<future> Authenticated Analysis Broker|
+  move /analysis behind API
+  validate session token + turn id
+  hide transcript/signal controls
+]
+
 [<future> Main LLM / Interview Controller|
   질문 정책 orchestration 강화 예정
   후보자 답변 loop
@@ -166,21 +182,25 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 [후보자 브라우저] - HTTP app/API -> [Caddy Ingress]
 [Caddy Ingress] - static pages -> [Web App]
 [Caddy Ingress] - /api/* -> [API Service]
-[API Service] - token hash 저장 -> [Postgres]
+[Caddy Ingress] - /analysis/* dev proxy -> [Analysis Engine Service\n(GilJobE)]
+[API Service] - schema contract only -> [Postgres]
 [API Service] - candidate room URL + token -> [후보자 브라우저]
 [API Service] - avatar viewer URL + token -> [후보자 브라우저]
 [후보자 브라우저] - direct WebRTC publish/subscribe -> [LiveKit Server]
 [후보자 브라우저] - AvatarKit RTC subscribe -> [LiveKit Server]
-[후보자 브라우저] - push-to-talk turn_start/turn_end -> [API Service]
+[후보자 브라우저] - dev analysis start/stop/signals -> [Analysis Engine Service\n(GilJobE)]
 [LiveKit Server] - candidate audio/video tracks -> [Analysis Engine Service\n(GilJobE)]
-[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [AI Engine]
-[AI Engine] - next question + TTS audio -> [API Service]
+[Analysis Engine Service\n(GilJobE)] - transcriptFull polled by browser -> [후보자 브라우저]
+[후보자 브라우저] - lastAnswer via API broker -> [API Service]
+[API Service] - next question / TTS / avatar session -> [AI Engine]
+[AI Engine] - TTS audio / metadata -> [API Service]
 [AI Engine] - session token / egress audio -> [SpatialReal Cloud]
 [SpatialReal Cloud] - avatar stream publish -> [LiveKit Server]
+[Authenticated Analysis Broker] - target production path -> [Analysis Engine Service\n(GilJobE)]
 [AI Engine] - next question / policy update -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
 [후보자 브라우저] - relay 필요 시 -> [coturn]
-[LiveKit Server] - TURN boundary -> [coturn]
+[LiveKit Server] - TURN strategy TBD -> [coturn]
 ```
 
 렌더링 예시:
@@ -390,20 +410,27 @@ SPATIALREAL_RTC_EGRESS_ENABLED=true
 - browser visible UI와 event log에는 raw JWT, `access_token`, `join_request`, `gj_session_*`, `gj_report_*`, provider key를 노출하지 않습니다.
 - production/shared 환경에서는 `.env.example`의 `change-me`, `replace-me-local-only` 값을 그대로 쓰지 않습니다.
 
+현재 known security gaps는 [`docs/reviews/main-branch-readiness-20260611.md`](docs/reviews/main-branch-readiness-20260611.md)에 정리되어 있습니다. 특히 `/analysis/*` public proxy, unauthenticated session/provider broker routes, and placeholder-secret startup checks are documentation-visible debt until code follow-up PRs close them.
+
 ## 검증 명령
 
 ```bash
 python3 -m py_compile \
   services/api/server.py \
   services/api/app/livekit_tokens.py \
+  services/api/app/token_contract.py \
   services/ai-engine/server.py \
-  apps/web/server.py
+  apps/web/server.py \
+  services/agent1/server.py
 node --check apps/web/static/app.js
 node --check scripts/browser-join-smoke.mjs
-docker build -q services/analysis-engine >/tmp/giljob-analysis-engine-image.txt
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -p 'test_*_contract.py' -v
+(cd apps/web && npm ci --omit=dev --ignore-scripts)
 (cd apps/web && npm run check:js)
 (cd apps/web && npm audit --omit=dev --audit-level=high)
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -p 'test_*_contract.py' -v
+
+# Known failing gates at reviewed main commit 34403b7; keep them visible until fixed.
+docker build -q services/analysis-engine >/tmp/giljob-analysis-engine-image.txt
 npx --yes pyright
 ```
 
@@ -414,6 +441,7 @@ npx --yes pyright
 - [`DESIGN.md`](DESIGN.md)
 - [`docs/architecture.noml`](docs/architecture.noml)
 - [`docs/demo-screenshots.md`](docs/demo-screenshots.md)
+- [`docs/reviews/main-branch-readiness-20260611.md`](docs/reviews/main-branch-readiness-20260611.md)
 - [`docs/implementation-plan.md`](docs/implementation-plan.md)
 - [`docs/runbooks/local-livekit-media.md`](docs/runbooks/local-livekit-media.md)
 - [`docs/runbooks/tts-avatar-contract.md`](docs/runbooks/tts-avatar-contract.md)

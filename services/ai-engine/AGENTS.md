@@ -8,14 +8,16 @@ This module owns bounded AI provider adapters for the interview scaffold. Follow
 - Use `GEMINI_API_KEY` only from environment configuration; never commit or print its value.
 - When `LLM_PROVIDER=gemini`, fail closed if `GEMINI_API_KEY` is missing or the Gemini request fails.
 - Keep fake-provider behavior available for local scaffold/testing when explicitly configured.
-- Provide an internal TTS adapter at `POST /tts/synthesize`; `VOICE_PROVIDER=fake` is keyless, and `VOICE_PROVIDER=elevenlabs` requires server-side ElevenLabs env values.
+- Provide an internal TTS adapter at `POST /tts/synthesize`; `VOICE_PROVIDER=fake` is keyless, `VOICE_PROVIDER=gemini` uses Gemini native TTS, and `VOICE_PROVIDER=elevenlabs` requires server-side ElevenLabs env values.
 - Provide an internal avatar session adapter at `POST /avatar/session`; `AVATAR_PROVIDER=disabled` degrades cleanly, and `AVATAR_PROVIDER=spatialreal` exchanges the server-side key for short-lived client session metadata.
-- Treat `sessionToken`, provider keys, request failures, and upstream error bodies as sensitive. Public API responses must stay redacted.
+- Provide the bounded SpatialReal RTC/LiveKit egress attempt path when `SPATIALREAL_RTC_EGRESS_ENABLED=true`; e2e avatar media still depends on a LiveKit URL reachable by SpatialReal cloud plus verified WebRTC media/TURN routing.
+- Treat `sessionToken`, provider keys, request failures, prompts containing candidate data, and upstream error bodies as sensitive. Public API responses must stay redacted.
 
 ## Not complete product features yet
-- Full Main LLM loop orchestration.
+- Full Main LLM loop orchestration or production interview state machine.
 - STT or audio transcription; local Whisper STT has been removed and transcription belongs to the GilJobE analysis-engine boundary, not this service.
-- Full avatar rendering, avatar media streaming, or SpatialReal Web SDK lifecycle ownership in this service; this service only creates bounded session metadata for the browser surface through the API broker.
+- Ownership of browser avatar rendering; the browser has an AvatarKit RTC shell, while this service owns provider/session/egress boundaries only.
+- Guaranteed SpatialReal avatar media e2e success in local-only networking. Public LiveKit/WebRTC media routing is still a deployment gate.
 - Final report generation.
 - Direct raw media or raw token handling.
 

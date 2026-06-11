@@ -10,12 +10,14 @@
   /interviews/:id/room
   LiveKit candidate participant
   AvatarKit RTC viewer
+  dev: /analysis poll/control
 ]
 
 [<service> Caddy Ingress|
   :80/:443
   정적 Web 라우팅
   /api/* reverse proxy
+  /analysis/* dev proxy (known gap)
   direct /ai,/tts,/avatar 차단
 ]
 
@@ -30,16 +32,16 @@
 [<secure> API Service|
   POST /api/sessions
   session/report token 발급
-  purpose-separated hash contract
+  in-process hash store (current)
   LiveKit candidate token 발급
   AvatarKit RTC viewer token 발급
   /api/interviews/:id/* broker
 ]
 
 [<store> Postgres|
+  service + schema contract
   durable session state 예정
-  token hash only
-  raw public token 저장 금지
+  runtime persistence not wired yet
 ]
 
 [<media> LiveKit Server|
@@ -53,8 +55,8 @@
 ]
 
 [<media> coturn|
-  TURN/STUN relay 후보
-  direct media 실패 시 relay
+  TURN/STUN relay container
+  LiveKit TURN advertisement not wired
 ]
 
 [<analysis> Analysis Engine Service\n(GilJobE)|
@@ -62,6 +64,7 @@
   candidate audio/video track consume
   GemmaNativeTranscriber STT
   transcript_full + structured signal emit
+  Docker build currently blocked
 ]
 
 [<service> AI Engine|
@@ -78,6 +81,12 @@
   LiveKit room publish
 ]
 
+[<future> Authenticated Analysis Broker|
+  move /analysis behind API
+  validate session token + turn id
+  hide transcript/signal controls
+]
+
 [<future> Main LLM / Interview Controller|
   질문 정책 orchestration 강화 예정
   후보자 답변 loop
@@ -87,18 +96,22 @@
 [후보자 브라우저] - HTTP app/API -> [Caddy Ingress]
 [Caddy Ingress] - static pages -> [Web App]
 [Caddy Ingress] - /api/* -> [API Service]
-[API Service] - token hash 저장 -> [Postgres]
+[Caddy Ingress] - /analysis/* dev proxy -> [Analysis Engine Service\n(GilJobE)]
+[API Service] - schema contract only -> [Postgres]
 [API Service] - candidate room URL + token -> [후보자 브라우저]
 [API Service] - avatar viewer URL + token -> [후보자 브라우저]
 [후보자 브라우저] - direct WebRTC publish/subscribe -> [LiveKit Server]
 [후보자 브라우저] - AvatarKit RTC subscribe -> [LiveKit Server]
-[후보자 브라우저] - push-to-talk turn_start/turn_end -> [API Service]
+[후보자 브라우저] - dev analysis start/stop/signals -> [Analysis Engine Service\n(GilJobE)]
 [LiveKit Server] - candidate audio/video tracks -> [Analysis Engine Service\n(GilJobE)]
-[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [AI Engine]
-[AI Engine] - next question + TTS audio -> [API Service]
+[Analysis Engine Service\n(GilJobE)] - transcriptFull polled by browser -> [후보자 브라우저]
+[후보자 브라우저] - lastAnswer via API broker -> [API Service]
+[API Service] - next question / TTS / avatar session -> [AI Engine]
+[AI Engine] - TTS audio / metadata -> [API Service]
 [AI Engine] - session token / egress audio -> [SpatialReal Cloud]
 [SpatialReal Cloud] - avatar stream publish -> [LiveKit Server]
+[Authenticated Analysis Broker] - target production path -> [Analysis Engine Service\n(GilJobE)]
 [AI Engine] - next question / policy update -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
 [후보자 브라우저] - relay 필요 시 -> [coturn]
-[LiveKit Server] - TURN boundary -> [coturn]
+[LiveKit Server] - TURN strategy TBD -> [coturn]

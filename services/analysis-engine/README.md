@@ -45,6 +45,13 @@ controller relays to `services/ai-engine` as `lastAnswer`.
 Not owned here: candidate/browser token minting (the API owns token contracts), the Main LLM
 interview loop, avatar/TTS, and final report generation.
 
+## Known current issues
+
+- Docker build is not currently green at reviewed main commit `34403b7`: `giljobe[vision,prosody]` pulls `praat-parselmouth`, and the Dockerfile does not yet install the native build toolchain (`build-essential`, `cmake`, `ninja-build` or equivalent).
+- Caddy currently exposes this service externally under `/analysis/*` as a development boundary. Production should move subscriber start/stop/signals behind authenticated API broker routes that validate session token + turn id.
+- The pinned `GILJOBE_GIT_REF` is a short SHA. Prefer a full 40-character SHA plus checksum/provenance notes for production supply-chain review.
+
+
 ## Environment contract
 
 | Variable | Purpose | Secret |

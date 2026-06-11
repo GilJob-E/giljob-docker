@@ -2,8 +2,7 @@
 
 This slice uses LiveKit as a self-hosted realtime media room, not as a normal
 frontend-to-backend API proxy. The browser connects directly to the LiveKit
-WebSocket/ICE endpoints returned by the API, while Caddy continues to proxy only
-GilJob web/API HTTP traffic.
+WebSocket/ICE endpoints returned by the API. Caddy proxies GilJob web/API HTTP traffic and, in the current development scaffold, also proxies `/analysis/*` to the analysis-engine. That `/analysis/*` public boundary is a known security gap and should move behind authenticated API routes before production.
 
 Official references used for this contract:
 
@@ -21,13 +20,14 @@ In scope now:
 2. The browser UI at `/` calls `/api/sessions`, then joins/leaves the returned room with
    `livekit-client`.
 3. The Docker media overlay starts local `livekit` and `coturn` services on the same host.
+4. Current Caddy config publicly proxies `/analysis/*` to `analysis-engine` for development transcript/signal polling; this is not a production trust boundary.
 
 Out of scope for this slice:
 
 - CV/job parsing.
 - Real Main LLM turn loop.
-- SpatialReal/ElevenLabs avatar or TTS.
-- Multimodal analysis.
+- Production-authenticated analysis broker routes.
+- Guaranteed SpatialReal cloud avatar media e2e.
 - Final report generation.
 - Production domain/TLS hardening.
 
@@ -43,8 +43,8 @@ Use two URLs because containers and browsers do not reach LiveKit through the sa
 | `LIVEKIT_NODE_IP` | LiveKit ICE candidate address | `127.0.0.1` for same-host local smoke | For external browser tests, set this to the host IP/DNS reachable by that browser. |
 
 Media-enabled compose is fail-closed: `infra/docker-compose.media.yml` refuses to render
-without explicit `LIVEKIT_PUBLIC_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `TURN_DOMAIN`,
-`TURN_REALM`, and `TURN_STATIC_AUTH_SECRET`.
+without explicit `LIVEKIT_PUBLIC_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`,
+`TURN_REALM`, and `TURN_STATIC_AUTH_SECRET`. `TURN_DOMAIN` may appear in older scripts/docs, but this compose overlay does not consume it.
 
 ## Direct ports
 
@@ -91,7 +91,6 @@ LIVEKIT_INTERNAL_URL=ws://livekit:7880 \
 LIVEKIT_NODE_IP=127.0.0.1 \
 LIVEKIT_API_KEY=devkey \
 LIVEKIT_API_SECRET=devsecret-with-at-least-32-bytes \
-TURN_DOMAIN=turn.localhost \
 TURN_REALM=localhost \
 TURN_STATIC_AUTH_SECRET=turn-secret-with-at-least-32-bytes \
 docker compose -f docker-compose.yml -f docker-compose.media.yml up -d caddy
@@ -100,6 +99,10 @@ docker compose -f docker-compose.yml -f docker-compose.media.yml up -d caddy
 Then open `http://<server>/`, create a session, and join the room. For same-origin API calls,
 use the default endpoint `/api/sessions`.
 
+## TURN/coturn status
+
+The overlay starts a `coturn` container and exposes relay ports, but the embedded LiveKit config currently has `turn.enabled: false`. That means coturn is not automatically advertised to LiveKit clients by this overlay. Treat TURN as a deployment decision still requiring explicit LiveKit configuration and external-network smoke.
+
 ## Secret placeholders
 
-`.env.example` values containing `change-me` or `replace-me-local-only` are local smoke placeholders only. Replace them before any shared, external, or non-local deployment.
+`.env.example` values containing `change-me` or `replace-me-local-only` are local smoke placeholders only. Replace them before any shared, external, or non-local deployment. Production startup should eventually reject known placeholder patterns rather than merely checking that variables exist.

@@ -8,18 +8,22 @@ This module owns the browser-facing GilJob v2 web shell. Follow the root `AGENTS
 - Follow `DESIGN.md`: light UI, Cal-style hierarchy, non-scrolling room surface, and restrained product chrome.
 - Preserve the light, non-scrolling interview room with candidate/interviewer tiles.
 - Keep interview context as a right sidebar, not an overlay that covers the interviewer screen.
-- Preserve the manual button answer flow: interviewer question ends, the manual answer button enables, the candidate starts speaking, and the candidate presses again to end/finalize the answer; STT output belongs to the future GilJobE analysis-engine boundary, not a browser-owned transcription path.
+- Preserve the manual button answer flow: interviewer question ends, the manual answer button enables, the candidate starts speaking, and the candidate presses again to end/finalize the answer.
 - Use LiveKit only as the browser media/signaling client. Do not move token issuing into the browser.
+- Use API broker routes for question/TTS/avatar provider calls.
+- Current development analysis boundary: the browser directly calls `/analysis/subscriber/start`, `/analysis/subscriber/stop`, and `/analysis/signals`. Treat this as a known gap; production work should move analysis control/polling behind authenticated API routes.
+- Treat `local-demo` as local/demo-only. Do not introduce new production flows that depend on a shared static session id.
 
 ## Security and privacy
 - Keep visible text and logs token-safe with redaction.
-- Never display or log raw token values, JWTs, LiveKit candidate tokens, session tokens, or report tokens.
+- Never display or log raw token values, JWTs, LiveKit candidate tokens, session tokens, report tokens, avatar session tokens, or provider keys.
 - Do not persist sensitive data in `localStorage`.
 
 ## Tests
-Run web/static contract tests after UI behavior changes:
+Run web/static contract tests after UI behavior changes. Install the web dependency lock first when testing from a clean clone because vendor asset route tests expect `node_modules` to exist.
 
 ```bash
+(cd apps/web && npm ci --omit=dev --ignore-scripts)
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.contract.test_web_static_contract -v
 node --check apps/web/static/app.js
 ```
