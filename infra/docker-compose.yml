@@ -47,8 +47,12 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
       GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-30}
+      # hashimoto 전략 참고용 pull(비차단·best-effort). 미설정 시 transcript-only로 동작.
+      HASHIMOTO_BASE_URL: ${HASHIMOTO_BASE_URL:-http://hashimoto:8200}
     expose:
       - "8100"
+    depends_on:
+      - hashimoto
 
   hashimoto:
     build: ../services/hashimoto

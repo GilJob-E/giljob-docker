@@ -54,12 +54,19 @@ class _FakePackage:
 
 
 class _FakeEngine:
-    """Stands in for LowLatencyHashimotoEngine — per-instance, no network."""
+    """Stands in for LowLatencyHashimotoEngine — per-instance, no network.
+
+    Models the real engine's asynchrony: submit_turn() only enqueues; the strategy
+    (and its as_of turn) is NOT updated until complete_next() simulates the
+    background worker finishing. This lets tests assert that /strategy reports the
+    *completed* turn, not the most recently submitted one."""
 
     def __init__(self, topics):
         self._topics = list(topics) or ["t"]
-        self.submitted: list[str] = []
+        self.submitted: list[str] = []   # every turn_id handed to submit_turn
+        self._pending: list[str] = []     # queued, worker not yet finished
         self._latest = None
+        self._latest_turn_id = None
         self.started = False
         self.stopped = False
 
@@ -71,13 +78,25 @@ class _FakeEngine:
         self.stopped = True
 
     def submit_turn(self, engine_input):
-        # simulate synchronous "analysis done" so /strategy can flip to ready
+        # enqueue only — strategy stays stale until the (simulated) worker completes
         self.submitted.append(engine_input.turn_id)
-        self._latest = _FakePackage(engine_input.turn_id)
+        self._pending.append(engine_input.turn_id)
+
+    def complete_next(self):
+        """Simulate the background worker finishing the oldest queued turn."""
+        if not self._pending:
+            return
+        turn_id = self._pending.pop(0)
+        self._latest = _FakePackage(turn_id)
+        self._latest_turn_id = turn_id
 
     @property
     def latest_strategy(self):
         return self._latest
+
+    @property
+    def latest_strategy_turn_id(self):
+        return self._latest_turn_id
 
     @property
     def session_complete(self):
@@ -158,11 +177,63 @@ class HashimotoContractTest(unittest.TestCase):
         self.assertFalse(_body(cold)["ready"])
         asyncio.run(hashimoto_server.submit_turn(
             hashimoto_server.SubmitTurnRequest(session_id="sess_a", turn_id="turn_0001", text="A")))
+        # worker finishes turn_0001's analysis → /strategy flips to ready
+        hashimoto_server._sessions["sess_a"].engine.complete_next()
         warm = asyncio.run(hashimoto_server.strategy(session_id="sess_a"))
         wb = _body(warm)
         self.assertTrue(wb["ready"])
         self.assertEqual(wb["as_of_turn_id"], "turn_0001")
         self.assertIn("logic_goal", wb["interaction_strategy"])
+
+    def test_strategy_reports_completed_turn_not_submitted(self) -> None:
+        """Regression (C1): /strategy.as_of_turn_id must track the turn whose
+        analysis actually completed, never a turn that was merely submitted.
+
+        Sequence: submit+complete turn_1, then submit turn_2 WITHOUT completing it.
+        While turn_2's analysis is still in flight, /strategy must keep reporting
+        the turn_1-based package as_of turn_1 — not pretend it is turn_2-fresh."""
+        self._open("sess_a")
+        engine = hashimoto_server._sessions["sess_a"].engine
+
+        asyncio.run(hashimoto_server.submit_turn(
+            hashimoto_server.SubmitTurnRequest(session_id="sess_a", turn_id="turn_1", text="A1")))
+        engine.complete_next()  # turn_1 analysis done
+        first = _body(asyncio.run(hashimoto_server.strategy(session_id="sess_a")))
+        self.assertTrue(first["ready"])
+        self.assertEqual(first["as_of_turn_id"], "turn_1")
+
+        # turn_2 submitted but worker has NOT finished it yet
+        asyncio.run(hashimoto_server.submit_turn(
+            hashimoto_server.SubmitTurnRequest(session_id="sess_a", turn_id="turn_2", text="A2")))
+        stale = _body(asyncio.run(hashimoto_server.strategy(session_id="sess_a")))
+        self.assertTrue(stale["ready"])
+        self.assertEqual(stale["as_of_turn_id"], "turn_1",
+                         "submitted-but-unanalyzed turn must not be reported as_of")
+        self.assertEqual(stale["interaction_strategy"]["logic_goal"], "goal-after-turn_1")
+
+        # once the worker finishes turn_2, /strategy advances
+        engine.complete_next()
+        fresh = _body(asyncio.run(hashimoto_server.strategy(session_id="sess_a")))
+        self.assertEqual(fresh["as_of_turn_id"], "turn_2")
+        self.assertEqual(fresh["interaction_strategy"]["logic_goal"], "goal-after-turn_2")
+
+    def test_retried_past_turn_is_deduped_out_of_order(self) -> None:
+        """Regression (C2): once a turn_id has been accepted, a later re-submit of
+        that same id (even after newer turns) is rejected as duplicate — dedup is a
+        full set keyed by turn_id, not just the last one."""
+        self._open("sess_a")
+        engine = hashimoto_server._sessions["sess_a"].engine
+        for tid, txt in (("turn_1", "A1"), ("turn_2", "A2")):
+            res = asyncio.run(hashimoto_server.submit_turn(
+                hashimoto_server.SubmitTurnRequest(session_id="sess_a", turn_id=tid, text=txt)))
+            self.assertEqual(res.status_code, 202)
+        # retry of the older turn_1 after turn_2 → duplicate, not re-enqueued
+        retry = asyncio.run(hashimoto_server.submit_turn(
+            hashimoto_server.SubmitTurnRequest(session_id="sess_a", turn_id="turn_1", text="A1-retry")))
+        self.assertEqual(retry.status_code, 200)
+        self.assertFalse(_body(retry)["accepted"])
+        self.assertEqual(_body(retry)["reason"], "duplicate_turn")
+        self.assertEqual(engine.submitted, ["turn_1", "turn_2"])
 
     def test_unknown_session_is_404(self) -> None:
         with self.assertRaises(HTTPException) as ctx:

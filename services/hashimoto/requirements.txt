@@ -1,5 +1,7 @@
-google-genai>=1.0.0
-pydantic>=2.0.0
-python-dotenv>=1.0.0
-fastapi>=0.115.0
-uvicorn[standard]>=0.30.0
+# 다음 메이저 버전의 호환성 파괴를 막기 위해 상·하한을 함께 고정한다.
+# (Gemini SDK / FastAPI / Pydantic의 major bump 시 자동 끌어올림 방지)
+google-genai>=1.0.0,<2.0.0
+pydantic>=2.0.0,<3.0.0
+python-dotenv>=1.0.0,<2.0.0
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.30.0,<1.0.0

@@ -16,12 +16,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from engine.low_latency import LowLatencyHashimotoEngine
 from models.io import EngineInput, HashimotoConfig
@@ -37,10 +38,28 @@ app = FastAPI(title="GilJob v2 hashimoto", description="Interviewer strategy eng
 
 
 # ── Session registry (멀티테넌트: session_id → 전용 엔진) ──────────────────────
+# 세션당 추적할 turn_id 상한. 초과 시 가장 오래된 것부터 제거(LRU)해 메모리 누수 방지.
+# 한 면접 세션의 턴 수는 수십~수백 규모이므로 충분한 여유.
+_MAX_SEEN_TURN_IDS = 2048
+
+
 @dataclass
 class _Session:
     engine: LowLatencyHashimotoEngine
-    last_turn_id: Optional[str] = None
+    # 접수된 모든 turn_id를 기억(단건 last_turn_id가 아니라 집합) → 재시도/순서 뒤바뀜에도 dedup.
+    # OrderedDict를 LRU로 사용: 값은 미사용(set 의미), 상한 초과 시 oldest pop.
+    seen_turn_ids: "OrderedDict[str, None]" = field(default_factory=OrderedDict)
+
+    def is_duplicate_turn(self, turn_id: str) -> bool:
+        """이미 접수된 turn_id면 True. out-of-order 정책: 한 번 접수된 turn_id는
+        이후 어떤 순서로 다시 들어와도(예: turn_1 → turn_2 → turn_1 재시도) 중복으로 본다."""
+        return turn_id in self.seen_turn_ids
+
+    def mark_turn(self, turn_id: str) -> None:
+        """turn_id를 접수 기록에 추가하고 LRU 상한을 유지한다."""
+        self.seen_turn_ids[turn_id] = None
+        while len(self.seen_turn_ids) > _MAX_SEEN_TURN_IDS:
+            self.seen_turn_ids.popitem(last=False)
 
 
 _sessions: Dict[str, _Session] = {}
@@ -62,22 +81,43 @@ def _build_engine(
 
 
 # ── Request models ────────────────────────────────────────────────────────────
+# internal-only 서비스라도 빈/거대 payload·과도한 topic 입력은 비용·메모리 문제를 일으키므로
+# 식별자·텍스트 길이와 topic 개수에 상한을 둔다.
+_MAX_ID_LEN = 128
+_MAX_TEXT_LEN = 20_000
+_MAX_TOPIC_LEN = 500
+_MAX_TOPICS = 50
+
+
 class OpenSessionRequest(BaseModel):
-    session_id: str
-    resume_text: Optional[str] = None
-    topics: Optional[List[str]] = None
-    topic_count: int = 3
+    session_id: str = Field(min_length=1, max_length=_MAX_ID_LEN)
+    resume_text: Optional[str] = Field(default=None, max_length=_MAX_TEXT_LEN)
+    topics: Optional[List[str]] = Field(default=None, max_length=_MAX_TOPICS)
+    topic_count: int = Field(default=3, ge=1, le=_MAX_TOPICS)
     config: Optional[HashimotoConfig] = None
+
+    @field_validator("topics")
+    @classmethod
+    def _check_topic_items(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """각 topic은 비어 있지 않고 _MAX_TOPIC_LEN 이하여야 한다."""
+        if v is None:
+            return v
+        for t in v:
+            if not t or not t.strip():
+                raise ValueError("빈 topic은 허용되지 않습니다.")
+            if len(t) > _MAX_TOPIC_LEN:
+                raise ValueError(f"topic 길이는 {_MAX_TOPIC_LEN}자를 넘을 수 없습니다.")
+        return v
 
 
 class SubmitTurnRequest(BaseModel):
-    session_id: str
-    turn_id: str
-    text: str
+    session_id: str = Field(min_length=1, max_length=_MAX_ID_LEN)
+    turn_id: str = Field(min_length=1, max_length=_MAX_ID_LEN)
+    text: str = Field(min_length=1, max_length=_MAX_TEXT_LEN)
 
 
 class EndSessionRequest(BaseModel):
-    session_id: str
+    session_id: str = Field(min_length=1, max_length=_MAX_ID_LEN)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -122,13 +162,13 @@ async def submit_turn(req: SubmitTurnRequest) -> JSONResponse:
     s = _sessions.get(req.session_id)
     if s is None:
         raise HTTPException(status_code=404, detail="session_not_found")
-    if s.last_turn_id == req.turn_id:
+    if s.is_duplicate_turn(req.turn_id):
         return JSONResponse(
             status_code=200,
             content={"accepted": False, "reason": "duplicate_turn",
                      "session_id": req.session_id, "turn_id": req.turn_id},
         )
-    s.last_turn_id = req.turn_id
+    s.mark_turn(req.turn_id)
     s.engine.submit_turn(EngineInput(stt_text=req.text, turn_id=req.turn_id))
     return JSONResponse(
         status_code=202,
@@ -149,7 +189,10 @@ async def strategy(session_id: str = Query(...)) -> JSONResponse:
             "session_complete": s.engine.session_complete, "interaction_strategy": None,
         })
     return JSONResponse(status_code=200, content={
-        "ready": True, "session_id": session_id, "as_of_turn_id": s.last_turn_id,
+        # 완료된 전략의 기준 턴(submit 시점이 아니라 워커가 분석을 끝낸 턴). 제출만 되고 아직
+        # 분석 미완료인 turn_id는 여기 반영되지 않는다 → as_of_turn_id가 항상 패키지와 일치.
+        "ready": True, "session_id": session_id,
+        "as_of_turn_id": s.engine.latest_strategy_turn_id,
         "session_complete": s.engine.session_complete,
         "interaction_strategy": pkg.interaction_strategy,
     })

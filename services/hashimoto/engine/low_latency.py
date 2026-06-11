@@ -63,6 +63,9 @@ class LowLatencyHashimotoEngine:
         self._session_exhausted: bool = False
 
         self._latest_strategy: Optional[SapienStrategyPackage] = None
+        # _latest_strategy가 실제로 어느 턴 입력으로 산출됐는지. 워커 완료 시점에만 갱신된다.
+        # (submit 시점이 아니라) → /strategy가 "완료된 전략 기준 턴"을 정확히 보고하게 한다.
+        self._latest_strategy_turn_id: Optional[str] = None
         self._on_strategy_ready = on_strategy_ready
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task: Optional[asyncio.Task] = None
@@ -142,6 +145,12 @@ class LowLatencyHashimotoEngine:
         return self._latest_strategy
 
     @property
+    def latest_strategy_turn_id(self) -> Optional[str]:
+        """latest_strategy를 산출한 입력의 turn_id. 워커가 그 턴 분석을 끝낸 뒤에만 갱신된다.
+        아직 어떤 분석도 완료되지 않았거나 입력에 turn_id가 없으면 None."""
+        return self._latest_strategy_turn_id
+
+    @property
     def current_topic(self) -> str:
         return self.state.root_topic
 
@@ -190,6 +199,8 @@ class LowLatencyHashimotoEngine:
             try:
                 pkg = await self._run_pipeline(engine_input)
                 self._latest_strategy = pkg
+                # 전략과 그 기준 턴을 함께 커밋(원자적) — /strategy가 완료 턴을 정확히 보고
+                self._latest_strategy_turn_id = engine_input.turn_id
                 if self._on_strategy_ready:
                     self._on_strategy_ready(pkg)
             except Exception:
