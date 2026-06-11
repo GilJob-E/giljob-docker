@@ -12,6 +12,9 @@ node_modules/
 # OS/editor noise
 .DS_Store
 
+# Local QA artifacts (raw media, transcripts, analysis JSON — never commit)
+/qa/
+
 # oh-my-claudecode session state (AI tooling litter — never commit)
 .omc/
 
