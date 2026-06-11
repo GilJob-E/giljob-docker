@@ -1,0 +1,109 @@
+{
+  "schema_version": "giljob-benchmark-targets/v0",
+  "pipeline_status": "provisional",
+  "selected_benchmarks": [
+    {
+      "id": "01-fd-bench-v1-turn-taking-latency",
+      "data_path": "benchmark/data/raw/fd-bench-v1-v1_5/",
+      "first_adapter": "turn-based-latency-adapter",
+      "first_runner_status": "implemented-provisional",
+      "runner": "benchmark/harness/run_fdbench_v1_latency.py",
+      "judge_or_evaluator": "fixed timestamp calculation",
+      "primary_metrics": [
+        "first_response_latency_ms",
+        "transcript_flush_latency_ms",
+        "llm_latency_ms",
+        "tts_first_audio_latency_ms",
+        "no_response_rate"
+      ],
+      "next_step": "Connect GilJob harness timestamps around audio end, transcript ready, LLM done, and TTS first audio."
+    },
+    {
+      "id": "04-qivd",
+      "data_path": "benchmark/data/raw/qivd/",
+      "first_adapter": "offline-video-qa-adapter",
+      "first_runner_status": "implemented-provisional",
+      "runner": "benchmark/harness/run_qivd_offline.py",
+      "judge_or_evaluator": "short-answer-normalized-v0 now; fixed VLM/text answer judge later",
+      "primary_metrics": [
+        "accuracy",
+        "category_accuracy",
+        "answer_timing_mae_ms",
+        "first_response_latency_ms"
+      ],
+      "next_step": "Connect offline VLM/frame-sampling adapter first, then add LiveKit streaming timing runner."
+    },
+    {
+      "id": "05-audio-multichallenge",
+      "data_path": "benchmark/data/raw/mimo-audio-evalset/multi_challenge/",
+      "first_adapter": "oracle-transcript-or-asr-plus-text-response-adapter",
+      "first_runner_status": "implemented-provisional",
+      "runner": "benchmark/harness/run_audio_multichallenge.py",
+      "judge_or_evaluator": "binary-rubric-exact-v0 now; judge-based rubric evaluator later",
+      "primary_metrics": [
+        "average_pass_rate",
+        "inference_memory_pass_rate",
+        "instruction_retention_pass_rate",
+        "self_coherence_pass_rate",
+        "voice_editing_pass_rate"
+      ],
+      "next_step": "Replace TARGET_QUESTION direct answering with full multi-turn audio/GilJob adapter and judge-based rubric checks."
+    },
+    {
+      "id": "06-bigbench-audio",
+      "data_path": "benchmark/data/raw/bigbench-audio/",
+      "first_adapter": "audio-qa-adapter",
+      "first_runner_status": "implemented-provisional",
+      "runner": "benchmark/harness/run_bigbench_audio.py",
+      "judge_or_evaluator": "category-aware-token-exact-v0; official public methodology still unclear",
+      "primary_metrics": [
+        "accuracy",
+        "transcript_error_rate"
+      ],
+      "next_step": "Connect an audio-capable adapter or ASR-plus-text adapter; keep reporting as internal-adapted unless official methodology is fixed."
+    },
+    {
+      "id": "07-ifeval-voicebench",
+      "data_path": "benchmark/data/raw/voicebench-ifeval/test-00000-of-00001.parquet",
+      "first_adapter": "audio-to-transcript-plus-ifeval-text-adapter",
+      "first_runner_status": "implemented-provisional",
+      "runner": "benchmark/harness/run_voicebench_ifeval.py",
+      "judge_or_evaluator": "google-research/instruction_following_eval",
+      "primary_metrics": [
+        "prompt_level_accuracy",
+        "instruction_level_accuracy",
+        "transcript_error_rate"
+      ],
+      "next_step": "Replace oracle transcript input with GilJobE/ASR transcript adapter, then compare transcript_error_rate."
+    },
+    {
+      "id": "08-ifeval-text",
+      "data_path": "benchmark/data/repos/google-research/instruction_following_eval/data/input_data.jsonl",
+      "first_adapter": "text-response-adapter",
+      "first_runner_status": "implemented",
+      "runner": "benchmark/harness/run_ifeval_text.py",
+      "judge_or_evaluator": "google-research/instruction_following_eval",
+      "primary_metrics": [
+        "prompt_level_accuracy",
+        "instruction_level_accuracy",
+        "failed_instruction_types"
+      ],
+      "next_step": "Connect a real GilJob/Gemini/Main LLM command or existing response JSONL."
+    },
+    {
+      "id": "09-harmbench",
+      "data_path": "benchmark/data/repos/harmbench/data/",
+      "first_adapter": "text-safety-response-adapter",
+      "first_runner_status": "implemented-provisional",
+      "runner": "benchmark/harness/run_harmbench_text.py",
+      "judge_or_evaluator": "keyword-refusal-v0 now; HarmBench classifier later",
+      "primary_metrics": [
+        "refusal_rate",
+        "attack_success_proxy_rate",
+        "over_refusal_rate",
+        "secret_exposure_count"
+      ],
+      "next_step": "Connect real GilJob/Gemini/Main LLM responses, then rerun with the official HarmBench classifier or a fixed judge."
+    }
+  ]
+}
