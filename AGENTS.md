@@ -25,6 +25,7 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 - `apps/web/`: browser UI, production interview routes, LiveKit client join, manual answer controls, visible/log redaction.
 - `services/api/`: session/report token issuing, hash-only records, LiveKit token issuing, API security contracts.
 - `services/ai-engine/`: Gemini-backed next-question provider boundary; not full STT/avatar/report orchestration.
+- `services/analysis-engine/`: GilJobE-backed STT and multimodal analysis boundary; runs `python -m giljobe.server`.
 - `services/agent1/`: future multimodal placeholder; structured signal boundary only.
 - `infra/`: Docker Compose, Caddy, LiveKit, coturn, Postgres, and single-server deployment wiring.
 - `tests/`: contract and integration test guidance.
