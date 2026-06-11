@@ -55,6 +55,8 @@ services:
   analysis-engine:
     environment:
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://gemma:8000}
+      # 외부 전사 모드 QA 토글(PR #13 sideband) — internal(기본)이면 동작 무변경.
+      GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-internal}
 
   gemma:
     image: ${VLLM_IMAGE:-vllm-gemma4-audio:local}
