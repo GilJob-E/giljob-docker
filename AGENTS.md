@@ -10,8 +10,8 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 - Do not read-print, commit, or quote `.env` values. Use `.env.example` and variable names only.
 - Do not expose raw session tokens, report tokens, JWTs, LiveKit tokens, Gemini keys, or raw media in UI, logs, tests, docs, or examples.
 - Preserve the `LIVEKIT_INTERNAL_URL` / `LIVEKIT_PUBLIC_URL` split. Browser clients use the public URL; server-side token issuing uses the internal URL.
-- Preserve hash-only server storage for public tokens. Raw public tokens are returned once and must not be persisted.
-- Mark future work honestly. Local Whisper STT has been removed; Realtime is not the active plan. Gemini TTS and SpatialReal session/RTC boundaries exist, but end-to-end avatar media still depends on a public LiveKit/WebRTC media path. Full Main LLM orchestration, production-grade multimodal analysis, and final report generation are not complete product features yet.
+- Preserve hash-only server storage for public tokens. Raw public tokens are returned once and must not be persisted. Current runtime storage is process-local; Postgres persistence is still a deferred implementation slice.
+- Mark future work and current gaps honestly. Local Whisper STT has been removed; Realtime is not the active plan. Gemini TTS and SpatialReal session/RTC boundaries exist, but end-to-end avatar media still depends on a public LiveKit/WebRTC media path. `/analysis/*` is currently a public development proxy and should move behind API auth before production. Full Main LLM orchestration, production-grade multimodal analysis, and final report generation are not complete product features yet.
 
 ## Source-of-truth documents
 - `README.md` for current product status, architecture summary, and run instructions.
@@ -23,9 +23,9 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 
 ## Module map
 - `apps/web/`: browser UI, production interview routes, LiveKit client join, manual answer controls, visible/log redaction.
-- `services/api/`: session/report token issuing, hash-only records, LiveKit token issuing, API security contracts.
-- `services/ai-engine/`: Gemini-backed next-question provider boundary; not full STT/avatar/report orchestration.
-- `services/analysis-engine/`: GilJobE-backed STT and multimodal analysis boundary; runs `python -m giljobe.server`.
+- `services/api/`: session/report token issuing, current in-memory hash-only records, LiveKit token issuing, API broker/security contracts, future Postgres persistence.
+- `services/ai-engine/`: Gemini-backed next-question/TTS provider boundary plus SpatialReal session/RTC egress attempt; not full STT/avatar/report orchestration.
+- `services/analysis-engine/`: GilJobE-backed STT and multimodal analysis boundary; runs `python -m giljobe.server`; Docker build is a known blocker until native prosody build tooling is fixed.
 - `services/agent1/`: future multimodal placeholder; structured signal boundary only.
 - `infra/`: Docker Compose, Caddy, LiveKit, coturn, Postgres, and single-server deployment wiring.
 - `tests/`: contract and integration test guidance.

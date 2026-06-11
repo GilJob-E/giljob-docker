@@ -1,5 +1,7 @@
 # GilJob v2 Implementation Plan
 
+> Historical planning note: this file records the original milestone plan and is not fully synchronized with current main. For current implementation status and known blockers, prefer `README.md` and `docs/reviews/main-branch-readiness-20260611.md`. In particular, Postgres runtime persistence is still deferred, local Whisper/fake STT language has been superseded by the GilJobE analysis-engine boundary, and SpatialReal/TTS scaffolding has advanced beyond this plan.
+
 Source of truth:
 
 - `docs/source-manifest.md`
@@ -25,7 +27,7 @@ Source of truth:
 ### M2 — Session/token/LiveKit minimal runtime
 
 - `POST /api/sessions`.
-- session/report token hash storage in Postgres.
+- session/report token hash storage in Postgres. *(Planned; current runtime store is still process-local while `db/schema.sql` defines the contract.)*
 - LiveKit room/token issue.
 - Browser join and engine track subscribe.
 
@@ -33,9 +35,9 @@ Current bounded slices: G006 API token contract foundation is present: `POST /ap
 
 ### M3 — Fake 3-turn loop
 
-- Fake STT.
+- Fake STT. *(Superseded by the GilJobE analysis-engine boundary for current work.)*
 - Fake Agent1 signal.
-- Fake Agent2 follow-up.
+- Fake Agent2 follow-up / question boundary. *(Current scaffold uses ai-engine question/TTS provider routes.)*
 - EventBus adapter, state transitions, fake report.
 
 ### M4 — Real adapters
