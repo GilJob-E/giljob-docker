@@ -54,6 +54,30 @@ let activeAvatarSession = null;
 let avatarRtcRuntime = { sdkInitialized: false, player: null, view: null, provider: null, avatarId: "" };
 let avatarRtcInitializing = null;
 let answerTurnStartRecordCount = 0;
+let activeRealtimeSession = null;
+let realtimeAnswerTranscript = "";
+let realtimeInterviewerQuestionTranscript = "";
+let realtimeFirstAudioMarked = false;
+let realtimeResponseInFlight = false;
+let visionEventTimer = null;
+const REALTIME_VISION_EVENT_MIN_INTERVAL_MS = 1500;
+const REALTIME_VISION_EVENT_MAX_BYTES = 2048;
+const REALTIME_TRANSCRIPT_COMPLETED_EVENT = "conversation.item.input_audio_transcription.completed";
+const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
+const FULL_MMM_READY_MAX_ATTEMPTS = 30;
+const REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS = [
+  "당신은 한국어 라이브 면접관입니다.",
+  "백엔드 분석 준비는 이미 완료된 뒤에만 응답이 요청됩니다.",
+  "후보자에게 MMM, sideband, backend, transcript, analysis-engine, internal gate 같은 내부 구현 단어를 절대 말하지 마세요.",
+  "후보자가 질문/확인을 요청하면 먼저 짧게 답한 뒤, 직전 후보자 답변에 이어지는 자연스러운 면접 질문 하나만 하세요.",
+  "한국어로 간결하게 말하세요."
+].join(" ");
+let realtimeTranscriptCompletionWaiters = [];
+let realtimeTranscriptCompleted = false;
+let realtimeTranscriptCompletionForward = Promise.resolve();
+let realtimeAnswerFinishInFlight = false;
+let realtimeTranscriptCompletedItemIds = new Set();
+let answerTogglePointerDownAt = 0;
 const activeInterviewId = interviewIdFromPath(window.location.pathname);
 const shouldAutoJoinRoom = isProductionRoomPath(window.location.pathname);
 
@@ -62,7 +86,9 @@ function redactSensitiveText(value) {
     .replace(/access_token=[^'"\s&]+/g, "access_token=<redacted>")
     .replace(/join_request=[^'"\s&]+/g, "join_request=<redacted>")
     .replace(/eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, "<jwt-redacted>")
-    .replace(/gj_(session|report)_[A-Za-z0-9._-]+/g, "gj_$1_<redacted>");
+    .replace(/gj_(session|report)_[A-Za-z0-9._-]+/g, "gj_$1_<redacted>")
+    .replace(/rt[a-zA-Z0-9_-]*_[A-Za-z0-9._-]+/g, "rt_<redacted>")
+    .replace(/eph[_-][A-Za-z0-9._-]+/g, "eph_<redacted>");
 }
 
 function interviewIdFromPath(pathname) {
@@ -188,6 +214,557 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function realtimeConfig(session = activeSession) {
+  if (session === activeSession) {
+    return activeSession?.realtime || activeSession?.openaiRealtime || null;
+  }
+  return session?.realtime || session?.openaiRealtime || null;
+}
+
+function defaultRealtimeSessionBrokerEndpoint() {
+  return `/api/interviews/${encodeURIComponent(activeInterviewId)}/realtime/session`;
+}
+
+function isRealtimePrimary(session = activeSession) {
+  const config = realtimeConfig(session);
+  return Boolean(config?.enabled || config?.mode === "primary" || config?.transport === "webrtc");
+}
+
+function realtimeBrokerEndpoint(kind, session = activeSession) {
+  const config = realtimeConfig(session) || {};
+  if (kind === "session") {
+    return config.sessionEndpoint || config.endpoints?.session || defaultRealtimeSessionBrokerEndpoint();
+  }
+  return config[`${kind}Endpoint`] || config.endpoints?.[kind] || null;
+}
+
+function realtimeTurnEventEndpoint(turnIndex = currentTurnIndex) {
+  return `/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/events`;
+}
+
+function realtimeVisionEventEndpoint(turnIndex = currentTurnIndex) {
+  return `/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/vision-events`;
+}
+
+async function postClientSafeJson(endpoint, body = {}) {
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `request failed: HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+function normalizedRealtimeEventKind(type) {
+  return {
+    "turn.answer.start": "turn.answer_started",
+    "turn.answer.end": "turn.answer_ended",
+    "analysis.transcript.delta": "transcript.delta",
+    "analysis.transcript.completed": "transcript.completed",
+    "analysis.vad.speech_started": "vad.speech_started",
+    "analysis.vad.speech_stopped": "vad.speech_stopped",
+    "prosody.window": "prosody.window_metrics",
+    "analysis.prosody.window_metrics": "prosody.window_metrics",
+  }[type] || null;
+}
+
+async function postRealtimeTurnEvent(type, detail = {}, turnIndex = currentTurnIndex) {
+  if (!isRealtimePrimary()) {
+    return null;
+  }
+  const normalizedType = normalizedRealtimeEventKind(type);
+  const payload = {
+    type,
+    turnIndex,
+    sessionId: analysisSessionId(),
+    timestamp: new Date().toISOString(),
+    detail,
+  };
+  if (normalizedType) {
+    payload.normalizedType = normalizedType;
+  }
+  return postClientSafeJson(realtimeTurnEventEndpoint(turnIndex), payload);
+}
+
+function boundedVisionEvent(reason = "periodic", turnIndex = currentTurnIndex) {
+  const video = candidateRoomVideo;
+  const event = {
+    type: "vision_metadata",
+    normalizedType: "vision.frame_metrics",
+    reason,
+    turnIndex,
+    capturedAt: new Date().toISOString(),
+    source: "browser-camera-metadata",
+    rawMediaIncluded: false,
+    video: {
+      cameraEnabled,
+      width: Number(video?.videoWidth || 0),
+      height: Number(video?.videoHeight || 0),
+      readyState: Number(video?.readyState || 0),
+    },
+  };
+  const encoded = JSON.stringify(event);
+  if (encoded.length > REALTIME_VISION_EVENT_MAX_BYTES) {
+    return {
+      type: "vision_metadata",
+      normalizedType: "vision.frame_metrics",
+      reason,
+      turnIndex,
+      capturedAt: event.capturedAt,
+      source: "browser-camera-metadata",
+      rawMediaIncluded: false,
+      truncated: true,
+    };
+  }
+  return event;
+}
+
+async function sendBoundedVisionEvent(reason = "periodic", turnIndex = currentTurnIndex) {
+  if (!isRealtimePrimary()) {
+    return null;
+  }
+  const event = boundedVisionEvent(reason, turnIndex);
+  try {
+    await postClientSafeJson(realtimeVisionEventEndpoint(turnIndex), event);
+    appendLog(`vision event sent: ${reason}; bounded metadata only; raw media hidden`);
+  } catch (error) {
+    appendLog(`vision event unavailable: ${errorMessage(error)}; full MMM must fail closed if visual state is required`);
+  }
+  return event;
+}
+
+function startVisionEventLoop() {
+  stopVisionEventLoop();
+  if (!isRealtimePrimary()) {
+    return;
+  }
+  visionEventTimer = window.setInterval(() => {
+    sendBoundedVisionEvent("periodic").catch((error) => appendLog(`vision event loop skipped: ${errorMessage(error)}`));
+  }, REALTIME_VISION_EVENT_MIN_INTERVAL_MS);
+}
+
+function stopVisionEventLoop() {
+  if (visionEventTimer) {
+    window.clearInterval(visionEventTimer);
+    visionEventTimer = null;
+  }
+}
+
+async function requestRealtimeSessionBroker(session) {
+  const payload = await postClientSafeJson(realtimeBrokerEndpoint("session", session), {
+    interviewId: activeInterviewId,
+    sessionId: session?.sessionId || activeInterviewId,
+    role: "candidate",
+    transport: "webrtc",
+    turnDetection: "manual",
+  });
+  appendLog(`Realtime session broker ready; client secret hidden; session ${payload.sessionId || "issued"}`);
+  return payload;
+}
+
+function realtimeClientSecretValue(brokerSession) {
+  const clientSecret = brokerSession?.client_secret || brokerSession?.clientSecret;
+  const value = typeof clientSecret === "string" ? clientSecret : clientSecret?.value;
+  if (!value) {
+    throw new Error("Realtime session broker did not return an ephemeral client secret");
+  }
+  return value;
+}
+
+function realtimeSdpEndpoint(session, brokerSession) {
+  const configured = brokerSession?.webrtc?.sdpEndpoint || brokerSession?.sdpEndpoint || realtimeConfig(session)?.sdpEndpoint;
+  if (configured) {
+    return configured;
+  }
+  return "https://api.openai.com/v1/realtime/calls";
+}
+
+async function requestRealtimeWebrtcAnswer(session, offer, brokerSession) {
+  const endpoint = realtimeSdpEndpoint(session, brokerSession);
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${realtimeClientSecretValue(brokerSession)}`,
+      "Content-Type": "application/sdp",
+    },
+    body: offer.sdp,
+  });
+  const sdp = await response.text();
+  if (!response.ok) {
+    throw new Error(`Realtime WebRTC SDP attach failed: HTTP ${response.status}`);
+  }
+  if (!sdp.trim()) {
+    throw new Error("Realtime WebRTC SDP attach returned an empty answer");
+  }
+  appendLog("Realtime WebRTC SDP attached with ephemeral client secret hidden; SDP hidden");
+  return { type: "answer", sdp };
+}
+
+async function ensureRealtimeAudioStream() {
+  if (activeRealtimeSession?.localStream) {
+    activeRealtimeSession.localStream.getAudioTracks().forEach((track) => {
+      track.enabled = micEnabled;
+    });
+    return activeRealtimeSession.localStream;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("browser media permissions are not available");
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  stream.getAudioTracks().forEach((track) => {
+    track.enabled = micEnabled;
+  });
+  return stream;
+}
+
+function markRealtimeFirstAudio() {
+  if (!realtimeResponseInFlight) {
+    appendLog("Realtime remote audio track ready; first response audio not requested yet");
+    return;
+  }
+  if (realtimeFirstAudioMarked) {
+    return;
+  }
+  realtimeFirstAudioMarked = true;
+  appendLog("realtime.first_audio marker emitted; audio hidden");
+  postRealtimeTurnEvent("realtime.first_audio", { source: "remote-audio-track" }).catch((error) => appendLog(`first audio marker failed: ${errorMessage(error)}`));
+}
+
+function attachRealtimeRemoteAudio(stream) {
+  if (!interviewerAudio) {
+    return;
+  }
+  interviewerAudio.srcObject = stream;
+  interviewerAudio.hidden = true;
+  interviewerAudio.addEventListener("playing", markRealtimeFirstAudio, { once: true });
+  interviewerAudio.play().catch((error) => appendLog(`Realtime remote audio autoplay skipped: ${errorMessage(error)}`));
+}
+
+function notifyRealtimeTranscriptCompleted() {
+  const waiters = realtimeTranscriptCompletionWaiters;
+  realtimeTranscriptCompletionWaiters = [];
+  waiters.forEach((resolve) => resolve(true));
+}
+
+async function waitForRealtimeTranscriptCompletion(timeoutMs = REALTIME_TRANSCRIPT_GRACE_MS) {
+  if (!realtimeTranscriptCompleted) {
+    appendLog(`waiting for Realtime final transcript up to ${timeoutMs}ms before full MMM gate`);
+    await new Promise((resolve) => {
+      const done = (value) => {
+        window.clearTimeout(timer);
+        realtimeTranscriptCompletionWaiters = realtimeTranscriptCompletionWaiters.filter((fn) => fn !== done);
+        resolve(Boolean(value));
+      };
+      const timer = window.setTimeout(() => done(false), timeoutMs);
+      realtimeTranscriptCompletionWaiters.push(done);
+    });
+  }
+  await realtimeTranscriptCompletionForward;
+  return Boolean(realtimeTranscriptCompleted && realtimeAnswerTranscript.trim());
+}
+
+async function waitForRealtimeDataChannelOpen(channel, timeoutMs = 5000) {
+  if (channel?.readyState === "open") {
+    return;
+  }
+  await new Promise((resolve, reject) => {
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      channel?.removeEventListener("open", onOpen);
+      channel?.removeEventListener("close", onClose);
+      channel?.removeEventListener("error", onError);
+    };
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error("Realtime data channel closed before opening"));
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("Realtime data channel failed before opening"));
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Realtime data channel open timed out"));
+    }, timeoutMs);
+    channel?.addEventListener("open", onOpen, { once: true });
+    channel?.addEventListener("close", onClose, { once: true });
+    channel?.addEventListener("error", onError, { once: true });
+  });
+}
+
+async function sendRealtimeResponseCreate(reason = "manual") {
+  const channel = activeRealtimeSession?.dataChannel;
+  if (!channel || channel.readyState !== "open") {
+    throw new Error("Realtime data channel is not open");
+  }
+  realtimeFirstAudioMarked = false;
+  realtimeResponseInFlight = true;
+  realtimeInterviewerQuestionTranscript = "";
+  channel.send(JSON.stringify({
+    type: "response.create",
+    response: {
+      output_modalities: ["audio"],
+      instructions: REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS,
+    },
+  }));
+  await postRealtimeTurnEvent("realtime.response.create", { reason });
+  appendLog(`realtime.response.create sent after gate: ${reason}; internal analysis ready; internal terms hidden from prompt`);
+}
+
+function extractRealtimeInputTranscript(event) {
+  if (typeof event?.transcript === "string") {
+    return event.transcript.trim();
+  }
+  return "";
+}
+
+function sendRealtimeTranscriptToConversation(transcript) {
+  const channel = activeRealtimeSession?.dataChannel;
+  const text = String(transcript || "").trim();
+  if (!channel || channel.readyState !== "open" || !text) {
+    return false;
+  }
+  channel.send(JSON.stringify({
+    type: "conversation.item.create",
+    item: {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text }],
+    },
+  }));
+  appendLog(`Realtime transcript injected into conversation context; chars ${text.length}; raw hidden`);
+  return true;
+}
+
+function handleRealtimeServerEvent(event) {
+  const type = String(event?.type || "unknown");
+  if (type === "conversation.item.input_audio_transcription.delta" && typeof event.delta === "string") {
+    realtimeAnswerTranscript = `${realtimeAnswerTranscript}${event.delta}`.trim();
+    postRealtimeTurnEvent("analysis.transcript.delta", { transcript: event.delta, itemId: event.item_id || "unknown" }).catch((error) => appendLog(`transcript event forward failed: ${errorMessage(error)}`));
+    renderTranscriptStatus("Realtime transcript delta received. Raw transcript is not written to logs.");
+    return;
+  }
+  if (type === "conversation.item.input_audio_transcription.completed" || type === "conversation.item.input_audio_transcription.done") {
+    const transcript = extractRealtimeInputTranscript(event);
+    const itemId = String(event.item_id || event.item?.id || "unknown");
+    const dedupeKey = `${itemId}:${transcript}`;
+    if (!transcript || realtimeTranscriptCompletedItemIds.has(dedupeKey)) {
+      return;
+    }
+    realtimeTranscriptCompletedItemIds.add(dedupeKey);
+    realtimeAnswerTranscript = transcript || realtimeAnswerTranscript;
+    realtimeTranscriptCompleted = true;
+    realtimeTranscriptCompletionForward = (async () => {
+      try {
+        await postRealtimeTurnEvent("analysis.transcript.completed", { transcript, itemId });
+        appendLog(`Realtime transcript completion forwarded; chars ${transcript.length}; raw hidden`);
+      } catch (error) {
+        appendLog(`transcript completion forward failed: ${errorMessage(error)}`);
+      }
+      sendRealtimeTranscriptToConversation(transcript);
+    })();
+    renderTranscriptStatus(`Realtime 전사 완료 (${transcript.length} chars). Raw transcript is not written to logs.`);
+    realtimeTranscriptCompletionForward.finally(() => notifyRealtimeTranscriptCompleted());
+    return;
+  }
+  if (type === "input_audio_buffer.speech_started") {
+    postRealtimeTurnEvent("analysis.vad.speech_started", { itemId: event.item_id || "unknown", audioStartMs: Number(event.audio_start_ms || 0), rawAudioIncluded: false }).catch((error) => appendLog(`VAD start forward failed: ${errorMessage(error)}`));
+    appendLog("Realtime VAD speech started; raw audio hidden");
+    return;
+  }
+  if (type === "input_audio_buffer.speech_stopped") {
+    postRealtimeTurnEvent("analysis.vad.speech_stopped", { itemId: event.item_id || "unknown", audioEndMs: Number(event.audio_end_ms || 0), rawAudioIncluded: false }).catch((error) => appendLog(`VAD stop forward failed: ${errorMessage(error)}`));
+    postRealtimeTurnEvent("analysis.prosody.window_metrics", { itemId: event.item_id || "unknown", source: "realtime-audio-lifecycle", rawAudioIncluded: false }).catch((error) => appendLog(`prosody lifecycle forward failed: ${errorMessage(error)}`));
+    appendLog("Realtime VAD speech stopped; prosody lifecycle marker sent; raw audio hidden");
+    return;
+  }
+  if (type === "response.audio_transcript.delta" || type === "response.output_audio_transcript.delta") {
+    if (typeof event.delta === "string") {
+      realtimeInterviewerQuestionTranscript = `${realtimeInterviewerQuestionTranscript}${event.delta}`.trim();
+      renderRealtimeQuestionProgress();
+    }
+    markRealtimeFirstAudio();
+    return;
+  }
+  if (type === "response.audio_transcript.done" || type === "response.output_audio_transcript.done") {
+    const transcript = extractRealtimeOutputTranscript(event);
+    if (transcript) {
+      realtimeInterviewerQuestionTranscript = transcript;
+      renderRealtimeQuestionProgress();
+    }
+    markRealtimeFirstAudio();
+    return;
+  }
+  if (type === "response.audio.delta" || type === "response.output_audio.delta") {
+    renderRealtimeQuestionProgress();
+    markRealtimeFirstAudio();
+    return;
+  }
+  if (type === "response.done") {
+    renderRealtimeQuestionDone(event);
+    realtimeResponseInFlight = false;
+    markInterviewerQuestionEnded({ provider: "openai-realtime", turnIndex: currentTurnIndex });
+  }
+}
+
+function bindRealtimeDataChannel(channel) {
+  channel.addEventListener("open", () => {
+    appendLog("Realtime data channel open; browser tools disabled; backend sideband required");
+  });
+  channel.addEventListener("message", (event) => {
+    try {
+      handleRealtimeServerEvent(JSON.parse(event.data));
+    } catch (error) {
+      appendLog(`Realtime event ignored: ${errorMessage(error)}`);
+    }
+  });
+  channel.addEventListener("close", () => appendLog("Realtime data channel closed"));
+}
+
+async function sendRealtimeProsodyEvent(reason = "window", turnIndex = currentTurnIndex) {
+  return postRealtimeTurnEvent("prosody.window", {
+    reason,
+    source: "browser-audio-window-metadata",
+    rawMediaIncluded: false,
+    rawAudioIncluded: false,
+  }, turnIndex);
+}
+
+async function waitForFullMmmReady(turnIndex) {
+  const endpoint = `/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/mmm-ready`;
+  for (let attempt = 0; attempt < FULL_MMM_READY_MAX_ATTEMPTS; attempt += 1) {
+    const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok && payload.full_mmm_ready === true) {
+      await postRealtimeTurnEvent("analysis.full_mmm.ready", { ready: true, source: "api" }, turnIndex);
+      appendLog(`full_mmm_ready received for turn ${turnIndex}; next Realtime audio allowed`);
+      return payload;
+    }
+    if (response.ok && (payload.degraded === true || payload.ready === false)) {
+      appendLog(`full MMM not ready for turn ${turnIndex}: ${payload.reason || "degraded"}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("full_mmm_ready gate timed out; ordinary next-question audio blocked");
+}
+
+async function requestRealtimeNextQuestion(reason = "manual") {
+  if (nextQuestionRequested) {
+    return;
+  }
+  nextQuestionRequested = true;
+  document.dispatchEvent(new CustomEvent("giljob:interviewer-question-started"));
+  renderQuestionLoading();
+  if (currentTurnIndex > 1) {
+    await waitForFullMmmReady(currentTurnIndex - 1);
+  }
+  await sendRealtimeResponseCreate(reason);
+}
+
+async function connectRealtimeRoom(session) {
+  setRoomMode("connecting");
+  setStatus("connecting to OpenAI Realtime WebRTC...", "connecting");
+  const brokerSession = await requestRealtimeSessionBroker(session);
+  const peerConnection = new RTCPeerConnection();
+  const dataChannel = peerConnection.createDataChannel("oai-events");
+  bindRealtimeDataChannel(dataChannel);
+  const remoteStream = new MediaStream();
+  peerConnection.addEventListener("track", (event) => {
+    remoteStream.addTrack(event.track);
+    attachRealtimeRemoteAudio(remoteStream);
+  });
+  const localStream = await ensureRealtimeAudioStream();
+  localStream.getAudioTracks().forEach((track) => peerConnection.addTrack(track, localStream));
+  peerConnection.addTransceiver("audio", { direction: "recvonly" });
+  activeRealtimeSession = { peerConnection, dataChannel, localStream, brokerSession };
+  const offer = await peerConnection.createOffer();
+  await peerConnection.setLocalDescription(offer);
+  const answer = await requestRealtimeWebrtcAnswer(session, offer, brokerSession);
+  await peerConnection.setRemoteDescription(answer);
+  setRoomMode("connected");
+  setStatus("Realtime connected", "connected");
+  if (leaveButton) {
+    leaveButton.disabled = false;
+  }
+  if (joinButton) {
+    joinButton.disabled = true;
+  }
+  startVisionEventLoop();
+  appendLog("Realtime WebRTC connected; OpenAI standard API key stays server-side");
+  await waitForRealtimeDataChannelOpen(dataChannel);
+  nextQuestionRequested = false;
+  await requestRealtimeNextQuestion("realtime-connected");
+}
+
+async function applyRealtimeMediaState() {
+  if (!activeRealtimeSession?.localStream) {
+    return;
+  }
+  activeRealtimeSession.localStream.getAudioTracks().forEach((track) => {
+    track.enabled = micEnabled;
+  });
+  appendLog(`Realtime media updated: answer ${micEnabled ? "recording" : "ended"}; camera metadata ${cameraEnabled ? "enabled" : "disabled"}`);
+}
+
+async function disconnectRealtimeRoom() {
+  stopVisionEventLoop();
+  const session = activeRealtimeSession;
+  activeRealtimeSession = null;
+  if (!session) {
+    return;
+  }
+  session.dataChannel?.close();
+  session.peerConnection?.close();
+  session.localStream?.getTracks().forEach((track) => track.stop());
+  if (interviewerAudio) {
+    interviewerAudio.srcObject = null;
+  }
+  appendLog("leaving Realtime WebRTC room; secrets hidden");
+}
+
+async function finishRealtimeAnswerAndRequestNextQuestion() {
+  if (realtimeAnswerFinishInFlight) {
+    appendLog("answer finish already in progress; duplicate click ignored");
+    return;
+  }
+  realtimeAnswerFinishInFlight = true;
+  try {
+    const completedTurnIndex = currentTurnIndex;
+    micEnabled = false;
+    setAnswerTurnAvailability(false, "candidate answer ending; waiting for transcript/MMM gate");
+    await restartPreviewStream();
+    await applyRealtimeMediaState();
+    const transcriptReady = await waitForRealtimeTranscriptCompletion();
+    if (!transcriptReady) {
+      renderTranscriptStatus("Realtime 전사 결과가 없습니다. 마이크 입력/브라우저 권한/무음 상태를 확인한 뒤 다시 답변해 주세요.");
+      setAnswerTurnAvailability(true, "candidate answer ended without transcript; next question blocked for retry");
+      throw new Error("Realtime transcript unavailable; next question blocked");
+    }
+    await postRealtimeTurnEvent("turn.answer.end", { transcriptAvailable: transcriptReady }, completedTurnIndex);
+    await sendBoundedVisionEvent("answer_end", completedTurnIndex);
+    await sendRealtimeProsodyEvent("answer_end", completedTurnIndex);
+    lastAnswerTranscript = realtimeAnswerTranscript || "Realtime transcript unavailable.";
+    realtimeAnswerTranscript = "";
+    realtimeTranscriptCompleted = false;
+    renderTranscriptStatus("답변 종료. full MMM 준비 신호를 기다리는 중입니다.");
+    await waitForFullMmmReady(completedTurnIndex);
+    currentTurnIndex += 1;
+    nextQuestionRequested = false;
+    setAnswerTurnAvailability(false, "candidate answer ended; full MMM gate passed; waiting for next Realtime question");
+    await requestRealtimeNextQuestion("candidate-answer-ended-full-mmm-ready");
+  } finally {
+    realtimeAnswerFinishInFlight = false;
+  }
+}
+
 function renderAvatarRtcEgressStatus(avatarRtc) {
   if (!avatarRtc) {
     return;
@@ -220,6 +797,16 @@ async function disconnectAvatarRtc() {
     view.dispose();
   }
   avatarRenderTarget?.classList.remove("is-rtc-active");
+}
+
+function muteAvatarRtcAudioElements() {
+  const scope = avatarRenderTarget || avatarSurface || document;
+  scope.querySelectorAll?.("audio, video").forEach((element) => {
+    if (element !== interviewerAudio) {
+      element.muted = true;
+      element.volume = 0;
+    }
+  });
 }
 
 async function initializeAvatarRtc(payload) {
@@ -278,7 +865,8 @@ async function initializeAvatarRtc(payload) {
       player.on("connected", () => {
         setAvatarRtcState("ready", "Avatar RTC 연결됨");
         setAvatarPanelMessage("SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다.");
-        appendLog("avatar rtc connected through LiveKit; tokens hidden");
+        muteAvatarRtcAudioElements();
+        appendLog("avatar rtc connected through LiveKit; tokens hidden; Avatar RTC media muted to avoid dual-audio drift with OpenAI Realtime output");
       });
       player.on("disconnected", () => appendLog("avatar rtc disconnected"));
       player.on("stalled", () => appendLog("avatar rtc stalled; waiting for SpatialReal publisher frames"));
@@ -484,12 +1072,70 @@ async function flushAnalysisTurn(sessionId) {
   }
 }
 
+function extractRealtimeOutputTranscript(event) {
+  const direct = typeof event?.transcript === "string" ? event.transcript : "";
+  if (direct.trim()) {
+    return direct.trim();
+  }
+  const output = Array.isArray(event?.response?.output) ? event.response.output : [];
+  const chunks = [];
+  output.forEach((item) => {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    content.forEach((part) => {
+      if (typeof part?.transcript === "string" && part.transcript.trim()) {
+        chunks.push(part.transcript.trim());
+      }
+      if (typeof part?.text === "string" && part.text.trim()) {
+        chunks.push(part.text.trim());
+      }
+    });
+  });
+  return chunks.join(" ").trim();
+}
+
+function renderRealtimeQuestionProgress() {
+  const text = realtimeInterviewerQuestionTranscript.trim() || "Realtime 음성 질문을 재생하고 있습니다.";
+  if (currentQuestionTitle) {
+    currentQuestionTitle.textContent = `질문 ${currentTurnIndex}`;
+  }
+  if (currentQuestionBody) {
+    currentQuestionBody.textContent = text;
+  }
+  if (interviewerQuestionText) {
+    interviewerQuestionText.textContent = text;
+  }
+  if (interviewerMediaState) {
+    interviewerMediaState.textContent = "질문 재생 중";
+  }
+  if (avatarSurface && activeAvatarSession?.ready) {
+    avatarSurface.dataset.state = "speaking";
+  }
+  muteAvatarRtcAudioElements();
+}
+
+function renderRealtimeQuestionDone(event) {
+  const extracted = extractRealtimeOutputTranscript(event);
+  if (extracted) {
+    realtimeInterviewerQuestionTranscript = extracted;
+  }
+  const question = realtimeInterviewerQuestionTranscript.trim() || "Realtime 음성 질문 재생이 완료되었습니다.";
+  renderInterviewQuestion({
+    question,
+    questionId: `realtime-${currentTurnIndex}`,
+    turnIndex: currentTurnIndex,
+    provider: "openai-realtime",
+  });
+  realtimeInterviewerQuestionTranscript = "";
+}
+
 function renderQuestionLoading() {
   if (currentQuestionTitle) {
     currentQuestionTitle.textContent = "질문 생성 중";
   }
   if (currentQuestionBody) {
-    currentQuestionBody.textContent = "Gemini 기반 InterviewController가 다음 질문을 생성하고 있습니다.";
+    currentQuestionBody.textContent = isRealtimePrimary()
+      ? "Realtime sideband가 full MMM 준비 이후 다음 질문을 발화합니다."
+      : "Gemini 기반 InterviewController가 다음 질문을 생성하고 있습니다.";
   }
   if (interviewerQuestionText) {
     interviewerQuestionText.textContent = "면접관 질문을 준비하고 있습니다.";
@@ -574,6 +1220,9 @@ async function playInterviewerQuestion(payload) {
 }
 
 async function requestNextQuestion(reason = "manual") {
+  if (isRealtimePrimary() && activeRealtimeSession) {
+    return requestRealtimeNextQuestion(reason);
+  }
   if (nextQuestionRequested) {
     return;
   }
@@ -750,6 +1399,10 @@ async function startPreview() {
 }
 
 async function applyMediaStateToRoom() {
+  if (activeRealtimeSession) {
+    await applyRealtimeMediaState();
+    return;
+  }
   if (!activeRoom) {
     return;
   }
@@ -759,12 +1412,28 @@ async function applyMediaStateToRoom() {
 }
 
 async function startAnswerCapture() {
+  if (activeRealtimeSession) {
+    realtimeAnswerTranscript = "";
+    realtimeTranscriptCompleted = false;
+    realtimeTranscriptCompletionForward = Promise.resolve();
+    realtimeTranscriptCompletedItemIds = new Set();
+    await postRealtimeTurnEvent("turn.answer.start", { source: "browser-manual-button" });
+    await sendBoundedVisionEvent("answer_start");
+    await sendRealtimeProsodyEvent("answer_start");
+    renderTranscriptStatus("답변 중입니다. Realtime STT/VAD 이벤트와 bounded vision metadata를 analysis-engine으로 전달합니다.");
+    appendLog("candidate answer turn started; Realtime event boundary active; raw transcript hidden");
+    return;
+  }
   await markAnalysisTurnStart(analysisSessionId());
   renderTranscriptStatus("답변 중입니다. GilJobE analysis-engine이 LiveKit 오디오를 수집하고 있습니다.");
   appendLog("candidate answer turn started; GilJobE analysis-engine recording boundary active");
 }
 
 async function finishAnswerAndRequestNextQuestion() {
+  if (activeRealtimeSession) {
+    await finishRealtimeAnswerAndRequestNextQuestion();
+    return;
+  }
   micEnabled = false;
   await restartPreviewStream();
   await applyMediaStateToRoom();
@@ -800,6 +1469,23 @@ async function toggleMic() {
     setStatus(`answer turn failed: ${message}`, "error");
     appendLog(`answer turn failed: ${message}`);
   }
+}
+
+function rememberAnswerTogglePointerDown(event) {
+  if (event?.isTrusted === true && event.button === 0) {
+    answerTogglePointerDownAt = Date.now();
+  }
+}
+
+function handleToggleMicClick(event) {
+  const pointerAgeMs = Date.now() - answerTogglePointerDownAt;
+  if (event?.isTrusted !== true || pointerAgeMs < 0 || pointerAgeMs > 1500) {
+    appendLog("answer toggle ignored: missing recent pointerdown or untrusted event");
+    return;
+  }
+  answerTogglePointerDownAt = 0;
+  appendLog(`answer toggle accepted: user pointer event detail ${Number(event.detail || 0)}`);
+  toggleMic();
 }
 
 async function toggleCamera() {
@@ -929,6 +1615,10 @@ async function failClosedAfterJoinMediaError(room, error) {
 
 async function joinRoom() {
   const session = activeSession ?? (await createSession());
+  if (isRealtimePrimary(session)) {
+    await connectRealtimeRoom(session);
+    return;
+  }
   const { url, token } = sessionLiveKitConfig(session);
   try {
     await restartAnalysisSubscriber(session.sessionId || activeInterviewId);
@@ -972,6 +1662,19 @@ async function autoJoinRoomRoute() {
 }
 
 function leaveRoom() {
+  if (activeRealtimeSession) {
+    disconnectAvatarRtc();
+    disconnectRealtimeRoom();
+    setRoomMode("prejoin");
+    setStatus("Realtime disconnected", "idle");
+    if (leaveButton) {
+      leaveButton.disabled = true;
+    }
+    if (joinButton) {
+      joinButton.disabled = false;
+    }
+    return;
+  }
   if (!activeRoom) {
     return;
   }
@@ -1011,7 +1714,8 @@ previewButton?.addEventListener("click", async () => {
   }
 });
 
-toggleMicButton?.addEventListener("click", toggleMic);
+toggleMicButton?.addEventListener("pointerdown", rememberAnswerTogglePointerDown);
+toggleMicButton?.addEventListener("click", handleToggleMicClick);
 toggleCameraButton?.addEventListener("click", toggleCamera);
 toggleContextDrawerButton?.addEventListener("click", toggleContextDrawer);
 closeContextDrawerButton?.addEventListener("click", () => setContextDrawerOpen(false));
