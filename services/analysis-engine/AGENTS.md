@@ -6,9 +6,15 @@ This module owns the GilJobE-backed analysis boundary. Follow the root `AGENTS.m
 - The container installs the pinned `GilJobE` package (`requirements.txt`) and runs its own module
   entrypoint `python -m giljobe.server`. There is no local wrapper to maintain here — GilJobE owns
   the HTTP contract server (`server/http_app.py`).
-- Keep the image thin: `python:3.12-slim` + `git` + `ffmpeg` (livekit/av wheels need glibc, not alpine).
+- Keep the image thin: `python:3.12-slim` + `git` + `ffmpeg` + `curl` (livekit/av wheels need glibc,
+  not alpine; curl fetches the pinned MediaPipe models at build time).
 - Bump behaviour by bumping the pinned ref in `requirements.txt` (and the informational
   `GILJOBE_GIT_REF`), not by forking logic into this directory.
+- The `[vision,prosody]` extras enable GilJobE's objective grounding lanes (CPU-only); the
+  MediaPipe `.task` models are baked at `/app/models` (`GILJOBE_VISION_MODELS_DIR`). The lanes
+  self-disable when deps/models are missing — never make container startup depend on them.
+  Licence note: `praat-parselmouth` (prosody extra) is GPL-3; revisit before distributing the
+  image outside this self-hosted deployment.
 
 ## Current responsibilities
 - Treat `GilJobE` as the STT and multimodal input-analysis source of truth.

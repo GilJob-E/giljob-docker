@@ -36,6 +36,11 @@ controller relays to `services/ai-engine` as `lastAnswer`.
   by GilJobE against this stack's `livekit` and shared `gemma-e4b` (vLLM) backend.
 - Record delivery to `services/ai-engine` is pull-based: the interview controller polls `/signals`
   and forwards `transcriptFull` to the next-question endpoint.
+- Objective grounding lanes (GilJobE `e0671f5`): CPU-only vision (MediaPipe Face+Pose at full fps)
+  and audio prosody (pitch/rate/pauses/energy) measurements are injected into the Gemma prompts
+  with anti-hallucination rules and additionally emitted raw on records as `objective_nonverbal`
+  / `objective_vocal` / `objective_visual` (additive fields — existing consumers are unaffected).
+  The lanes self-disable when their deps/models are absent; this image bakes both.
 
 Not owned here: candidate/browser token minting (the API owns token contracts), the Main LLM
 interview loop, avatar/TTS, and final report generation.
@@ -52,5 +57,7 @@ interview loop, avatar/TTS, and final report generation.
 | `ANALYSIS_ENGINE_PORT` | HTTP port (defaults to `8200`). | no |
 | `GILJOBE_GIT_REF` | Pinned GilJobE source reference (informational; the real pin is `requirements.txt`). | no |
 | `ANALYSIS_ENGINE_ENABLE_SUBSCRIBER` | Legacy scaffold flag. The GilJobE server starts per turn via `/subscriber/start`, so this is not consulted. | no |
+| `GILJOBE_VISION_MODELS_DIR` | MediaPipe `.task` model directory for the vision grounding lane (baked at `/app/models`). | no |
+| `GILJOBE_VISION` / `GILJOBE_PROSODY` | Grounding lane toggles: `auto` (default — on when deps/models exist) or `off`. | no |
 
 `/healthz` is intentionally non-secret and redacted. `/readyz` only reports readiness; it never prints token values.
