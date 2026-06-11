@@ -75,8 +75,20 @@ services:
       LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      # hashimoto strategy pull (non-blocking, best-effort). Empty -> ai-engine runs transcript-only.
+      HASHIMOTO_BASE_URL: ${HASHIMOTO_BASE_URL:-http://hashimoto:8200}
     expose:
       - "8100"
+    depends_on:
+      - hashimoto
+
+  hashimoto:
+    build: ../services/hashimoto
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      HASHIMOTO_ANALYSIS_MODEL: ${HASHIMOTO_ANALYSIS_MODEL:-gemini-3.1-flash-lite}
+    expose:
+      - "8200"          # internal only -- no ports:, no Caddy route
 
   analysis-engine:
     build: ../services/analysis-engine
