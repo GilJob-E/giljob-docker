@@ -2,37 +2,55 @@
 
 GilJobE-backed analysis boundary for GilJob v2.
 
-This service is the planned hidden LiveKit analyzer participant:
+This service is the hidden LiveKit analyzer participant:
 
 ```text
 Candidate browser -> LiveKit room -> services/analysis-engine (GilJobE)
-  -> transcript_full + multimodal signals -> ai-engine / interview controller
+  -> transcript_full + non-verbal signals -> ai-engine / interview controller
 ```
 
-## Current slice
+## How it runs
 
-Implemented now:
+The container installs the pinned `GilJobE` package and runs **its own module entrypoint**
+`python -m giljobe.server` (GilJobE owns `server/http_app.py`). There is no local wrapper:
+the container runs the same HTTP server GilJobE smoke-tests, so behaviour stays in lockstep
+with the source of truth.
 
-- Docker/service scaffold under `services/analysis-engine`.
-- Pinned GilJobE dependency in `requirements.txt`.
-- Token-safe HTTP health/contract surface.
-- Compose wiring with standby default.
+HTTP contract served on `:8200` (Caddy prefixes `/analysis` externally; internal paths have no prefix):
 
-Not yet implemented in this slice:
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/subscriber/start` `{sessionId, criticMode}` | Begin an answer turn — join `giljob-session-{sessionId}` as a hidden subscriber and reset the turn. |
+| `POST` | `/subscriber/stop` `{}` | End the turn — flush `end_turn` and produce `transcript_full`. |
+| `GET` | `/signals?sessionId=` | Poll the turn's records: `{records, transcriptFull, windowTranscripts, latestTurnEnd, rawMediaExposed:false, rawSecretsExposed:false, ...}`. |
+| `GET` | `/healthz` `/readyz` | Liveness / readiness (token-safe, never prints secrets). |
 
-- Production LiveKit room subscription loop.
-- Delivery of GilJobE records to `services/ai-engine`.
-- Real candidate media analysis in the Docker stack.
+The subscriber is created per turn on `POST /subscriber/start` (HTTP-driven), so there is no
+background auto-start to gate. `transcript_full` is the candidate answer the interview
+controller relays to `services/ai-engine` as `lastAnswer`.
+
+## Status
+
+- Runs GilJobE's HTTP contract server (`/subscriber/start|stop`, `/signals`, `/healthz`, `/readyz`).
+- The per-turn LiveKit room subscription + transcript + non-verbal signal path is exercised end to end
+  by GilJobE against this stack's `livekit` and shared `gemma-e4b` (vLLM) backend.
+- Record delivery to `services/ai-engine` is pull-based: the interview controller polls `/signals`
+  and forwards `transcriptFull` to the next-question endpoint.
+
+Not owned here: candidate/browser token minting (the API owns token contracts), the Main LLM
+interview loop, avatar/TTS, and final report generation.
 
 ## Environment contract
 
 | Variable | Purpose | Secret |
 |---|---|---|
-| `ANALYSIS_ENGINE_ENABLE_SUBSCRIBER` | Explicitly enable the future LiveKit subscriber loop. Defaults to `false`. | no |
 | `LIVEKIT_URL` | Internal/container LiveKit URL, for example `ws://livekit:7880`. | no |
 | `LIVEKIT_TOKEN` | Optional pre-issued hidden analyzer participant token. | yes |
-| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | Optional fallback for GilJobE self-minting hidden subscriber token. | yes |
-| `LIVEKIT_SESSION_ID` | Session id used by GilJobE room naming (`giljob-session-{id}`). | no |
-| `GILJOBE_GIT_REF` | Pinned GilJobE source reference included in the image. | no |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | Fallback for GilJobE self-minting a hidden subscriber token. | yes |
+| `LIVEKIT_SESSION_ID` | Default session id for GilJobE room naming (`giljob-session-{id}`); `/subscriber/start` overrides per turn. | no |
+| `VLLM_BASE_URL` | vLLM (Gemma E4B) backend for transcription + non-verbal critique, e.g. `http://gemma-e4b:8000`. | no |
+| `ANALYSIS_ENGINE_PORT` | HTTP port (defaults to `8200`). | no |
+| `GILJOBE_GIT_REF` | Pinned GilJobE source reference (informational; the real pin is `requirements.txt`). | no |
+| `ANALYSIS_ENGINE_ENABLE_SUBSCRIBER` | Legacy scaffold flag. The GilJobE server starts per turn via `/subscriber/start`, so this is not consulted. | no |
 
 `/healthz` is intentionally non-secret and redacted. `/readyz` only reports readiness; it never prints token values.

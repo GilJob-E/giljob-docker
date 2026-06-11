@@ -11,6 +11,7 @@ DOC_PAIRS = [
     pathlib.Path("apps/web"),
     pathlib.Path("services/api"),
     pathlib.Path("services/ai-engine"),
+    pathlib.Path("services/analysis-engine"),
     pathlib.Path("services/agent1"),
     pathlib.Path("infra"),
     pathlib.Path("tests"),
