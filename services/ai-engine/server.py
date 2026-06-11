@@ -17,6 +17,7 @@ import math
 import os
 import re
 import struct
+import threading
 import time
 import wave
 from io import BytesIO
@@ -225,6 +226,95 @@ def _pull_hashimoto_strategy(session_id: str, timeout: float = 0.3) -> dict[str,
         return None
     strategy = data.get("interaction_strategy")
     return strategy if isinstance(strategy, dict) else None
+
+
+# ── hashimoto feed (write side: push STT answers to hashimoto) ────────────────
+# Policy (team decision): the ai-engine already receives each answer transcript as
+# `lastAnswer`, so it forwards that to hashimoto's /submit_turn. session_id/turn_id
+# are synthesized here freely — they key only the hashimoto channel and do not affect
+# any other pipeline. Everything is best-effort and gated on HASHIMOTO_BASE_URL, so
+# the default-off behavior (and existing tests) is unchanged.
+_HASHIMOTO_SEEN_SESSIONS: set[str] = set()
+_HASHIMOTO_SEEN_LOCK = threading.Lock()
+
+
+def _hashimoto_base() -> str:
+    return os.getenv("HASHIMOTO_BASE_URL", "").strip().rstrip("/")
+
+
+def _hashimoto_post(path: str, body: dict[str, Any], timeout: float) -> int | None:
+    """POST JSON to hashimoto. Returns HTTP status, or None on transport error.
+    Never raises — hashimoto must never break question generation."""
+    base = _hashimoto_base()
+    if not base:
+        return None
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        f"{base}{path}", data=data,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+    except Exception:
+        return None
+
+
+def _ensure_hashimoto_session(
+    session_id: str, resume_text: str | None, job_url: str | None, timeout: float = 4.0
+) -> bool:
+    """Create the hashimoto engine for this session (idempotent: 200 already_open).
+    Needs resume_text (or topics) to seed; returns False if nothing to seed with."""
+    body: dict[str, Any] = {"session_id": session_id}
+    if resume_text:
+        body["resume_text"] = resume_text
+    if job_url:
+        body["job_url"] = job_url
+    if "resume_text" not in body:
+        return False  # no seed material — leave hashimoto cold (transcript-only)
+    return _hashimoto_post("/session", body, timeout) in (200, 201)
+
+
+def _push_hashimoto_turn(session_id: str, turn_id: str, text: str, timeout: float = 0.5) -> int | None:
+    """Submit one answer transcript as a turn (non-blocking 202; dedup server-side)."""
+    return _hashimoto_post(
+        "/submit_turn", {"session_id": session_id, "turn_id": turn_id, "text": text}, timeout
+    )
+
+
+def _feed_hashimoto(payload: dict[str, Any], turn_index: int) -> None:
+    """Forward this request's answer transcript to hashimoto. Best-effort, no-op
+    unless HASHIMOTO_BASE_URL is set. Safe to run in a background thread.
+
+    Synthesized keys: session_id = sessionId|interviewId, turn_id = turn of the
+    answer being submitted (turn_index-1, since lastAnswer answers the prior turn)."""
+    if not _hashimoto_base():
+        return
+    session_id = _safe_str(payload.get("sessionId") or payload.get("interviewId") or "local-demo", 96)
+    resume_text = _safe_str(payload.get("candidateProfile") or "", 20_000).strip() or None
+    job = _safe_str(payload.get("job") or "", 2_048).strip()
+    job_url = job if job[:4].lower() == "http" else None
+
+    with _HASHIMOTO_SEEN_LOCK:
+        already = session_id in _HASHIMOTO_SEEN_SESSIONS
+    if not already and _ensure_hashimoto_session(session_id, resume_text, job_url):
+        with _HASHIMOTO_SEEN_LOCK:
+            _HASHIMOTO_SEEN_SESSIONS.add(session_id)
+
+    last_answer = _safe_str(payload.get("lastAnswer") or "", 20_000).strip()
+    if not last_answer or turn_index < 2:
+        return  # turn 1 (or no answer yet) has nothing to submit
+    turn_id = f"turn_{turn_index - 1:04d}"
+    status = _push_hashimoto_turn(session_id, turn_id, last_answer)
+    if status == 404:  # session missing (e.g. hashimoto restarted) — re-bootstrap once
+        with _HASHIMOTO_SEEN_LOCK:
+            _HASHIMOTO_SEEN_SESSIONS.discard(session_id)
+        if _ensure_hashimoto_session(session_id, resume_text, job_url):
+            with _HASHIMOTO_SEEN_LOCK:
+                _HASHIMOTO_SEEN_SESSIONS.add(session_id)
+            _push_hashimoto_turn(session_id, turn_id, last_answer)
 
 
 def _strategy_guidance_block(strategy: dict[str, Any] | None) -> str:
@@ -887,6 +977,14 @@ def question_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
         return 400, {"error": "invalid_turn_index"}
     if turn_index < 1:
         return 400, {"error": "invalid_turn_index"}
+
+    # Forward the answer transcript to hashimoto in the background (best-effort,
+    # no-op unless HASHIMOTO_BASE_URL set). Never blocks question generation; the
+    # just-submitted turn is analyzed async and surfaces on a later /strategy pull.
+    if _hashimoto_base():
+        threading.Thread(
+            target=_feed_hashimoto, args=(payload, turn_index), daemon=True
+        ).start()
 
     if settings.provider == "gemini":
         # Advisory pull of hashimoto strategy (no-op unless HASHIMOTO_BASE_URL set).

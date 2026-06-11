@@ -74,6 +74,16 @@ The AI engine pulls `/strategy` with a short timeout and merges the package into
 
 > `as_of_turn_id` reports the turn whose analysis the returned package was actually computed from (set when the background worker completes), **not** merely the last submitted turn. A turn that was submitted but not yet analyzed is never reported here, so `as_of_turn_id` always matches the package contents.
 
+## Feed (AI engine producer side)
+The AI engine is also the producer: it already receives each answer transcript as
+`lastAnswer`, so on every next-question request it forwards that to hashimoto in the
+background — `POST /session` once (seeded from `candidateProfile`, plus `job_url` when
+`job` is a URL), then `POST /submit_turn` for the answer. `session_id`/`turn_id` are
+synthesized on the AI-engine side (`sessionId|interviewId`, `turn_{turnIndex-1}`); they
+key only this channel and do not affect other pipelines. The feed runs on a daemon
+thread (never blocks question generation), is gated on `HASHIMOTO_BASE_URL`, and relies
+on hashimoto's `(session_id, turn_id)` dedup to absorb retries.
+
 ## JD (job-description) focus keywords
 Optional. Pass `job_url` to `POST /session`; the posting is fetched once at engine
 creation and analyzed into session focus keywords carried as metadata in the strategy
