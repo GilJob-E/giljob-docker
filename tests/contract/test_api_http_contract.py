@@ -4,6 +4,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pathlib
+import tempfile
 import sys
 import threading
 import unittest
@@ -254,10 +255,13 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(status, 404, body)
         self.assertEqual(json.loads(body)["error"], "not_found")
 
-    def test_realtime_turn_events_forward_sanitized_mmm_record_to_analysis_engine_by_default(self) -> None:
+    def test_realtime_turn_events_forward_transcript_only_on_internal_analysis_engine_hop(self) -> None:
         captured = self._start_fake_analysis_engine(status=202)
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "true"
-        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        with tempfile.NamedTemporaryFile(delete=False) as event_log:
+            event_log_path = event_log.name
+        self.addCleanup(lambda: pathlib.Path(event_log_path).unlink(missing_ok=True))
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = event_log_path
         os.environ["GILJOBE_VISION"] = "off"
         os.environ["GILJOBE_PROSODY"] = "off"
 
@@ -266,7 +270,7 @@ class ApiHttpContractTest(unittest.TestCase):
             json.dumps({
                 "type": "transcript.completed",
                 "transcript": "bounded candidate answer",
-                "detail": {"transcript": "bounded candidate answer"},
+                "detail": {"transcript": "bounded candidate answer", "itemId": "item-1"},
             }).encode("utf-8"),
         )
         self.assertEqual(status, 202, body)
@@ -280,7 +284,10 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(forwarded["sessionId"], "local-demo")
         self.assertFalse(forwarded["rawTranscriptLogged"])
         self.assertFalse(forwarded["rawMediaAccepted"])
-        self.assertNotIn("bounded candidate answer", captured[0]["body"])
+        self.assertEqual(forwarded["detail"], {"transcript": "bounded candidate answer", "itemId": "item-1"})
+        persisted = pathlib.Path(event_log_path).read_text()
+        self.assertNotIn("bounded candidate answer", body)
+        self.assertNotIn("bounded candidate answer", persisted)
 
 
     def test_realtime_response_create_allows_bootstrap_first_question_without_mmm_gate(self) -> None:

@@ -30,8 +30,7 @@ HTTP contract served on `:8200` (Caddy prefixes `/analysis` externally; internal
 | `GET` | `/healthz` `/readyz` | Liveness / readiness (token-safe, never prints secrets). |
 
 The subscriber is created per turn on `POST /subscriber/start` (HTTP-driven), so there is no
-background auto-start to gate. `transcript_full` is the candidate answer the interview
-controller relays to `services/ai-engine` as `lastAnswer`.
+background auto-start to gate. `transcript_full` is bounded candidate-answer evidence that the API/Realtime readiness gate can use without exposing raw provider secrets or media.
 
 ## Status
 
@@ -41,7 +40,9 @@ controller relays to `services/ai-engine` as `lastAnswer`.
 - Realtime MMM sideband delivery from `services/api` is push-based: `/realtime/turn-events`
   accepts sanitized answer-state/readiness records. It does not store raw transcript/media and it does
   not replace GilJobE's LiveKit subscriber path.
-- Objective grounding lanes (GilJobE `e0671f5`): CPU-only vision (MediaPipe Face+Pose at full fps)
+- Realtime sentence-lane mode (GilJobE `dae5191`) can consume API sideband transcript events when
+  `GILJOBE_TRANSCRIPT_SOURCE=external`; the default remains internal Gemma STT grid unless flipped.
+- Objective grounding lanes (GilJobE `dae5191`): CPU-only vision (MediaPipe Face+Pose at full fps)
   and audio prosody (pitch/rate/pauses/energy) measurements are injected into the Gemma prompts
   with anti-hallucination rules and additionally emitted raw on records as `objective_nonverbal`
   / `objective_vocal` / `objective_visual` (additive fields — existing consumers are unaffected).

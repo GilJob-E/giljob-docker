@@ -331,12 +331,39 @@ def _forward_realtime_mmm_record(record: dict[str, object]) -> dict[str, object]
         return {"attempted": True, "endpoint": "/realtime/turn-events", "error": "analysis_engine_unavailable"}
 
 
-def _record_realtime_mmm_ingress(interview_id: str, turn_index: int, kind: str, source_route: str) -> dict[str, object]:
+def _sideband_detail_for_engine(payload: dict[str, Any]) -> dict[str, object] | None:
+    """Forward-only transcript detail for the analysis engine's sentence lane.
+
+    The durable JSONL record stays metadata-only (rawTranscriptLogged: False) and the
+    public response never echoes text; the transcript travels only over the internal
+    forward hop (REALTIME_MMM_FORWARD_ENABLED) — the engine is the transcript authority
+    and never logs raw text either. Only known keys pass through, length-capped.
+    """
+    detail = payload.get("detail")
+    if not isinstance(detail, dict):
+        return None
+    out: dict[str, object] = {}
+    transcript = detail.get("transcript") or detail.get("text")
+    if isinstance(transcript, str) and transcript.strip():
+        out["transcript"] = transcript[:8000]
+    item_id = detail.get("itemId")
+    if isinstance(item_id, str) and item_id:
+        out["itemId"] = item_id[:120]
+    return out or None
+
+
+def _record_realtime_mmm_ingress(
+    interview_id: str, turn_index: int, kind: str, source_route: str,
+    engine_detail: dict[str, object] | None = None,
+) -> dict[str, object]:
     record = _realtime_mmm_record(interview_id, turn_index, kind, source_route)
+    forward_record: dict[str, object] = dict(record)
+    if engine_detail:
+        forward_record["detail"] = engine_detail
     return {
         "schemaVersion": record["schema_version"],
         "durableStore": _persist_realtime_mmm_record(record),
-        "analysisEngine": _forward_realtime_mmm_record(record),
+        "analysisEngine": _forward_realtime_mmm_record(forward_record),
     }
 
 
@@ -626,7 +653,7 @@ def record_realtime_turn_event(interview_id: str, turn_index: int, payload: dict
         "rawTranscriptLogged": False,
         "delivery": _realtime_delivery("api-mediated-realtime-turn-event"),
         "readiness": _readiness_payload(interview_id, turn_index),
-        "ingress": _record_realtime_mmm_ingress(interview_id, turn_index, kind, "turn-events"),
+        "ingress": _record_realtime_mmm_ingress(interview_id, turn_index, kind, "turn-events", engine_detail=_sideband_detail_for_engine(payload)),
     }
     return _return_with_latency(202, public, start, "api.realtime.turn_event.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
 

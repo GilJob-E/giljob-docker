@@ -8,9 +8,9 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
-PINNED_GILJOBE_REF = "e0671f5"
+PINNED_GILJOBE_REF = "dae5191"
 # Superseded pins must not resurface anywhere a stale copy could mislead operators.
-OLD_GILJOBE_REFS = ("b769120", "88a4df5")
+OLD_GILJOBE_REFS = ("b769120", "88a4df5", "e0671f5")
 
 
 def load_analysis_engine_wrapper():
@@ -93,15 +93,20 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertFalse(fragment["containsRawMedia"])
         self.assertFalse(fragment["containsSecrets"])
 
-    def test_realtime_mmm_ingress_rejects_raw_transcript_text_media_and_secret_shapes(self) -> None:
+    def test_realtime_mmm_ingress_rejects_public_raw_media_and_secret_shapes_but_allows_internal_sentence_detail(self) -> None:
         module = load_analysis_engine_wrapper()
         for payload in (
             {"transcript": "raw candidate answer"},
-            {"detail": {"text": "raw candidate answer"}},
+            {"text": "raw candidate answer"},
             {"rawMedia": "bytes"},
             {"provider": {"token": "secret"}},
         ):
             self.assertTrue(module._contains_forbidden_raw_field(payload), payload)
+        for payload in (
+            {"detail": {"transcript": "bounded candidate answer"}},
+            {"detail": {"text": "bounded candidate answer", "itemId": "item-1"}},
+        ):
+            self.assertFalse(module._contains_forbidden_raw_field(payload), payload)
 
     def test_pinned_giljobe_ref_is_consistent_across_runtime_files(self) -> None:
         requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
@@ -138,6 +143,9 @@ class AnalysisEngineContractTest(unittest.TestCase):
         for text in (compose, env_example):
             self.assertIn("GILJOBE_VISION", text)
             self.assertIn("GILJOBE_PROSODY", text)
+            # Realtime sentence lane: transcript-source toggle must stay wired and default safe.
+            self.assertIn("GILJOBE_TRANSCRIPT_SOURCE", text)
+        self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-internal}", compose)
 
     def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()

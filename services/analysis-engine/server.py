@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 MAX_REALTIME_MMM_RECORD_BYTES = int(os.getenv("MAX_REALTIME_MMM_RECORD_BYTES", "16384"))
 MAX_REALTIME_MMM_RECORDS = int(os.getenv("MAX_REALTIME_MMM_RECORDS", "500"))
 RAW_FIELD_MARKERS = {"rawMedia", "frame", "audio", "video", "sdp", "client_secret", "token", "apiKey", "transcript", "text"}
+INTERNAL_TRANSCRIPT_DETAIL_PATHS = {("detail", "transcript"), ("detail", "text")}
 SAFE_LANE_KEYS = ("transcript", "prosody", "vision")
 
 
@@ -108,15 +109,17 @@ def _json(payload: dict[str, object], status: int = 200) -> web.Response:
     return web.json_response(payload, status=status, dumps=lambda item: json.dumps(item, ensure_ascii=False))
 
 
-def _contains_forbidden_raw_field(value: Any) -> bool:
+def _contains_forbidden_raw_field(value: Any, path: tuple[str, ...] = ()) -> bool:
     if isinstance(value, dict):
         for key, nested in value.items():
-            if str(key) in RAW_FIELD_MARKERS:
+            key_str = str(key)
+            nested_path = (*path, key_str)
+            if key_str in RAW_FIELD_MARKERS and nested_path not in INTERNAL_TRANSCRIPT_DETAIL_PATHS:
                 return True
-            if _contains_forbidden_raw_field(nested):
+            if _contains_forbidden_raw_field(nested, nested_path):
                 return True
     if isinstance(value, list):
-        return any(_contains_forbidden_raw_field(item) for item in value)
+        return any(_contains_forbidden_raw_field(item, path) for item in value)
     return False
 
 
@@ -194,15 +197,32 @@ async def _realtime_turn_events_tail(req: web.Request) -> web.Response:
     })
 
 
+def _route_registered(app: web.Application, method: str, path: str) -> bool:
+    for route in app.router.routes():
+        if route.method == method and route.resource.canonical == path:
+            return True
+    return False
+
+
+def _add_realtime_sideband_routes(app: web.Application) -> None:
+    routes = []
+    # GilJobE dae5191 owns POST /realtime/turn-events for the external transcript
+    # sentence lane. Keep this wrapper fallback only for older pins and never
+    # duplicate a provider-owned route, because aiohttp rejects duplicate method/path.
+    if not _route_registered(app, "POST", "/realtime/turn-events"):
+        routes.append(web.post("/realtime/turn-events", _realtime_turn_events))
+    if not _route_registered(app, "GET", "/realtime/turn-events"):
+        routes.append(web.get("/realtime/turn-events", _realtime_turn_events_tail))
+    if routes:
+        app.add_routes(routes)
+
+
 def _make_app() -> web.Application:
     critic = _build_critic()
     service = AnalysisService(make_critic=lambda _mode: critic, make_lanes=_make_lanes)
     app = make_app(service, ready_check=lambda: _vllm_ready(critic))
     app["realtime_mmm_records"] = []
-    app.add_routes([
-        web.post("/realtime/turn-events", _realtime_turn_events),
-        web.get("/realtime/turn-events", _realtime_turn_events_tail),
-    ])
+    _add_realtime_sideband_routes(app)
 
     async def _warmup(_app: web.Application) -> None:
         loop = asyncio.get_event_loop()
