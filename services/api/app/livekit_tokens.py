@@ -118,23 +118,60 @@ def _create_livekit_join_token(
     return str(token_builder.to_jwt())
 
 
+def _livekit_not_configured_payload(
+    *,
+    room_name: str,
+    identity: str,
+    participant_name: str,
+    token_field: str,
+    reason: str = "livekit_credentials_missing",
+) -> dict[str, Any]:
+    return {
+        "url": None,
+        "publicUrl": None,
+        "roomName": room_name,
+        "participantIdentity": identity,
+        "participantName": participant_name,
+        token_field: None,
+        "tokenStatus": "not_configured",
+        "deferredReason": reason,
+        "requiredForRealtimePrimary": False,
+    }
+
+
+def _optional_livekit_settings() -> tuple[LiveKitSettings | None, str]:
+    """Load LiveKit for optional browser metadata without blocking Realtime-first session creation.
+
+    ``load_livekit_settings()`` remains the strict media-overlay contract: required/prod
+    mode still raises there. Public session creation and optional avatar viewing are not
+    allowed to make LiveKit a prerequisite for OpenAI Realtime bootstrap, so they turn
+    strict media misconfiguration into honest deferred metadata instead.
+    """
+    try:
+        return load_livekit_settings(), "livekit_credentials_missing"
+    except LiveKitConfigurationError:
+        return None, "livekit_deferred_for_realtime_primary"
+
+
 def issue_candidate_livekit_token(*, room_name: str, session_id: str) -> dict[str, Any]:
-    """Return the LiveKit object for the public session response."""
+    """Return optional LiveKit metadata for the public session response.
+
+    Realtime is the default interviewer path, so candidate session creation must
+    succeed without a LiveKit room token. Strict LiveKit validation is still available
+    through ``load_livekit_settings()`` and the media compose overlay.
+    """
     identity = f"candidate-{session_id}"
     participant_name = "candidate"
-    settings = load_livekit_settings()
+    settings, deferred_reason = _optional_livekit_settings()
 
     if settings is None:
-        return {
-            "url": None,
-            "publicUrl": None,
-            "roomName": room_name,
-            "participantIdentity": identity,
-            "participantName": participant_name,
-            "candidateToken": None,
-            "tokenStatus": "not_configured",
-            "deferredReason": "livekit_credentials_missing",
-        }
+        return _livekit_not_configured_payload(
+            room_name=room_name,
+            identity=identity,
+            participant_name=participant_name,
+            token_field="candidateToken",
+            reason=deferred_reason,
+        )
 
     candidate_token = _create_livekit_join_token(
         settings,
@@ -159,26 +196,24 @@ def issue_candidate_livekit_token(*, room_name: str, session_id: str) -> dict[st
 
 
 def issue_avatar_viewer_livekit_token(*, room_name: str, session_id: str) -> dict[str, Any]:
-    """Return a subscribe-only LiveKit token for the SpatialReal RTC renderer.
+    """Return optional subscribe-only LiveKit metadata for the SpatialReal RTC renderer.
 
-    The browser already joins as the candidate participant. AvatarKit RTC opens its
-    own LiveKit client, so it must not reuse the candidate token/identity.
+    Avatar RTC is optional/deferred for the Realtime-first path. If strict media
+    configuration is incomplete, expose a safe disabled token shape instead of
+    failing the session/avatar broker.
     """
     identity = f"avatar-viewer-{session_id}"
     participant_name = "spatialreal-avatar-viewer"
-    settings = load_livekit_settings()
+    settings, deferred_reason = _optional_livekit_settings()
 
     if settings is None:
-        return {
-            "url": None,
-            "publicUrl": None,
-            "roomName": room_name,
-            "participantIdentity": identity,
-            "participantName": participant_name,
-            "avatarClientToken": None,
-            "tokenStatus": "not_configured",
-            "deferredReason": "livekit_credentials_missing",
-        }
+        return _livekit_not_configured_payload(
+            room_name=room_name,
+            identity=identity,
+            participant_name=participant_name,
+            token_field="avatarClientToken",
+            reason=deferred_reason,
+        )
 
     avatar_token = _create_livekit_join_token(
         settings,
