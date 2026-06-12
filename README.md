@@ -45,7 +45,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 - SpatialReal RTC/LiveKit client renderer shell
 - SpatialReal Python SDK LiveKit egress 시도 경로
   - current egress sends server-generated TTS WAV payloads, not OpenAI Realtime remote audio; avatar lip-sync to Realtime audio is a known limitation
-  - experimental browser bridge metadata is available only as safe sibling metadata (`realtimeAvatarBridge` on `/api/sessions`, `bridge.browserAudioBridgeEnabled` on avatar session payloads); the default is off
+  - experimental browser bridge metadata is available only as the sibling `bridge.browserAudioBridgeEnabled` flag on avatar session payloads; the default is off
 - 로컬 Whisper/STT service 제거 완료; STT는 `GilJobE` 기반 `services/analysis-engine` 경계
 - token redaction 및 raw token 비노출 contract test
 
@@ -85,7 +85,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 8. `ai-engine`은 keyless route smoke와 optional internal TTS/avatar compatibility adapter만 담당합니다. 질문/음성의 메인 루프는 OpenAI Realtime-only이며 Gemini fallback은 없습니다.
 9. SpatialReal/AvatarKit은 이 RNAS priority-1 phase의 범위 밖입니다. 기존 avatar session/viewer/egress scaffolding은 유지하지만, answer→MMM/RNAS→API `response.create`→Realtime output 검증이나 success claim에 포함하지 않습니다.
 10. SpatialReal 서버 SDK egress는 post-TTS WAV/PCM audio를 SpatialReal에 보내고, SpatialReal이 LiveKit room에 avatar stream을 publish하는 별도 구조입니다. OpenAI Realtime remote audio를 SpatialReal에 주입하는 bridge가 아니며, `SPATIALREAL_RTC_LIVEKIT_URL`은 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다.
-11. `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` is the stable default. When explicitly enabled, the API exposes safe sibling metadata (`realtimeAvatarBridge` on `/api/sessions`, `bridge` on `/api/interviews/:id/avatar/session`) so the browser may try the experimental `AvatarPlayer.publishAudio(track)` probe with OpenAI Realtime remote audio. This is a kiostation-only proof path until `bridge_verified`; do not document it as production lip-sync.
+11. `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` is the stable default. When explicitly enabled, the API exposes a sibling `bridge` object on `/api/interviews/:id/avatar/session` so the browser may try the experimental `AvatarPlayer.publishAudio(track)` probe with OpenAI Realtime remote audio. This is a kiostation-only proof path until `bridge_verified`; do not document it as production lip-sync.
 
 위 다이어그램의 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
 
@@ -410,7 +410,7 @@ SpatialReal avatar egress는 SpatialReal cloud가 LiveKit에 직접 접속해야
 
 ### Experimental browser audio bridge probe
 
-`SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` keeps the stable default unchanged: OpenAI Realtime remains the only audible interviewer voice path, MMM readiness still gates ordinary `response.create`, and SpatialReal RTC media remains separate. When the flag is explicitly set true, the API returns safe sibling metadata (`realtimeAvatarBridge` on `/api/sessions`, `bridge.browserAudioBridgeEnabled` on the avatar session payload) outside token-bearing `client` metadata. The browser may then attempt the experimental `AvatarPlayer.publishAudio(track)` probe with a Realtime remote audio track. Logs and docs must stay status-only (`avatar_audio_bridge_*`), with no raw SDP, provider secrets, LiveKit/SpatialReal tokens, transcripts, or raw media. Treat the outcome as `bridge_verified`, `bridge_not_supported`, or `blocked` only after kiostation browser evidence.
+`SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` keeps the stable default unchanged: OpenAI Realtime remains the only audible interviewer voice path, MMM readiness still gates ordinary `response.create`, and SpatialReal RTC media remains separate. When the flag is explicitly set true, the API returns sibling metadata such as `bridge.browserAudioBridgeEnabled` on the avatar session payload, outside token-bearing `client` metadata. The browser may then attempt the experimental `AvatarPlayer.publishAudio(track)` probe with a Realtime remote audio track. Logs and docs must stay status-only (`avatar_audio_bridge_*`), with no raw SDP, provider secrets, LiveKit/SpatialReal tokens, transcripts, or raw media. Treat the outcome as `bridge_verified`, `bridge_not_supported`, or `blocked` only after kiostation browser evidence.
 
 임시 개발용 quick tunnel 예시:
 
