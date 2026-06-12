@@ -396,6 +396,39 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertNotIn("Use MMM backend readiness gate details", body)
 
 
+    def test_realtime_response_create_rejects_wrong_turn_analysis_result(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"))
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"))
+
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/2/realtime/response",
+            json.dumps({"analysisResult": {"status": "ready", "interviewId": "local-demo", "turnIndex": 99, "candidatePromptFragment": "이전 답변을 바탕으로 구체 사례를 물어보세요."}}).encode("utf-8"),
+        )
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_wrong_turn")
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "exact_turn_analysis_result_required"})
+
+    def test_mmm_ready_requires_exact_turn_analysis_result_acceptance(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"))
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"))
+        self._start_fake_analysis_engine(result_payload={"result": {"status": "pending", "reason": "no_exact_turn_result"}})
+
+        with urllib.request.urlopen(self.base_url + "/api/interviews/local-demo/turns/1/mmm-ready", timeout=5) as res:
+            body = res.read().decode("utf-8")
+        payload = json.loads(body)
+        self.assertFalse(payload["full_mmm_ready"])
+        self.assertEqual(payload["reason"], "analysis_result_not_ready")
+        self.assertEqual(payload["analysisEngine"]["endpoint"], "/realtime/turn-results")
+
     def test_realtime_session_broker_uses_server_key_and_disables_auto_response(self) -> None:
         os.environ["OPENAI_API_KEY"] = "secret-openai-key"
         captured: list[urllib.request.Request] = []

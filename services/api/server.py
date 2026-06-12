@@ -429,6 +429,28 @@ def _readiness_payload_with_durable_fallback(interview_id: str, turn_index: int)
         return durable
     return in_process
 
+def _readiness_payload_with_analysis_result(interview_id: str, turn_index: int) -> dict[str, object]:
+    readiness = _readiness_payload_with_durable_fallback(interview_id, turn_index)
+    if not readiness.get("full_mmm_ready"):
+        return readiness
+    result, source = _fetch_analysis_result(interview_id, turn_index)
+    failure = _analysis_result_gate_failure(result, interview_id, turn_index)
+    if failure:
+        reason = failure[0]
+        payload = dict(readiness)
+        payload["ready"] = False
+        payload["full_mmm_ready"] = False
+        payload["degraded"] = True
+        payload["state"] = "analysis_result_not_ready"
+        payload["reason"] = reason
+        payload["reasonCodes"] = [reason]
+        payload["analysisEngine"] = source
+        return payload
+    payload = dict(readiness)
+    payload["analysisEngine"] = source
+    payload["analysisResult"] = _analysis_result_public_summary(result or {})
+    return payload
+
 
 _CANDIDATE_PROMPT_FORBIDDEN_RE = re.compile(
     r"\b(?:MMM|analysis-engine|backend|sideband|readiness\s*gate|raw\s*rubric|provider\s*internal|server-only)\b",
