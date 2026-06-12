@@ -33,6 +33,45 @@ PATH_SPECIFIC_TERMS = {
     "scripts/AGENTS.md": ["smoke", "token redaction", "fail-closed"],
 }
 
+RUNBOOK_SPECIFIC_TERMS = {
+    "docs/runbooks/verification.md": [
+        "ssh hoddukzoa@kiostation",
+        "node --check apps/web/static/app.js",
+        "py_compile services/api/server.py services/ai-engine/server.py",
+        "python3 -m unittest discover -s tests/contract -v",
+        "git diff --check",
+        "Do not use `/home/hoddukzoa/GilJob`",
+    ],
+    "docs/runbooks/local-livekit-media.md": [
+        "LIVEKIT_INTERNAL_URL",
+        "LIVEKIT_PUBLIC_URL",
+        "7880/tcp",
+        "7881/tcp",
+        "50000-50100/udp",
+        "browser-join",
+    ],
+    "docs/runbooks/tts-avatar-contract.md": [
+        "VOICE_PROVIDER=fake",
+        "VOICE_PROVIDER=gemini",
+        "TTS_PROVIDER_FAILURE_FALLBACK=fake",
+        "AVATAR_PROVIDER=disabled",
+        "AVATAR_PROVIDER_FAILURE_FALLBACK=disabled",
+        "Do not downgrade `livekit-client`",
+    ],
+    "docs/source-manifest.md": [
+        "Target root: `/home/hoddukzoa/GilJob_v2`",
+        "Legacy rule: `/home/hoddukzoa/GilJob`",
+        "Verify remote SHA256 against this manifest",
+    ],
+}
+
+REMOTE_VERIFICATION_COMMANDS = [
+    "node --check apps/web/static/app.js",
+    "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py",
+    "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v",
+    "git diff --check",
+]
+
 FORBIDDEN_IMPLEMENTED_CLAIMS = [
     "full Main LLM loop is implemented",
     "SpatialReal avatar is implemented",
@@ -73,6 +112,21 @@ class AgentDocsContractTest(unittest.TestCase):
             for term in required_terms:
                 with self.subTest(path=relative_path, term=term):
                     self.assertIn(term, body)
+
+
+    def test_runbook_docs_preserve_operational_contracts(self) -> None:
+        for relative_path, required_terms in RUNBOOK_SPECIFIC_TERMS.items():
+            body = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+            for term in required_terms:
+                with self.subTest(path=relative_path, term=term):
+                    self.assertIn(term, body)
+
+    def test_verification_runbook_documents_remote_only_final_checks(self) -> None:
+        body = (REPO_ROOT / "docs/runbooks/verification.md").read_text(encoding="utf-8")
+        self.assertIn("ssh hoddukzoa@kiostation", body)
+        for command in REMOTE_VERIFICATION_COMMANDS:
+            with self.subTest(command=command):
+                self.assertIn(command, body)
 
     def test_agent_docs_do_not_include_raw_secret_shapes(self) -> None:
         for path in self.agent_doc_paths():

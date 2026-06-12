@@ -24,6 +24,37 @@
 - Test `docker-compose.media.yml` fails without LiveKit URL/API/TURN secret env vars and passes once placeholders are explicitly set.
 - With LiveKit env configured on the API service, `POST /api/sessions` must return `livekit.tokenStatus=issued`, `livekit.url`, and a JWT-shaped `livekit.candidateToken` while server-side session records remain hash-only.
 
+## Remote-only final checks
+
+Run final verification from the leader-approved checkout on `kiostation`; do not run these checks from a worker Mac/worktree when the lane is marked remote-only. Minimum final command set:
+
+```bash
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && node --check apps/web/static/app.js'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && git diff --check'
+```
+
+The same command strings are part of the docs contract so worker lanes and leader integration use one verification vocabulary.
+
+## Interviewer voice and avatar provider contract
+
+- `VOICE_PROVIDER=fake` must remain the keyless smoke path.
+- `VOICE_PROVIDER=gemini` must require only server-side `GEMINI_API_KEY`; provider errors must be sanitized before browser/API responses.
+- `VOICE_PROVIDER=elevenlabs` must require server-side `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`; raw keys and upstream error bodies must never be returned.
+- `TTS_PROVIDER_FAILURE_FALLBACK=fake` is allowed only as an explicit local-demo fail-open setting.
+- `AVATAR_PROVIDER=disabled` must return a safe disabled response without a provider `sessionToken`.
+- `AVATAR_PROVIDER=spatialreal` must require server-side `SPATIALREAL_API_KEY`, `SPATIALREAL_APP_ID`, and `SPATIALREAL_AVATAR_ID`; browser responses may include only short-lived client session metadata.
+- `AVATAR_PROVIDER_FAILURE_FALLBACK=disabled` is allowed only as an explicit local-demo fail-open setting.
+- `SPATIALREAL_RTC_EGRESS_ENABLED=false` is the default; enabling it requires a public LiveKit URL reachable from SpatialReal cloud, not a loopback or Docker-only URL.
+- Public ingress must not expose direct `/tts/*`, `/avatar/*`, `/ai/tts/*`, `/ai/avatar/*`, or broad `/ai/*` provider routes. Browser traffic must use the `/api/interviews/.../tts` and `/api/interviews/.../avatar/session` broker routes.
+
+Remote verification command shape from a synced checkout on `kiostation`:
+
+```bash
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.contract.test_ai_engine_contract -v'
+```
+
 
 ## Local self-hosted media room
 

@@ -6,6 +6,7 @@ Follow:
 - `docs/implementation-plan.md`
 - `docs/decisions/0001-state-stack.md`
 - `docs/decisions/0002-ingress-stack.md`
+- `docs/decisions/0003-realtime-voice-flow.md`
 - Root `README.md` for current install/run instructions.
 
 ## Dependency install
@@ -26,7 +27,7 @@ pip install -r requirements.txt
 
 ## Main LLM env contract
 
-Gemini is the selected Main LLM provider for the next-question boundary. Copy `.env.example` to `.env`, then set provider values there. Do not commit `.env` or real API keys.
+Gemini is the bounded next-question provider and non-primary/fallback path for the current scaffold. OpenAI Realtime browser-session brokering is owned by `services/api`. Copy `.env.example` to `.env`, then set provider values there. Do not commit `.env` or real API keys.
 
 ```env
 LLM_PROVIDER=gemini
@@ -36,6 +37,18 @@ GEMINI_TIMEOUT_SECONDS=30
 ```
 
 The Gemini key is read only from `GEMINI_API_KEY`. Provider failures fail closed and are redacted at the API boundary.
+
+## Realtime boundary
+
+This service does not broker OpenAI Realtime ephemeral sessions, SDP attach, or MMM readiness. Those browser-facing routes are API-owned:
+
+- `/api/interviews/{interviewId}/realtime/session`
+- `/api/interviews/{interviewId}/realtime/call`
+- `/api/interviews/{interviewId}/turns/{turnIndex}/events`
+- `/api/interviews/{interviewId}/turns/{turnIndex}/vision-events`
+- `/api/interviews/{interviewId}/turns/{turnIndex}/mmm-ready`
+
+Keep standard provider keys, Realtime client secrets, SDP bodies, and upstream errors out of this service's public responses and logs.
 
 ## STT boundary
 
@@ -97,6 +110,7 @@ SPATIALREAL_RTC_SETTLE_SECONDS=1.0
 - Browser traffic must go through `services/api`.
 - Caddy must not expose direct `/ai/*`, `/tts/*`, or `/avatar/*` provider routes.
 - Do not log or return provider keys, raw JWTs, raw LiveKit tokens, or upstream provider error bodies.
+- Do not log or return Realtime client secrets, SDP bodies, SpatialReal session tokens, or raw media.
 - Any new provider route must have fail-closed, no-secret-leak contract tests before being wired to the browser.
 
 ## Tests

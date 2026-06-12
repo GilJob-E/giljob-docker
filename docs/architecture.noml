@@ -64,6 +64,13 @@
   transcript_full + structured signal emit
 ]
 
+[<service> OpenAI Realtime API|
+  /v1/realtime/client_secrets
+  /v1/realtime/calls SDP attach
+  ephemeral browser WebRTC secret only
+  interviewer audio + transcript events
+]
+
 [<service> AI Engine|
   Gemini next-question boundary
   Gemini native TTS voice boundary
@@ -93,6 +100,11 @@
 [후보자 브라우저] - direct WebRTC publish/subscribe -> [LiveKit Server]
 [후보자 브라우저] - AvatarKit RTC subscribe -> [LiveKit Server]
 [후보자 브라우저] - push-to-talk turn_start/turn_end -> [API Service]
+[API Service] - server key -> ephemeral Realtime secret -> [OpenAI Realtime API]
+[후보자 브라우저] - ephemeral SDP attach only -> [OpenAI Realtime API]
+[OpenAI Realtime API] - interviewer audio/transcript events -> [후보자 브라우저]
+[후보자 브라우저] - transcript/prosody/vision sideband -> [API Service]
+[API Service] - full_mmm_ready gate -> [후보자 브라우저]
 [LiveKit Server] - candidate audio/video tracks -> [Analysis Engine Service\n(GilJobE)]
 [Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [AI Engine]
 [AI Engine] - next question + TTS audio -> [API Service]

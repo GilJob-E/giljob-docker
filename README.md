@@ -33,6 +33,15 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   - 다시 버튼을 눌러 답변 종료 및 다음 질문 요청
 - Gemini next-question provider
 - Gemini native TTS provider (`gemini-3.1-flash-tts-preview`)
+- OpenAI Realtime WebRTC broker route for primary live interviewer audio
+  - browser obtains only an ephemeral Realtime client secret through `/api/interviews/:id/realtime/session`
+  - browser attaches SDP to `https://api.openai.com/v1/realtime/calls`
+  - standard OpenAI API key remains server-only
+- API-mediated Realtime turn/vision/MMM readiness routes
+  - `/api/interviews/:id/turns/:turnIndex/events`
+  - `/api/interviews/:id/turns/:turnIndex/vision-events`
+  - `/api/interviews/:id/turns/:turnIndex/mmm-ready`
+- ordinary next Realtime response creation is gated on `full_mmm_ready`
 - SpatialReal session-token broker
 - SpatialReal RTC/LiveKit client renderer shell
 - SpatialReal Python SDK LiveKit egress 시도 경로
@@ -70,9 +79,11 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 3. API는 LiveKit candidate token과 SpatialReal AvatarKit RTC viewer token을 분리해 발급합니다.
 4. 브라우저는 Caddy를 통해 LiveKit media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다.
 5. 후보자 답변 STT/분석은 `GilJobE`를 `services/analysis-engine`로 붙여 LiveKit audio/video track을 구독하는 구조입니다.
-6. `ai-engine`은 Gemini 질문 생성과 Gemini TTS를 담당합니다.
-7. SpatialReal 아바타는 서버가 session token을 중개하고, 브라우저는 AvatarKit RTC renderer로 LiveKit room에 subscribe합니다.
-8. SpatialReal 서버 SDK egress는 TTS audio를 SpatialReal에 보내고, SpatialReal이 LiveKit room에 avatar stream을 publish하는 구조입니다. 이때 `SPATIALREAL_RTC_LIVEKIT_URL`은 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다.
+6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 ephemeral client secret을 발급하고, 브라우저는 그 secret으로만 Realtime WebRTC SDP attach를 수행합니다. 표준 OpenAI API key는 브라우저에 노출하지 않습니다.
+7. Realtime turn loop는 브라우저의 transcript/prosody/vision sideband event를 API에 기록하고, `full_mmm_ready`가 true가 된 뒤에만 다음 ordinary `realtime.response.create`를 허용합니다.
+8. `ai-engine`은 Gemini 질문 생성과 Gemini TTS fallback/보조 provider 경계를 담당합니다.
+9. SpatialReal 아바타는 서버가 session token을 중개하고, 브라우저는 AvatarKit RTC renderer로 LiveKit room에 subscribe합니다.
+10. SpatialReal 서버 SDK egress는 TTS audio를 SpatialReal에 보내고, SpatialReal이 LiveKit room에 avatar stream을 publish하는 구조입니다. 이때 `SPATIALREAL_RTC_LIVEKIT_URL`은 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다.
 
 위 다이어그램의 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
 
@@ -143,6 +154,13 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   transcript_full + structured signal emit
 ]
 
+[<service> OpenAI Realtime API|
+  /v1/realtime/client_secrets
+  /v1/realtime/calls SDP attach
+  ephemeral browser WebRTC secret only
+  interviewer audio + transcript events
+]
+
 [<service> AI Engine|
   Gemini next-question boundary
   Gemini native TTS voice boundary
@@ -172,6 +190,11 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 [후보자 브라우저] - direct WebRTC publish/subscribe -> [LiveKit Server]
 [후보자 브라우저] - AvatarKit RTC subscribe -> [LiveKit Server]
 [후보자 브라우저] - push-to-talk turn_start/turn_end -> [API Service]
+[API Service] - server key -> ephemeral Realtime secret -> [OpenAI Realtime API]
+[후보자 브라우저] - ephemeral SDP attach only -> [OpenAI Realtime API]
+[OpenAI Realtime API] - interviewer audio/transcript events -> [후보자 브라우저]
+[후보자 브라우저] - transcript/prosody/vision sideband -> [API Service]
+[API Service] - full_mmm_ready gate -> [후보자 브라우저]
 [LiveKit Server] - candidate audio/video tracks -> [Analysis Engine Service\n(GilJobE)]
 [Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [AI Engine]
 [AI Engine] - next question + TTS audio -> [API Service]
@@ -252,6 +275,10 @@ GEMINI_MODEL=gemini-3.5-flash
 VOICE_PROVIDER=gemini
 GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
 GEMINI_TTS_VOICE=Kore
+OPENAI_REALTIME_PRIMARY=false
+OPENAI_REALTIME_MODEL=gpt-realtime-2
+OPENAI_REALTIME_VOICE=marin
+OPENAI_API_KEY=replace-me-openai-server-key
 AVATAR_PROVIDER=spatialreal
 SPATIALREAL_API_KEY=...
 SPATIALREAL_APP_ID=...
@@ -336,9 +363,26 @@ docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compo
 ```bash
 KEEP_STACK=1 ./scripts/smoke.sh media-up
 ./scripts/smoke.sh browser-join
+./scripts/smoke.sh realtime-ready
 ```
 
 `KEEP_STACK=1`을 빼면 smoke 종료 후 stack을 내립니다.
+
+Realtime primary/live smoke는 redacted readiness check로 분리해서 실행합니다.
+
+```bash
+./scripts/smoke.sh realtime-ready
+REQUIRE_REALTIME_LIVE=1 ./scripts/smoke.sh realtime-ready
+```
+
+Operator contract:
+
+- OPENAI_API_KEY is the only OpenAI server key; do not add OPENAI_REALTIME_API_KEY.
+- The browser receives only a browser-safe ephemeral client_secret from `/api/interviews/:id/realtime/session`.
+- Realtime client-secret requests keep the provider `{"session": {...}} wrapper`, omit session.metadata, and never return the server key.
+- `full_mmm_ready must pass before realtime.response.create`; latency evidence is redacted spans only.
+- `realtime.call broker 501/not implemented is acceptable` during staged rollout if session brokering and MMM readiness are healthy.
+- `request_failed / Connection refused` against room/app routes is stale-runtime evidence, not a provider-secret or frontend-contract leak by itself.
 
 ## Cloudflare Tunnel / public LiveKit 메모
 
@@ -388,6 +432,8 @@ SPATIALREAL_RTC_EGRESS_ENABLED=true
 - 서버 저장소에는 raw token을 저장하지 않고 hash만 저장합니다.
 - session token과 report token은 purpose-separated hash secret을 사용합니다.
 - browser visible UI와 event log에는 raw JWT, `access_token`, `join_request`, `gj_session_*`, `gj_report_*`, provider key를 노출하지 않습니다.
+- OpenAI Realtime 표준 API key는 server-only입니다. 브라우저는 API broker가 발급한 ephemeral client secret으로만 WebRTC SDP attach를 수행합니다.
+- ordinary Realtime next-question audio는 previous turn의 transcript/prosody/vision sideband가 `full_mmm_ready`를 만족한 뒤에만 `realtime.response.create`를 전송합니다.
 - production/shared 환경에서는 `.env.example`의 `change-me`, `replace-me-local-only` 값을 그대로 쓰지 않습니다.
 
 ## 검증 명령
@@ -420,6 +466,7 @@ npx --yes pyright
 - [`docs/runbooks/verification.md`](docs/runbooks/verification.md)
 - [`docs/decisions/0001-state-stack.md`](docs/decisions/0001-state-stack.md)
 - [`docs/decisions/0002-ingress-stack.md`](docs/decisions/0002-ingress-stack.md)
+- [`docs/decisions/0003-realtime-voice-flow.md`](docs/decisions/0003-realtime-voice-flow.md)
 
 ## 다음 구현 후보
 
