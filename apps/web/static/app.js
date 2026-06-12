@@ -585,6 +585,7 @@ function handleRealtimeServerEvent(event) {
       } catch (error) {
         appendLog(`transcript completion forward failed: ${errorMessage(error)}`);
       }
+      appendLog("Realtime transcript completion kept on API sideband only; no browser conversation injection");
     })();
     renderTranscriptStatus(`Realtime 전사 완료 (${transcript.length} chars). Raw transcript is not written to logs.`);
     realtimeTranscriptCompletionForward.finally(() => notifyRealtimeTranscriptCompleted());
@@ -769,7 +770,6 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
     }
     await sendBoundedVisionEvent("answer_end", completedTurnIndex);
     await sendRealtimeProsodyEvent("answer_end", completedTurnIndex);
-    await postRealtimeTurnEvent("turn.answer.end", { transcriptAvailable: transcriptReady }, completedTurnIndex);
     lastAnswerTranscript = realtimeAnswerTranscript || "Realtime transcript unavailable.";
     realtimeAnswerTranscript = "";
     realtimeTranscriptCompleted = false;
@@ -1042,106 +1042,6 @@ function renderTranscriptStatus(message) {
 
 function isForbiddenDebugKey(key) {
   return /(?:raw|transcript|media|sdp|token|secret|client_secret|api[_-]?key|audio|video|frame)/i.test(String(key || ""));
-}
-
-function safeDebugScalar(value, maxLength = 220) {
-  if (typeof value === "boolean") {
-    return value ? "true" : "false";
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-  if (typeof value === "string") {
-    const redacted = redactSensitiveText(value).trim();
-    return redacted.length > maxLength ? `${redacted.slice(0, maxLength)}…` : redacted;
-  }
-  return "";
-}
-
-function safeDebugObject(value, depth = 0) {
-  if (depth > 2) {
-    return "[redacted-depth]";
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => safeDebugObject(item, depth + 1)).filter((item) => item !== "");
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value)
-      .filter(([key]) => !isForbiddenDebugKey(key))
-      .map(([key, item]) => [key, safeDebugObject(item, depth + 1)])
-      .filter(([, item]) => item !== ""));
-  }
-  return safeDebugScalar(value);
-}
-
-function safeDebugJson(value) {
-  const safe = safeDebugObject(value);
-  if (safe === "" || (Array.isArray(safe) && safe.length === 0)) {
-    return "";
-  }
-  if (safe && typeof safe === "object" && !Array.isArray(safe) && Object.keys(safe).length === 0) {
-    return "";
-  }
-  const encoded = JSON.stringify(safe, null, 2);
-  return encoded.length > 900 ? `${encoded.slice(0, 900)}…` : encoded;
-}
-
-function firstDebugValue(...values) {
-  for (const value of values) {
-    const rendered = safeDebugScalar(value);
-    if (rendered) {
-      return rendered;
-    }
-  }
-  return "-";
-}
-
-function renderMmmDebug(source, payload = {}) {
-  if (!mmmDebugSummary) {
-    return;
-  }
-  const readiness = payload?.readiness && typeof payload.readiness === "object" ? payload.readiness : payload;
-  const responseCreate = payload?.responseCreate && typeof payload.responseCreate === "object" ? payload.responseCreate : {};
-  const analysisEngine = (payload?.analysisEngine && typeof payload.analysisEngine === "object")
-    ? payload.analysisEngine
-    : (readiness?.analysisEngine && typeof readiness.analysisEngine === "object" ? readiness.analysisEngine : {});
-  const analysisResult = (payload?.analysisResult && typeof payload.analysisResult === "object")
-    ? payload.analysisResult
-    : (readiness?.analysisResult && typeof readiness.analysisResult === "object" ? readiness.analysisResult : {});
-  const rows = [
-    ["source", source],
-    ["interviewId", payload?.interviewId || readiness?.interviewId],
-    ["turnIndex", payload?.turnIndex || readiness?.turnIndex],
-    ["analysisTurnIndex", payload?.analysisTurnIndex || readiness?.analysisTurnIndex],
-    ["readiness.full_mmm_ready", readiness?.full_mmm_ready],
-    ["readiness.state", readiness?.state || readiness?.status],
-    ["readiness.reasonCodes", safeDebugJson(readiness?.reasonCodes || (readiness?.reason ? [readiness.reason] : []))],
-    ["readiness.lanes", safeDebugJson(readiness?.lanes || {})],
-    ["responseCreate.created", responseCreate.created],
-    ["responseCreate.reason", responseCreate.reason || responseCreate.commandType],
-    ["analysisEngine.endpoint", analysisEngine.endpoint],
-    ["analysisEngine.status", analysisEngine.status],
-    ["analysisEngine.error", analysisEngine.error],
-    ["analysisResult.status", analysisResult.status],
-    ["analysisResult.summary", analysisResult.publicSummary || analysisResult.summary],
-    ["analysisResult.guidance", analysisResult.publicGuidance || analysisResult.guidance],
-    ["analysisResult.coverage", safeDebugJson(analysisResult.coverage || {})],
-    ["analysisResult.confidence", analysisResult.confidence],
-    ["analysisResult.latency", analysisResult.latencyMs || analysisResult.latency],
-  ];
-  mmmDebugSummary.replaceChildren(...rows.map(([label, value]) => {
-    const row = document.createElement("div");
-    const term = document.createElement("dt");
-    const detail = document.createElement("dd");
-    term.textContent = label;
-    detail.textContent = typeof value === "string" && value ? value : firstDebugValue(value);
-    row.append(term, detail);
-    return row;
-  }));
-}
-
-function analysisSessionId() {
-  return activeSession?.sessionId || activeInterviewId;
 }
 
 function extractRealtimeOutputTranscript(event) {
