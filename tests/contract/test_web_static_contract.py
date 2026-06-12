@@ -280,7 +280,8 @@ class WebStaticContractTest(unittest.TestCase):
     def test_app_js_realtime_lifecycle_order_matrix_is_explicit(self) -> None:
         body = (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8")
         order_pairs = [
-            ("remoteStream.addTrack(event.track)", "markRealtimeFirstAudio"),
+            ("remoteStream.addTrack(event.track)", "captureRealtimeRemoteAudioTrack(event.track)"),
+            ("remoteStream.addTrack(event.track)", "attachRealtimeRemoteAudio(remoteStream)"),
             ("response.done", "markInterviewerQuestionEnded"),
             ("disconnectRealtimeRoom", "realtimeRemoteAudioTrack = null"),
         ]
