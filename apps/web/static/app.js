@@ -1494,6 +1494,13 @@ async function startPreview() {
 async function applyMediaStateToRoom() {
   if (activeRealtimeSession) {
     await applyRealtimeMediaState();
+    // Realtime 모드의 cam/mic은 두 경로에 동시에 실린다 — 대화(OpenAI WebRTC)와
+    // 분석(LiveKit, GilJobE 레인). 여기서 LiveKit을 건너뛰면 분석 엔진은 미디어 0이다.
+    if (activeRoom) {
+      await activeRoom.localParticipant.setMicrophoneEnabled(micEnabled);
+      await activeRoom.localParticipant.setCameraEnabled(cameraEnabled);
+      appendLog(`analysis media room updated: answer ${micEnabled ? "recording" : "ended"}, camera ${cameraEnabled ? "on" : "off"}`);
+    }
     return;
   }
   if (!activeRoom) {
