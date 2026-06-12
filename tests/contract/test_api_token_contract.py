@@ -99,6 +99,48 @@ class TokenContractTest(unittest.TestCase):
         finally:
             restore_env(old_env)
 
+
+    def test_issue_session_degrades_livekit_when_required_mode_is_incomplete(self) -> None:
+        old_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
+        try:
+            for name in old_env:
+                os.environ.pop(name, None)
+            os.environ["LIVEKIT_REQUIRED"] = "true"
+            os.environ["LIVEKIT_INTERNAL_URL"] = "ws://livekit:7880"
+            os.environ["LIVEKIT_API_KEY"] = "devkey"
+            os.environ["LIVEKIT_API_SECRET"] = "devsecret-with-at-least-32-bytes"
+
+            issued = issue_session(now=datetime(2026, 5, 30, 7, 0, tzinfo=timezone.utc))
+            public = cast(dict[str, Any], issued["public"])
+            livekit = cast(dict[str, Any], public["livekit"])
+
+            self.assertEqual(livekit["tokenStatus"], "not_configured")
+            self.assertEqual(livekit["candidateToken"], None)
+            self.assertEqual(livekit["publicUrl"], None)
+            self.assertEqual(livekit["deferredReason"], "livekit_deferred_for_realtime_primary")
+            self.assertFalse(livekit["requiredForRealtimePrimary"])
+        finally:
+            restore_env(old_env)
+
+    def test_avatar_viewer_token_degrades_when_required_mode_is_incomplete(self) -> None:
+        old_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
+        try:
+            for name in old_env:
+                os.environ.pop(name, None)
+            os.environ["LIVEKIT_REQUIRED"] = "true"
+            os.environ["LIVEKIT_INTERNAL_URL"] = "ws://livekit:7880"
+            os.environ["LIVEKIT_API_KEY"] = "devkey"
+            os.environ["LIVEKIT_API_SECRET"] = "devsecret-with-at-least-32-bytes"
+
+            livekit = issue_avatar_viewer_livekit_token(room_name="giljob-session-local-demo", session_id="local-demo")
+
+            self.assertEqual(livekit["tokenStatus"], "not_configured")
+            self.assertEqual(livekit["avatarClientToken"], None)
+            self.assertEqual(livekit["deferredReason"], "livekit_deferred_for_realtime_primary")
+            self.assertFalse(livekit["requiredForRealtimePrimary"])
+        finally:
+            restore_env(old_env)
+
     def test_issue_session_uses_public_livekit_url_without_storing_token(self) -> None:
         old_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
         try:

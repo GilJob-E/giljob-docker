@@ -238,6 +238,25 @@ class ApiHttpContractTest(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertNotIn(marker, serialized)
 
+
+    def test_create_session_succeeds_when_livekit_required_mode_is_incomplete(self) -> None:
+        os.environ["LIVEKIT_REQUIRED"] = "true"
+        os.environ["LIVEKIT_INTERNAL_URL"] = "ws://livekit:7880"
+        os.environ["LIVEKIT_API_KEY"] = "devkey"
+        os.environ["LIVEKIT_API_SECRET"] = "devsecret-with-at-least-32-bytes"
+
+        status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"local-demo"}')
+
+        self.assertEqual(status, 201, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["sessionId"], "local-demo")
+        self.assertEqual(payload["livekit"]["tokenStatus"], "not_configured")
+        self.assertEqual(payload["livekit"]["candidateToken"], None)
+        self.assertEqual(payload["livekit"]["deferredReason"], "livekit_deferred_for_realtime_primary")
+        self.assertFalse(payload["livekit"]["requiredForRealtimePrimary"])
+        self.assertTrue(payload["realtime"]["enabled"])
+        self.assertEqual(payload["realtime"]["browserWebrtcAttach"], "api-call-broker")
+
     def test_create_session_rejects_unsafe_interview_id(self) -> None:
         status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"../local-demo"}')
         self.assertEqual(status, 400)
