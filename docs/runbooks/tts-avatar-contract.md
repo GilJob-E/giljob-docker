@@ -13,6 +13,7 @@ This runbook defines the Phase 0B/1 contract for interviewer voice and avatar in
 - `AVATAR_PROVIDER_FAILURE_FALLBACK=disabled` may be enabled for local demos so SpatialReal provider failures do not block the interview room.
 - `SPATIALREAL_RTC_EGRESS_ENABLED=false` remains the safe default. Enabling SpatialReal-to-LiveKit avatar publishing requires a LiveKit URL reachable from SpatialReal cloud, not only local Docker or `127.0.0.1`.
 - SpatialReal RTC egress is a post-TTS publisher only: it sends mono PCM16/WAV audio bytes produced by `/tts/synthesize` into SpatialReal via `send_audio(end=True)`. It does not ingest OpenAI Realtime remote audio, Realtime datachannel events, or candidate LiveKit media.
+- `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` remains the stable default. Setting it true only enables an experimental browser `AvatarPlayer.publishAudio(track)` probe using the OpenAI Realtime remote audio track; it is not a production lip-sync claim until kiostation browser evidence marks `bridge_verified`.
 - Do not downgrade `livekit-client` from the current `2.19.1` just to satisfy SpatialReal.
 
 ## Environment variables
@@ -39,8 +40,15 @@ This runbook defines the Phase 0B/1 contract for interviewer voice and avatar in
 | `SPATIALREAL_RTC_PUBLISHER_ID_PREFIX` | Prefix for SpatialReal publisher identity metadata. | no | `spatialreal-avatar` |
 | `SPATIALREAL_RTC_IDLE_TIMEOUT_SECONDS` | Avatar RTC idle timeout. | no | `30` |
 | `SPATIALREAL_RTC_SETTLE_SECONDS` | Startup settle delay before RTC egress readiness checks. | no | `1.0` |
+| `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED` | Enables sibling API `bridge.browserAudioBridgeEnabled` metadata for the experimental browser `AvatarPlayer.publishAudio(track)` probe. | no | `false` |
 
 SpatialReal console/ingress endpoint overrides are intentionally not part of the default `.env.example` surface. Use `SPATIALREAL_REGION` first; add provider-specific endpoint overrides only in a compatibility-gated deployment change. RTC egress variables are present because the backend may broker post-TTS avatar publishing, but they do not make the browser render an avatar tile by themselves and do not bridge OpenAI Realtime remote audio into SpatialReal.
+
+## Experimental Realtime audio bridge probe
+
+The browser bridge is opt-in and metadata-gated. When `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=true`, `services/api` may include a sibling `bridge` object on the avatar session payload, for example `bridge.browserAudioBridgeEnabled`, `mode=avatarplayer-rtc-publish-probe`, and redacted status fields. This object must remain outside `client` because `client` can contain short-lived token-bearing SpatialReal/LiveKit metadata.
+
+The probe publishes the OpenAI Realtime remote audio track to `AvatarPlayer.publishAudio(track)` only after Avatar RTC is connected. Realtime remains the audible interviewer voice owner, MMM readiness remains authoritative before ordinary `response.create`, and logs/docs/tests must use only safe statuses such as `avatar_audio_bridge_disabled`, `avatar_audio_bridge_waiting_avatar`, `avatar_audio_bridge_waiting_realtime_track`, `avatar_audio_bridge_published`, `avatar_audio_bridge_unpublished`, or `avatar_audio_bridge_failed:<safe_reason>`. Never print raw SDP, provider keys, client secrets, SpatialReal/LiveKit token values, transcripts, or raw audio/video. Runtime outcomes are `bridge_verified`, `bridge_not_supported`, or `blocked`; anything short of kiostation browser proof remains experimental.
 
 ## Token and secret surface
 
@@ -51,8 +59,8 @@ Provider calls are backend-owned. Browser-facing voice/avatar status must be rou
 ## Non-goals for Phase 1
 
 - No ElevenLabs STT replacement.
-- No SpatialReal browser avatar tile.
-- No OpenAI Realtime remote-audio injection into SpatialReal.
+- No production SpatialReal browser avatar lip-sync claim.
+- No default OpenAI Realtime remote-audio injection into SpatialReal; the only allowed carve-out is the feature-flagged experimental browser `AvatarPlayer.publishAudio(track)` probe above.
 - No interviewer/avatar audio publication into the candidate LiveKit room by default. SpatialReal RTC egress remains opt-in, post-TTS only, and requires a public LiveKit path plus provider credentials.
 - No Realtime or LiveKit Agents migration.
 - No `livekit-client` downgrade.

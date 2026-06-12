@@ -98,6 +98,8 @@ SPATIALREAL_RTC_SETTLE_SECONDS=1.0
 
 `AVATAR_PROVIDER=disabled` returns a safe disabled response without a `sessionToken`. `AVATAR_PROVIDER=spatialreal` requires the server-side API key, app id, and avatar id. Successful responses may include short-lived client session metadata, but raw provider keys are never returned. RTC egress is a post-TTS publisher only: it sends mono PCM16/WAV audio bytes produced by `/tts/synthesize` into SpatialReal and does not ingest OpenAI Realtime remote audio or datachannel events. RTC egress also requires a public LiveKit signaling/media path; a local-only `ws://127.0.0.1:7880` URL is not enough for cloud-side avatar publishing.
 
+The experimental Realtime-audio browser bridge is API/web-owned, not ai-engine-owned. `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED` is surfaced by `services/api` as sibling avatar-session `bridge` metadata for the browser `AvatarPlayer.publishAudio(track)` probe; this service continues to provide only post-TTS compatibility egress and must not log or handle Realtime SDP, client secrets, raw tracks, transcripts, or provider keys for that probe.
+
 ## Security contract
 
 - Browser traffic must go through `services/api`.

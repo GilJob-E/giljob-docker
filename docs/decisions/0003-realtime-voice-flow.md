@@ -80,6 +80,7 @@ For turn `N >= 2`, the next ordinary `realtime.response.create` is allowed only 
 - Browser Realtime datachannel handling is allowed, but backend sideband routes remain the trusted business-logic boundary.
 - Gemini next-question/TTS fallback is intentionally removed from the accepted architecture. OpenAI Realtime is the only live interviewer voice path when `OPENAI_REALTIME_PRIMARY=true`; internal fake/ElevenLabs adapters are smoke/compatibility surfaces only and must not become ordinary fallback voice paths.
 - SpatialReal avatar rendering remains separate from interviewer audio; avatar RTC media is muted where needed to avoid dual-audio drift. The current SpatialReal RTC egress path accepts server-generated TTS WAV payloads, not OpenAI Realtime remote audio, so Realtime-avatar lip-sync is a known gap rather than a supported claim.
+- An experimental browser bridge probe may be enabled with `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=true`. The API exposes only sibling `bridge` metadata such as `browserAudioBridgeEnabled` on avatar session responses; it must not be nested under token-bearing `client` metadata. The probe may call `AvatarPlayer.publishAudio(track)` with an OpenAI Realtime remote audio track, but it remains a falsifiable kiostation QA path until the runtime outcome is `bridge_verified`, `bridge_not_supported`, or `blocked`.
 - Provider smoke tests must distinguish session brokering readiness from provider/network attach failures.
 
 ## Verification
@@ -98,5 +99,5 @@ Provider or external-network failures should be reported as runtime blockers wit
 
 - Keep the Realtime smoke harness redacted and split provider-session, SDP attach, and MMM-readiness failures.
 - Add external-network WebRTC evidence before demo readiness.
-- Do not claim SpatialReal lip-sync with OpenAI Realtime audio until a tested bridge captures or routes Realtime output audio into SpatialReal without exposing secrets, raw media, or high-latency browser recording loops.
+- Do not claim production SpatialReal lip-sync with OpenAI Realtime audio until the feature-flagged bridge has kiostation browser evidence and remains free of secrets, raw media, and high-latency browser recording loops.
 - Revisit browser-direct provider attach only if the API call broker proves unworkable and the product explicitly accepts browser-held ephemeral provider secrets.
