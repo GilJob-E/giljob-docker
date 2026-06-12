@@ -39,6 +39,7 @@ const avatarStatusText = document.querySelector("#avatar-status-text");
 const avatarPanelTitle = document.querySelector("#avatar-panel-title");
 const avatarPanelBody = document.querySelector("#avatar-panel-body");
 const transcriptBody = document.querySelector("#transcript-body");
+const mmmDebugSummary = document.querySelector("#mmm-debug-summary");
 
 let activeSession = null;
 let activeRoom = null;
@@ -529,14 +530,23 @@ async function requestApiRealtimeResponse(reason = "manual", turnIndex = current
   realtimeFirstAudioMarked = false;
   realtimeResponseInFlight = true;
   realtimeInterviewerQuestionTranscript = "";
-  const payload = await postClientSafeJson(realtimeResponseEndpoint(turnIndex), {
-    reason,
-    sessionId: analysisSessionId(),
-    response: {
-      outputModalities: ["audio"],
-      instructions: REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS,
-    },
+  const response = await fetch(realtimeResponseEndpoint(turnIndex), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      reason,
+      sessionId: analysisSessionId(),
+      response: {
+        outputModalities: ["audio"],
+        instructions: REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS,
+      },
+    }),
   });
+  const payload = await response.json().catch(() => ({}));
+  renderMmmDebug("/realtime/response", payload);
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `request failed: HTTP ${response.status}`);
+  }
   relayApiApprovedRealtimeCommand(payload);
   await postRealtimeTurnEvent("realtime.response.create", { reason, owner: "api", transport: "browser-data-channel-relay" }, turnIndex);
   appendLog(`Realtime response requested through API control plane: ${reason}; response.create command was API-approved`);
@@ -648,6 +658,7 @@ async function waitForFullMmmReady(turnIndex) {
   for (let attempt = 0; attempt < FULL_MMM_READY_MAX_ATTEMPTS; attempt += 1) {
     const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
     const payload = await response.json().catch(() => ({}));
+    renderMmmDebug("/mmm-ready", payload);
     if (response.ok && payload.full_mmm_ready === true) {
       await postRealtimeTurnEvent("analysis.full_mmm.ready", { ready: true, source: "api" }, turnIndex);
       appendLog(`full_mmm_ready received for turn ${turnIndex}; next Realtime audio allowed`);
@@ -1027,6 +1038,106 @@ function renderTranscriptStatus(message) {
   if (transcriptBody) {
     transcriptBody.textContent = message;
   }
+}
+
+function isForbiddenDebugKey(key) {
+  return /(?:raw|transcript|media|sdp|token|secret|client_secret|api[_-]?key|audio|video|frame)/i.test(String(key || ""));
+}
+
+function safeDebugScalar(value, maxLength = 220) {
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "string") {
+    const redacted = redactSensitiveText(value).trim();
+    return redacted.length > maxLength ? `${redacted.slice(0, maxLength)}…` : redacted;
+  }
+  return "";
+}
+
+function safeDebugObject(value, depth = 0) {
+  if (depth > 2) {
+    return "[redacted-depth]";
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => safeDebugObject(item, depth + 1)).filter((item) => item !== "");
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !isForbiddenDebugKey(key))
+      .map(([key, item]) => [key, safeDebugObject(item, depth + 1)])
+      .filter(([, item]) => item !== ""));
+  }
+  return safeDebugScalar(value);
+}
+
+function safeDebugJson(value) {
+  const safe = safeDebugObject(value);
+  if (safe === "" || (Array.isArray(safe) && safe.length === 0)) {
+    return "";
+  }
+  if (safe && typeof safe === "object" && !Array.isArray(safe) && Object.keys(safe).length === 0) {
+    return "";
+  }
+  const encoded = JSON.stringify(safe, null, 2);
+  return encoded.length > 900 ? `${encoded.slice(0, 900)}…` : encoded;
+}
+
+function firstDebugValue(...values) {
+  for (const value of values) {
+    const rendered = safeDebugScalar(value);
+    if (rendered) {
+      return rendered;
+    }
+  }
+  return "-";
+}
+
+function renderMmmDebug(source, payload = {}) {
+  if (!mmmDebugSummary) {
+    return;
+  }
+  const readiness = payload?.readiness && typeof payload.readiness === "object" ? payload.readiness : payload;
+  const responseCreate = payload?.responseCreate && typeof payload.responseCreate === "object" ? payload.responseCreate : {};
+  const analysisEngine = (payload?.analysisEngine && typeof payload.analysisEngine === "object")
+    ? payload.analysisEngine
+    : (readiness?.analysisEngine && typeof readiness.analysisEngine === "object" ? readiness.analysisEngine : {});
+  const analysisResult = (payload?.analysisResult && typeof payload.analysisResult === "object")
+    ? payload.analysisResult
+    : (readiness?.analysisResult && typeof readiness.analysisResult === "object" ? readiness.analysisResult : {});
+  const rows = [
+    ["source", source],
+    ["interviewId", payload?.interviewId || readiness?.interviewId],
+    ["turnIndex", payload?.turnIndex || readiness?.turnIndex],
+    ["analysisTurnIndex", payload?.analysisTurnIndex || readiness?.analysisTurnIndex],
+    ["readiness.full_mmm_ready", readiness?.full_mmm_ready],
+    ["readiness.state", readiness?.state || readiness?.status],
+    ["readiness.reasonCodes", safeDebugJson(readiness?.reasonCodes || (readiness?.reason ? [readiness.reason] : []))],
+    ["readiness.lanes", safeDebugJson(readiness?.lanes || {})],
+    ["responseCreate.created", responseCreate.created],
+    ["responseCreate.reason", responseCreate.reason || responseCreate.commandType],
+    ["analysisEngine.endpoint", analysisEngine.endpoint],
+    ["analysisEngine.status", analysisEngine.status],
+    ["analysisEngine.error", analysisEngine.error],
+    ["analysisResult.status", analysisResult.status],
+    ["analysisResult.summary", analysisResult.publicSummary || analysisResult.summary],
+    ["analysisResult.guidance", analysisResult.publicGuidance || analysisResult.guidance],
+    ["analysisResult.coverage", safeDebugJson(analysisResult.coverage || {})],
+    ["analysisResult.confidence", analysisResult.confidence],
+    ["analysisResult.latency", analysisResult.latencyMs || analysisResult.latency],
+  ];
+  mmmDebugSummary.replaceChildren(...rows.map(([label, value]) => {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = typeof value === "string" && value ? value : firstDebugValue(value);
+    row.append(term, detail);
+    return row;
+  }));
 }
 
 function analysisSessionId() {

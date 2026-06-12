@@ -403,7 +403,42 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
 }
 .panel-card h3 { font-size: 1rem; letter-spacing: -0.01em; }
 .panel-card p:not(.badge-pill) { color: var(--color-body); font-size: 0.92rem; line-height: 1.55; }
-#transcript-body { white-space: pre-wrap; }
+#transcript-body {
+  max-height: min(36vh, 420px);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mmm-debug-summary,
+.summary {
+  min-width: 0;
+}
+.mmm-debug-summary {
+  display: grid;
+  gap: 8px;
+  max-height: min(34vh, 360px);
+  overflow: auto;
+  padding-right: 4px;
+}
+.mmm-debug-summary div {
+  min-width: 0;
+}
+.mmm-debug-summary dt,
+.mmm-debug-summary dd {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.mmm-debug-summary dd {
+  white-space: pre-wrap;
+}
+.debug-note {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+.mmm-debug-card {
+  border-color: var(--color-hairline);
+  background: var(--color-canvas);
+}
 .current-question { background: var(--color-canvas); border-color: var(--color-hairline); }
 .room-control-bar {
   display: flex;
@@ -915,7 +950,8 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
   height: 100%;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-xl);
   background: var(--color-canvas);
@@ -943,7 +979,9 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
   min-height: 0;
   align-content: start;
   gap: 12px;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
 }
 .room-context-drawer .panel-card {
   border-color: var(--color-hairline-soft);
@@ -982,6 +1020,17 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
 }
 .room-debug-drawer .log-card {
   margin-bottom: 0;
+}
+.room-debug-drawer details {
+  max-height: min(72vh, 760px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.room-debug-drawer .log,
+.room-debug-drawer .summary,
+#event-log {
+  max-height: min(40vh, 440px);
+  overflow: auto;
 }
 
 @media (max-width: 1180px) {
