@@ -377,6 +377,42 @@ def _safe_list(value: object, max_items: int = 8, max_len: int = 80) -> list[str
     return [_safe_str(item, max_len) for item in value[:max_items] if _safe_str(item, max_len)]
 
 
+def _extract_turn_index(value: object) -> int | None:
+    if isinstance(value, int) and value >= 0:
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _record_matches_turn(record: object, requested_turn_index: int) -> bool:
+    if not isinstance(record, dict):
+        return False
+    for key in ("turnIndex", "turn_index", "answerTurnIndex", "analysisTurnIndex"):
+        observed = _extract_turn_index(record.get(key))
+        if observed == requested_turn_index:
+            return True
+    turn_id = _safe_str(record.get("turnId") or record.get("turn_id"), 32)
+    return bool(turn_id and turn_id == str(requested_turn_index))
+
+
+def _turn_handoff_matches_requested_turn(payload: dict[str, Any], handoff: dict[str, Any], requested_turn_index: int | None) -> bool:
+    """Fail closed when a handoff cannot be tied to the requested answer turn."""
+    if requested_turn_index is None:
+        return False
+    for container in (
+        handoff,
+        handoff.get("meta") if isinstance(handoff.get("meta"), dict) else None,
+        payload,
+    ):
+        if _record_matches_turn(container, requested_turn_index):
+            return True
+    records = payload.get("records")
+    if isinstance(records, list):
+        return any(_record_matches_turn(record, requested_turn_index) for record in records)
+    return False
+
+
 def _safe_lanes(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
@@ -545,18 +581,32 @@ async def _realtime_turn_results(req: web.Request) -> web.Response:
     ``response.create`` authorization.
     """
     interview_id = _safe_str(req.query.get("interviewId"), 96)
-    turn_index = _safe_turn_index(req.query.get("turnIndex"))
-    if not interview_id or turn_index is None:
-        return _json(_pending_result(interview_id, turn_index or 0, "missing_exact_turn_key"), status=400)
-    rnas = req.app.get("event_only_realtime_turns")
-    if not isinstance(rnas, _EventOnlyRealtimeTurns):
-        return _json(_pending_result(interview_id, turn_index, "rnas_unavailable"))
-    result = rnas.turn_result(interview_id, turn_index)
-    if result.get("status") != "ready":
-        return _json(result)
+    turn_index = _safe_str(req.query.get("turnIndex"), 8)
+    requested_turn_index = _extract_turn_index(turn_index)
+    service = req.app.get("analysis_service")
+    pending = {
+        "result": None, "status": "pending",
+        "rawTranscriptLogged": False, "rawMediaAccepted": False,
+    }
+    if service is None or render_prompt_fragment is None or not interview_id:
+        return _json(pending)
+    payload = service.signals(interview_id)
+    handoff = payload.get("turnHandoff")
+    if not handoff:
+        return _json(pending)
+    if not isinstance(handoff, dict) or not _turn_handoff_matches_requested_turn(payload, handoff, requested_turn_index):
+        return _json(pending)
     return _json({
-        "result": result,
-        "status": "ready",
+        "result": {
+            "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+            "status": "ready",
+            "sessionId": _safe_str(payload.get("sessionId"), 96),
+            "turnIndex": requested_turn_index,
+            "candidatePromptFragment": render_prompt_fragment(handoff),
+            "coverage": (handoff.get("meta") or {}).get("coverage"),
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        },
         "rawTranscriptLogged": False,
         "rawMediaAccepted": False,
     })

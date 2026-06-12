@@ -247,6 +247,9 @@ class TurnResultsContractTest(unittest.TestCase):
         self.assertIn("rnas.turn_result(interview_id, turn_index)", wrapper)
         self.assertIn("no_exact_turn_result", wrapper)
         self.assertNotIn("service.signals(None)", wrapper)
+        # exact-turn RNAS: stale/wrong turn handoffs must degrade to pending
+        self.assertIn("_turn_handoff_matches_requested_turn", wrapper)
+        self.assertIn("requested_turn_index", wrapper)
 
     def test_realtime_native_analysis_session_is_exact_turn_keyed_and_requires_all_lanes(self) -> None:
         module = load_analysis_engine_wrapper()
@@ -281,3 +284,27 @@ class TurnResultsContractTest(unittest.TestCase):
         module = load_analysis_engine_wrapper()
         self.assertTrue(hasattr(module, "_realtime_turn_results"))
         self.assertIsNone(module.render_prompt_fragment)
+
+    def test_turn_results_exact_turn_guard_rejects_wrong_stale_or_ambiguous_handoff(self) -> None:
+        module = load_analysis_engine_wrapper()
+        handoff = {"meta": {"turnIndex": 3, "coverage": {"transcript": True}}}
+        payload = {"sessionId": "local-demo", "turnHandoff": handoff}
+
+        self.assertTrue(module._turn_handoff_matches_requested_turn(payload, handoff, 3))
+        self.assertFalse(module._turn_handoff_matches_requested_turn(payload, handoff, 2))
+        self.assertFalse(module._turn_handoff_matches_requested_turn({"turnHandoff": {"meta": {}}}, {"meta": {}}, 3))
+
+    def test_turn_results_exact_turn_guard_accepts_record_backed_event_only_fallback(self) -> None:
+        module = load_analysis_engine_wrapper()
+        handoff = {"meta": {"coverage": {"transcript": True}}}
+        payload = {
+            "sessionId": "local-demo",
+            "turnHandoff": handoff,
+            "records": [
+                {"type": "sentence", "turnIndex": 4},
+                {"type": "turn_end", "turnIndex": 4},
+            ],
+        }
+
+        self.assertTrue(module._turn_handoff_matches_requested_turn(payload, handoff, 4))
+        self.assertFalse(module._turn_handoff_matches_requested_turn(payload, handoff, 5))

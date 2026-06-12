@@ -396,9 +396,42 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["analysisResult"]["schemaVersion"], "2026-06-12.mmm-result.v1")
         self.assertEqual(analysis[-1]["method"], "GET")
         self.assertIn("/realtime/turn-results", analysis[-1]["path"])
+        self.assertIn("interviewId=local-demo", analysis[-1]["path"])
+        self.assertIn("turnIndex=1", analysis[-1]["path"])
         self.assertNotIn("raw text must not be returned", body)
         for forbidden in ("MMM", "analysis-engine", "backend", "readiness gate"):
             self.assertNotIn(forbidden, payload["sideband"]["command"]["response"]["instructions"])
+
+    def test_realtime_response_create_rejects_wrong_or_stale_turn_analysis_result(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        analysis = self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+            "status": "ready",
+            "turnIndex": 2,
+            "candidatePromptFragment": "STALE_GUIDANCE_SHOULD_NOT_BE_USED",
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_stale_or_wrong_turn")
+        self.assertEqual(payload["analysisTurnIndex"], 1)
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "exact_turn_analysis_required"})
+        self.assertIn("turnIndex=1", analysis[-1]["path"])
+        self.assertNotIn("STALE_GUIDANCE_SHOULD_NOT_BE_USED", body)
 
     def test_realtime_response_create_rejects_unsafe_analysis_fragment(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
