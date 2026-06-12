@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 ## Main LLM env contract
 
-OpenAI Realtime is the primary live interviewer voice path and is brokered by `services/api`. This service keeps Gemini only as a bounded legacy/non-primary next-question fallback. Copy `.env.example` to `.env`, then set provider values there. Do not commit `.env` or real API keys.
+OpenAI Realtime is the only live interviewer voice path and is brokered by `services/api`. This service no longer contains a Gemini next-question or TTS fallback. Copy `.env.example` to `.env`, then set provider values there. Do not commit `.env` or real API keys.
 
 Default local/non-primary scaffold:
 
@@ -35,16 +35,7 @@ Default local/non-primary scaffold:
 LLM_PROVIDER=fake
 ```
 
-Enable Gemini only when explicitly testing the legacy next-question fallback:
-
-```env
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=your-google-ai-studio-key
-GEMINI_MODEL=gemini-3.5-flash
-GEMINI_TIMEOUT_SECONDS=30
-```
-
-The Gemini key is read only from `GEMINI_API_KEY`. When `LLM_PROVIDER=gemini`, provider failures fail closed and are redacted at the API boundary.
+Any non-`fake` `LLM_PROVIDER` is rejected. Do not add a non-Realtime LLM fallback to this service without first changing the accepted architecture.
 
 ## Realtime boundary
 
@@ -72,13 +63,7 @@ Current provider options:
 # Keyless smoke provider
 VOICE_PROVIDER=fake
 
-# Legacy/non-primary Gemini native TTS fallback
-VOICE_PROVIDER=gemini
-GEMINI_API_KEY=your-google-ai-studio-key
-GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
-GEMINI_TTS_VOICE=Kore
-
-# Legacy supported provider, not the default path
+# Legacy/internal compatibility provider, not the live interviewer path
 VOICE_PROVIDER=elevenlabs
 ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=
@@ -86,7 +71,7 @@ ELEVENLABS_TTS_MODEL=eleven_flash_v2_5
 ELEVENLABS_OUTPUT_FORMAT=mp3_22050_32
 ```
 
-OpenAI Realtime remains the primary live interviewer voice path. `VOICE_PROVIDER=fake` returns deterministic keyless WAV bytes plus metadata for smoke tests. `VOICE_PROVIDER=gemini` is a legacy/non-primary fallback and requires `GEMINI_API_KEY`. `VOICE_PROVIDER=elevenlabs` requires both `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Missing values fail closed with a provider-unavailable response and never print the secret value.
+OpenAI Realtime remains the only live interviewer voice path. `VOICE_PROVIDER=fake` returns deterministic keyless WAV bytes plus metadata for smoke tests. `VOICE_PROVIDER=elevenlabs` requires both `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` and is not the default path. Missing values fail closed with a provider-unavailable response and never print the secret value.
 
 ## Avatar session and RTC egress contract
 

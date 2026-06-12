@@ -30,7 +30,7 @@ Run final verification from the leader-approved checkout on `kiostation`; do not
 
 ```bash
 ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && node --check apps/web/static/app.js'
-ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py'
 ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v'
 ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && git diff --check'
 ```
@@ -40,7 +40,7 @@ The same command strings are part of the docs contract so worker lanes and leade
 ## Interviewer voice and avatar provider contract
 
 - `VOICE_PROVIDER=fake` must remain the keyless smoke path.
-- `VOICE_PROVIDER=gemini` must require only server-side `GEMINI_API_KEY`; provider errors must be sanitized before browser/API responses.
+- Non-Realtime LLM/TTS provider fallback must stay removed from env, compose, supported docs, and active AI-engine code.
 - `VOICE_PROVIDER=elevenlabs` must require server-side `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`; raw keys and upstream error bodies must never be returned.
 - `TTS_PROVIDER_FAILURE_FALLBACK=fake` is allowed only as an explicit local-demo fail-open setting.
 - `AVATAR_PROVIDER=disabled` must return a safe disabled response without a provider `sessionToken`.

@@ -1135,7 +1135,7 @@ function renderQuestionLoading() {
   if (currentQuestionBody) {
     currentQuestionBody.textContent = isRealtimePrimary()
       ? "Realtime sideband가 full MMM 준비 이후 다음 질문을 발화합니다."
-      : "Gemini 기반 InterviewController가 다음 질문을 생성하고 있습니다.";
+      : "Keyless scaffold InterviewController가 다음 질문 route smoke를 처리합니다.";
   }
   if (interviewerQuestionText) {
     interviewerQuestionText.textContent = "면접관 질문을 준비하고 있습니다.";

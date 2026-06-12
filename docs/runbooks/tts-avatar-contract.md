@@ -4,10 +4,10 @@ This runbook defines the Phase 0B/1 contract for interviewer voice and avatar in
 
 ## Current phase
 
-- `OPENAI_REALTIME_PRIMARY=true` is the intended realtime branch primary voice mode when OpenAI credentials and runtime are ready.
-- `VOICE_PROVIDER=fake` is the mandatory keyless local smoke path for fallback TTS routes.
-- `VOICE_PROVIDER=gemini` uses Gemini native TTS (`gemini-3.1-flash-tts-preview`) with the existing server-side `GEMINI_API_KEY`.
-- `VOICE_PROVIDER=elevenlabs` remains supported only when `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are supplied in the runtime `.env`.
+- `OPENAI_REALTIME_PRIMARY=true` is the intended realtime branch voice mode when OpenAI credentials and runtime are ready.
+- `VOICE_PROVIDER=fake` is the mandatory keyless local smoke path for legacy/internal TTS routes.
+- Gemini TTS fallback is removed; do not configure or document it as a supported route.
+- `VOICE_PROVIDER=elevenlabs` remains supported only as an internal compatibility adapter when `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are supplied in the runtime `.env`.
 - `TTS_PROVIDER_FAILURE_FALLBACK=fake` may be enabled for local demos so provider quota/payment failures do not block the interview room.
 - `AVATAR_PROVIDER=disabled` remains the default. SpatialReal session brokering is backend-only until the browser avatar rendering gate is resolved.
 - `AVATAR_PROVIDER_FAILURE_FALLBACK=disabled` may be enabled for local demos so SpatialReal provider failures do not block the interview room.
@@ -19,14 +19,12 @@ This runbook defines the Phase 0B/1 contract for interviewer voice and avatar in
 
 | Variable | Purpose | Secret | Default / phase |
 |---|---|---:|---|
-| `VOICE_PROVIDER` | Selects `fake`, `gemini`, or `elevenlabs` TTS provider. | no | `fake` |
-| `GEMINI_TTS_MODEL` | Gemini native TTS model ID. | no | `gemini-3.1-flash-tts-preview` |
-| `GEMINI_TTS_VOICE` | Gemini prebuilt voice name. | no | `Kore` |
+| `VOICE_PROVIDER` | Selects `fake` or `elevenlabs` for internal route smoke/compatibility only. | no | `fake` |
 | `ELEVENLABS_API_KEY` | ElevenLabs API key for real TTS smoke. | yes | empty |
 | `ELEVENLABS_VOICE_ID` | Voice ID used by ElevenLabs TTS. | no, but server-side config | empty |
 | `ELEVENLABS_TTS_MODEL` | TTS model ID. | no | `eleven_flash_v2_5` |
 | `ELEVENLABS_OUTPUT_FORMAT` | Initial TTS output format. | no | `mp3_22050_32` |
-| `TTS_PROVIDER_FAILURE_FALLBACK` | Optional fail-open provider for room UX when Gemini or ElevenLabs returns a provider error. | no | empty; set `fake` for local demos |
+| `TTS_PROVIDER_FAILURE_FALLBACK` | Optional fail-open provider for route smoke when ElevenLabs returns a provider error. | no | empty; set `fake` for local demos |
 | `AVATAR_PROVIDER` | Future avatar provider switch. | no | `disabled` |
 | `SPATIALREAL_API_KEY` | SpatialReal API key. | yes | empty |
 | `SPATIALREAL_APP_ID` | SpatialReal app identifier. | no, but server-mediated | empty |

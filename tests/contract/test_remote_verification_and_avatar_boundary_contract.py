@@ -16,7 +16,7 @@ class RemoteVerificationAndAvatarBoundaryContractTest(unittest.TestCase):
         self.assertIn("ssh \"$REMOTE_HOST\"", script)
         self.assertIn("npm ci --ignore-scripts --no-audit --no-fund", script)
         self.assertIn("node --check apps/web/static/app.js", script)
-        self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py", script)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py", script)
         self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v", script)
         self.assertIn("git diff --cached --check", script)
         self.assertIn("never sources or prints .env values", script)

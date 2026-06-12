@@ -6,15 +6,17 @@ This service is the hidden LiveKit analyzer participant:
 
 ```text
 Candidate browser -> LiveKit room -> services/analysis-engine (GilJobE)
-  -> transcript_full + non-verbal signals -> ai-engine / interview controller
+  -> transcript_full + non-verbal signals -> API/Realtime readiness gate
+API Realtime sideband -> services/analysis-engine /realtime/turn-events
+  -> sanitized MMM audit/readiness metadata
 ```
 
 ## How it runs
 
-The container installs the pinned `GilJobE` package and runs **its own module entrypoint**
-`python -m giljobe.server` (GilJobE owns `server/http_app.py`). There is no local wrapper:
-the container runs the same HTTP server GilJobE smoke-tests, so behaviour stays in lockstep
-with the source of truth.
+The container installs the pinned `GilJobE` package and runs `services/analysis-engine/server.py`.
+That entrypoint builds the same GilJobE aiohttp app (`server/http_app.py`) for `/subscriber/*`,
+`/signals`, `/healthz`, and `/readyz`, then adds one GilJob-v2-specific Realtime sideband route:
+`POST /realtime/turn-events`.
 
 HTTP contract served on `:8200` (Caddy prefixes `/analysis` externally; internal paths have no prefix):
 
@@ -23,6 +25,8 @@ HTTP contract served on `:8200` (Caddy prefixes `/analysis` externally; internal
 | `POST` | `/subscriber/start` `{sessionId, criticMode}` | Begin an answer turn — join `giljob-session-{sessionId}` as a hidden subscriber and reset the turn. |
 | `POST` | `/subscriber/stop` `{}` | End the turn — flush `end_turn` and produce `transcript_full`. |
 | `GET` | `/signals?sessionId=` | Poll the turn's records: `{records, transcriptFull, windowTranscripts, latestTurnEnd, rawMediaExposed:false, rawSecretsExposed:false, ...}`. |
+| `POST` | `/realtime/turn-events` | Accept sanitized Realtime MMM sideband records from `services/api`; rejects raw media/transcript/token shapes. |
+| `GET` | `/realtime/turn-events?sessionId=&turnIndex=` | Inspect the in-memory tail of accepted sideband records for smoke/debug only. |
 | `GET` | `/healthz` `/readyz` | Liveness / readiness (token-safe, never prints secrets). |
 
 The subscriber is created per turn on `POST /subscriber/start` (HTTP-driven), so there is no
@@ -31,11 +35,12 @@ controller relays to `services/ai-engine` as `lastAnswer`.
 
 ## Status
 
-- Runs GilJobE's HTTP contract server (`/subscriber/start|stop`, `/signals`, `/healthz`, `/readyz`).
+- Runs GilJobE's HTTP contract server (`/subscriber/start|stop`, `/signals`, `/healthz`, `/readyz`) plus the GilJob-v2 Realtime MMM sideband ingress (`/realtime/turn-events`).
 - The per-turn LiveKit room subscription + transcript + non-verbal signal path is exercised end to end
   by GilJobE against this stack's `livekit` and shared `gemma-e4b` (vLLM) backend.
-- Record delivery to `services/ai-engine` is pull-based: the interview controller polls `/signals`
-  and forwards `transcriptFull` to the next-question endpoint.
+- Realtime MMM sideband delivery from `services/api` is push-based: `/realtime/turn-events`
+  accepts sanitized answer-state/readiness records. It does not store raw transcript/media and it does
+  not replace GilJobE's LiveKit subscriber path.
 - Objective grounding lanes (GilJobE `e0671f5`): CPU-only vision (MediaPipe Face+Pose at full fps)
   and audio prosody (pitch/rate/pauses/energy) measurements are injected into the Gemma prompts
   with anti-hallucination rules and additionally emitted raw on records as `objective_nonverbal`

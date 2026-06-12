@@ -11,20 +11,21 @@ OLD_GILJOBE_REFS = ("b769120", "88a4df5")
 
 
 class AnalysisEngineContractTest(unittest.TestCase):
-    def test_analysis_engine_runs_giljobe_server_not_deleted_wrapper(self) -> None:
-        self.assertFalse(
-            (ANALYSIS_ENGINE_ROOT / "server.py").exists(),
-            "services/analysis-engine/server.py should stay removed; GilJobE owns the HTTP server",
-        )
+    def test_analysis_engine_runs_giljobe_app_with_realtime_mmm_ingress_wrapper(self) -> None:
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        self.assertIn("from giljobe.server.http_app import make_app", wrapper)
+        self.assertIn('web.post("/realtime/turn-events"', wrapper)
+        self.assertIn("raw_payload_not_allowed", wrapper)
+        self.assertIn("rawTranscriptLogged", wrapper)
+        self.assertIn("rawMediaAccepted", wrapper)
         dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
         self.assertIn("python:3.12-slim", dockerfile)
         self.assertNotIn("python:3.12-alpine", dockerfile)
         self.assertIn("git ffmpeg ca-certificates", dockerfile)
         self.assertIn("ANALYSIS_ENGINE_PORT=8200", dockerfile)
         self.assertIn(f"GILJOBE_GIT_REF={PINNED_GILJOBE_REF}", dockerfile)
-        self.assertIn('CMD ["python", "-m", "giljobe.server"]', dockerfile)
-        self.assertNotIn("COPY server.py", dockerfile)
-        self.assertNotIn("/app/server.py", dockerfile)
+        self.assertIn("COPY server.py /app/server.py", dockerfile)
+        self.assertIn('CMD ["python", "/app/server.py"]', dockerfile)
 
     def test_pinned_giljobe_ref_is_consistent_across_runtime_files(self) -> None:
         requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
@@ -41,7 +42,7 @@ class AnalysisEngineContractTest(unittest.TestCase):
             for old_ref in OLD_GILJOBE_REFS:
                 self.assertNotIn(old_ref, text, label)
         self.assertIn(f"git+https://github.com/GilJob-E/GilJobE.git@{PINNED_GILJOBE_REF}", requirements)
-        self.assertIn("python -m giljobe.server", requirements)
+        self.assertIn("/realtime/turn-events", requirements)
 
     def test_grounding_lane_assets_and_toggles_are_wired(self) -> None:
         """GilJobE objective grounding lanes (vision/prosody): the image must install the
@@ -87,26 +88,26 @@ class AnalysisEngineContractTest(unittest.TestCase):
             ]
         )
         for expected in (
-            "python -m giljobe.server",
             "/subscriber/start",
             "/subscriber/stop",
             "/signals",
+            "/realtime/turn-events",
             "/healthz",
             "/readyz",
             "token-safe",
         ):
             self.assertIn(expected, analysis_docs)
-        self.assertIn("There is no local wrapper", analysis_docs)
+        self.assertIn("builds GilJobE", analysis_docs)
         self.assertIn("ANALYSIS_ENGINE_ENABLE_SUBSCRIBER", analysis_docs)
         self.assertIn("legacy", analysis_docs.lower())
 
     def test_root_docs_and_verification_no_longer_reference_deleted_wrapper(self) -> None:
         root_readme = (REPO_ROOT / "README.md").read_text()
         root_agents = (REPO_ROOT / "AGENTS.md").read_text()
-        self.assertNotIn("services/analysis-engine/server.py", root_readme)
+        self.assertIn("services/analysis-engine/server.py", root_readme)
         self.assertIn("docker build -q services/analysis-engine", root_readme)
         self.assertIn("services/analysis-engine/", root_agents)
-        self.assertIn("python -m giljobe.server", root_agents)
+        self.assertIn("/realtime/turn-events", root_agents)
 
     def test_no_raw_secret_or_media_examples_in_analysis_docs(self) -> None:
         docs = "\n".join(

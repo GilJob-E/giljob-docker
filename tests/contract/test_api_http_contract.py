@@ -17,6 +17,7 @@ import server as api_server  # noqa: E402
 from server import Handler, SESSION_HASH_STORE  # noqa: E402
 
 DEFAULT_AI_ENGINE_INTERNAL_URL = api_server.AI_ENGINE_INTERNAL_URL
+DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL = api_server.ANALYSIS_ENGINE_INTERNAL_URL
 
 LIVEKIT_ENV_NAMES = (
     "LIVEKIT_REQUIRED",
@@ -26,6 +27,10 @@ LIVEKIT_ENV_NAMES = (
     "LIVEKIT_API_KEY",
     "LIVEKIT_API_SECRET",
     "AI_ENGINE_INTERNAL_URL",
+    "REALTIME_MMM_EVENT_LOG_PATH",
+    "REALTIME_MMM_FORWARD_ENABLED",
+    "GILJOBE_VISION",
+    "GILJOBE_PROSODY",
     "ELEVENLABS_API_KEY",
     "SPATIALREAL_API_KEY",
 )
@@ -35,6 +40,7 @@ class ApiHttpContractTest(unittest.TestCase):
     def setUp(self) -> None:
         SESSION_HASH_STORE.clear()
         api_server.AI_ENGINE_INTERNAL_URL = DEFAULT_AI_ENGINE_INTERNAL_URL
+        api_server.ANALYSIS_ENGINE_INTERNAL_URL = DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL
         self._old_livekit_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
         for name in self._old_livekit_env:
             os.environ.pop(name, None)
@@ -51,6 +57,7 @@ class ApiHttpContractTest(unittest.TestCase):
         self.thread.join(timeout=2)
         SESSION_HASH_STORE.clear()
         api_server.AI_ENGINE_INTERNAL_URL = DEFAULT_AI_ENGINE_INTERNAL_URL
+        api_server.ANALYSIS_ENGINE_INTERNAL_URL = DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL
         for name, value in self._old_livekit_env.items():
             if value is None:
                 os.environ.pop(name, None)
@@ -103,6 +110,41 @@ class ApiHttpContractTest(unittest.TestCase):
         self.addCleanup(cleanup)
         host, port = fake_server.server_address
         api_server.AI_ENGINE_INTERNAL_URL = f"http://{host}:{port}"
+        return captured
+
+    def _start_fake_analysis_engine(self, *, status: int = 202) -> list[dict[str, object]]:
+        captured: list[dict[str, object]] = []
+
+        class FakeAnalysisEngineHandler(BaseHTTPRequestHandler):
+            def do_POST(inner_self) -> None:  # noqa: N802 - stdlib callback name
+                length = int(inner_self.headers.get("Content-Length", "0") or "0")
+                raw = inner_self.rfile.read(length) if length else b""
+                captured.append({
+                    "path": inner_self.path,
+                    "body": raw.decode("utf-8"),
+                })
+                body = b'{"accepted":true}'
+                inner_self.send_response(status)
+                inner_self.send_header("Content-Type", "application/json")
+                inner_self.send_header("Content-Length", str(len(body)))
+                inner_self.end_headers()
+                inner_self.wfile.write(body)
+
+            def log_message(inner_self, format: str, *args: object) -> None:
+                return None
+
+        fake_server = ThreadingHTTPServer(("127.0.0.1", 0), FakeAnalysisEngineHandler)
+        fake_thread = threading.Thread(target=fake_server.serve_forever, daemon=True)
+        fake_thread.start()
+
+        def cleanup() -> None:
+            fake_server.shutdown()
+            fake_server.server_close()
+            fake_thread.join(timeout=2)
+
+        self.addCleanup(cleanup)
+        host, port = fake_server.server_address
+        api_server.ANALYSIS_ENGINE_INTERNAL_URL = f"http://{host}:{port}"
         return captured
 
     def test_create_session_routes_return_public_tokens_and_store_hashes_only(self) -> None:
@@ -176,7 +218,7 @@ class ApiHttpContractTest(unittest.TestCase):
         upstream_payload = json.loads(str(captured[0]["body"]))
         self.assertEqual(upstream_payload["interviewId"], "local-demo")
         self.assertEqual(upstream_payload["turnIndex"], 1)
-        self.assertNotIn("GEMINI_API_KEY", body)
+        self.assertNotIn("ELEVENLABS_API_KEY", body)
 
     def test_next_question_route_accepts_caddy_stripped_path_and_bad_id_fails(self) -> None:
         self._start_fake_ai_engine({"interviewId": "local-demo", "turnIndex": 2, "question": "다음 질문입니다."})
@@ -188,14 +230,42 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(status, 404, body)
         self.assertEqual(json.loads(body)["error"], "not_found")
 
+    def test_realtime_turn_events_forward_sanitized_mmm_record_to_analysis_engine_by_default(self) -> None:
+        captured = self._start_fake_analysis_engine(status=202)
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "true"
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({
+                "type": "transcript.completed",
+                "transcript": "bounded candidate answer",
+                "detail": {"transcript": "bounded candidate answer"},
+            }).encode("utf-8"),
+        )
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        self.assertTrue(payload["ingress"]["analysisEngine"]["attempted"])
+        self.assertEqual(payload["ingress"]["analysisEngine"]["status"], 202)
+        self.assertEqual(payload["ingress"]["analysisEngine"]["endpoint"], "/realtime/turn-events")
+        self.assertEqual(captured[0]["path"], "/realtime/turn-events")
+        forwarded = json.loads(str(captured[0]["body"]))
+        self.assertEqual(forwarded["source"], "api-sideband")
+        self.assertEqual(forwarded["sessionId"], "local-demo")
+        self.assertFalse(forwarded["rawTranscriptLogged"])
+        self.assertFalse(forwarded["rawMediaAccepted"])
+        self.assertNotIn("bounded candidate answer", captured[0]["body"])
+
 
     def test_question_broker_redacts_upstream_provider_failure_markers(self) -> None:
         marker = "UPSTREAM_PROVIDER_DIAGNOSTIC_MARKER"
         self._start_fake_ai_engine({
             "error": "llm_provider_failed",
-            "provider": "gemini",
+            "provider": "ai-engine",
             "message": marker,
-            "model": "gemini-3.5-flash",
+            "model": "fake-interviewer",
         }, status=502)
         status, body = self._post(
             "/api/interviews/local-demo/turns/1/question",

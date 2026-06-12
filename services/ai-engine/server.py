@@ -35,13 +35,6 @@ INTERVIEW_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 @dataclass(frozen=True)
 class LLMSettings:
     provider: str
-    gemini_api_key: str
-    gemini_model: str
-    timeout_seconds: float
-
-    @property
-    def key_configured(self) -> bool:
-        return bool(self.gemini_api_key and not self.gemini_api_key.startswith("replace-me"))
 
 
 @dataclass(frozen=True)
@@ -51,9 +44,6 @@ class TTSSettings:
     elevenlabs_voice_id: str
     elevenlabs_model: str
     output_format: str
-    gemini_api_key: str
-    gemini_model: str
-    gemini_voice_name: str
     timeout_seconds: float
     failure_fallback_provider: str
 
@@ -72,14 +62,6 @@ class TTSSettings:
     @property
     def elevenlabs_voice_configured(self) -> bool:
         return bool(self.elevenlabs_voice_id and not self.elevenlabs_voice_id.startswith("replace-me"))
-
-    @property
-    def gemini_key_configured(self) -> bool:
-        return bool(self.gemini_api_key and not self.gemini_api_key.startswith("replace-me"))
-
-    @property
-    def gemini_voice_configured(self) -> bool:
-        return bool(self.gemini_voice_name and not self.gemini_voice_name.startswith("replace-me"))
 
 
 @dataclass(frozen=True)
@@ -123,10 +105,7 @@ def load_tts_settings() -> TTSSettings:
         elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "").strip(),
         elevenlabs_model=os.getenv("ELEVENLABS_TTS_MODEL", "eleven_flash_v2_5").strip() or "eleven_flash_v2_5",
         output_format=os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_22050_32").strip() or "mp3_22050_32",
-        gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-        gemini_model=os.getenv("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview").strip() or "gemini-3.1-flash-tts-preview",
-        gemini_voice_name=os.getenv("GEMINI_TTS_VOICE", "Kore").strip() or "Kore",
-        timeout_seconds=float(os.getenv("TTS_TIMEOUT_SECONDS", os.getenv("ELEVENLABS_TIMEOUT_SECONDS", os.getenv("GEMINI_TIMEOUT_SECONDS", "30")))),
+        timeout_seconds=float(os.getenv("TTS_TIMEOUT_SECONDS", os.getenv("ELEVENLABS_TIMEOUT_SECONDS", "30"))),
         failure_fallback_provider=os.getenv("TTS_PROVIDER_FAILURE_FALLBACK", "").strip().lower(),
     )
 
@@ -164,7 +143,7 @@ def load_avatar_settings() -> AvatarSettings:
         console_endpoint=_spatialreal_console_endpoint(),
         ingress_endpoint=_spatialreal_ingress_endpoint(),
         session_ttl_seconds=min(23 * 60 * 60, max(60, int(os.getenv("SPATIALREAL_SESSION_TTL_SECONDS", "900")))),
-        timeout_seconds=float(os.getenv("SPATIALREAL_TIMEOUT_SECONDS", os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))),
+        timeout_seconds=float(os.getenv("SPATIALREAL_TIMEOUT_SECONDS", "30")),
         failure_fallback_provider=os.getenv("AVATAR_PROVIDER_FAILURE_FALLBACK", "").strip().lower(),
         audio_sample_rate=int(os.getenv("SPATIALREAL_AUDIO_SAMPLE_RATE", "16000")),
         audio_channel_count=int(os.getenv("SPATIALREAL_AUDIO_CHANNEL_COUNT", "1")),
@@ -181,9 +160,6 @@ def load_avatar_settings() -> AvatarSettings:
 def load_llm_settings() -> LLMSettings:
     return LLMSettings(
         provider=os.getenv("LLM_PROVIDER", "fake").strip().lower() or "fake",
-        gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash",
-        timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "30")),
     )
 
 
@@ -225,47 +201,6 @@ turnIndex: {turn_index}
 """.strip()
 
 
-def _extract_gemini_text(data: dict[str, Any]) -> str:
-    candidates = data.get("candidates")
-    if not isinstance(candidates, list) or not candidates:
-        return ""
-    content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
-    parts = content.get("parts") if isinstance(content, dict) else None
-    if not isinstance(parts, list):
-        return ""
-    texts = [part.get("text", "") for part in parts if isinstance(part, dict)]
-    return "\n".join(str(text) for text in texts if text).strip()
-
-
-def generate_gemini_question(settings: LLMSettings, payload: dict[str, Any], turn_index: int) -> str:
-    if not settings.key_configured:
-        raise RuntimeError("GEMINI_API_KEY is not configured")
-    prompt = build_question_prompt(payload, turn_index)
-    body = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
-    request = urllib.request.Request(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": settings.gemini_api_key,
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
-            response_body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as error:
-        error.read()  # consume upstream body without exposing provider diagnostics publicly
-        raise RuntimeError(f"Gemini request failed: HTTP {error.code}") from error
-    except urllib.error.URLError as error:
-        raise RuntimeError("Gemini request failed") from error
-    data = json.loads(response_body)
-    text = _extract_gemini_text(data)
-    if not text:
-        raise RuntimeError("Gemini response did not include text")
-    return text
-
-
 def fake_question(payload: dict[str, Any], turn_index: int) -> str:
     context = _candidate_context(payload)
     if turn_index <= 1:
@@ -298,33 +233,6 @@ def _fake_wav_bytes(text: str) -> bytes:
             amplitude = int(1000 * math.sin(2 * math.pi * 440 * index / sample_rate))
             wav.writeframesraw(struct.pack("<h", amplitude))
     return buffer.getvalue()
-
-
-def _wav_container_bytes(pcm: bytes, *, channels: int = 1, rate: int = 24_000, sample_width: int = 2) -> bytes:
-    buffer = BytesIO()
-    with wave.open(buffer, "wb") as wav:
-        wav.setnchannels(channels)
-        wav.setsampwidth(sample_width)
-        wav.setframerate(rate)
-        wav.writeframes(pcm)
-    return buffer.getvalue()
-
-
-def _extract_gemini_audio_base64(data: dict[str, Any]) -> str:
-    candidates = data.get("candidates")
-    if not isinstance(candidates, list) or not candidates:
-        return ""
-    content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
-    parts = content.get("parts") if isinstance(content, dict) else None
-    if not isinstance(parts, list):
-        return ""
-    for part in parts:
-        if not isinstance(part, dict):
-            continue
-        inline_data = part.get("inlineData") or part.get("inline_data")
-        if isinstance(inline_data, dict) and inline_data.get("data"):
-            return str(inline_data.get("data"))
-    return ""
 
 
 def _tts_metadata(
@@ -436,92 +344,6 @@ def synthesize_elevenlabs_tts(settings: TTSSettings, session_id: str, turn_id: s
         "turnId": turn_id,
         "status": "ok",
         "audio": {**metadata, "base64": base64.b64encode(audio).decode("ascii")},
-    }
-
-
-def synthesize_gemini_tts(settings: TTSSettings, session_id: str, turn_id: str, text: str) -> tuple[int, dict[str, object]]:
-    if not settings.gemini_key_configured or not settings.gemini_voice_configured:
-        return 503, {
-            "error": "tts_provider_unavailable",
-            "provider": "gemini",
-            "reason": "missing_api_key_or_voice_name",
-        }
-
-    prompt = f"Say in a calm, professional Korean interviewer voice: {text}"
-    body = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {
-                    "prebuiltVoiceConfig": {"voiceName": settings.gemini_voice_name}
-                }
-            },
-        },
-        "model": settings.gemini_model,
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": settings.gemini_api_key,
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
-            response_body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as error:
-        error.read()  # consume upstream body without exposing provider diagnostics publicly
-        return 502, {
-            "error": "tts_provider_failed",
-            "provider": "gemini",
-            "statusCode": error.code,
-            "message": "provider request failed",
-        }
-    except urllib.error.URLError:
-        return 502, {
-            "error": "tts_provider_failed",
-            "provider": "gemini",
-            "message": "provider request failed",
-        }
-
-    try:
-        data = json.loads(response_body)
-        pcm_base64 = _extract_gemini_audio_base64(data)
-        if not pcm_base64:
-            raise ValueError("missing audio data")
-        pcm = base64.b64decode(pcm_base64)
-    except (ValueError, json.JSONDecodeError):
-        return 502, {
-            "error": "tts_provider_failed",
-            "provider": "gemini",
-            "message": "invalid audio response",
-        }
-
-    sample_rate = 24_000
-    audio = _wav_container_bytes(pcm, channels=1, rate=sample_rate, sample_width=2)
-    metadata = _tts_metadata(
-        "gemini",
-        "audio/wav",
-        "wav",
-        sample_rate,
-        1,
-        audio,
-        _safe_request_id(session_id, turn_id, "gemini"),
-    )
-    return 200, {
-        "sessionId": session_id,
-        "turnId": turn_id,
-        "status": "ok",
-        "audio": {
-            **metadata,
-            "base64": base64.b64encode(audio).decode("ascii"),
-            "model": settings.gemini_model,
-            "voiceName": settings.gemini_voice_name,
-            "sourceCodec": "pcm_s16le",
-        },
     }
 
 
@@ -693,11 +515,6 @@ def tts_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
         if status != 200 and settings.failure_fallback_provider == "fake":
             reason = _safe_str(response.get("error") or "provider_failed", 80)
             status, response = synthesize_fake_tts(session_id, turn_id, text, fallback_from="elevenlabs", fallback_reason=reason)
-    elif settings.provider == "gemini":
-        status, response = synthesize_gemini_tts(settings, session_id, turn_id, text)
-        if status != 200 and settings.failure_fallback_provider == "fake":
-            reason = _safe_str(response.get("error") or "provider_failed", 80)
-            status, response = synthesize_fake_tts(session_id, turn_id, text, fallback_from="gemini", fallback_reason=reason)
     else:
         return 400, {"error": "unsupported_tts_provider", "provider": settings.provider}
 
@@ -825,18 +642,7 @@ def question_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
     if turn_index < 1:
         return 400, {"error": "invalid_turn_index"}
 
-    if settings.provider == "gemini":
-        try:
-            question = generate_gemini_question(settings, payload, turn_index)
-            provider_status = "ok"
-        except Exception:  # fail closed into explicit generic error; do not leak provider diagnostics
-            return 502, {
-                "error": "llm_provider_failed",
-                "provider": "gemini",
-                "model": settings.gemini_model,
-                "message": "provider request failed",
-            }
-    elif settings.provider == "fake":
+    if settings.provider == "fake":
         question = fake_question(payload, turn_index)
         provider_status = "fake"
     else:
@@ -849,7 +655,7 @@ def question_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
         "question": question.strip(),
         "provider": settings.provider,
         "providerStatus": provider_status,
-        "model": settings.gemini_model if settings.provider == "gemini" else "fake-interviewer",
+        "model": "fake-interviewer",
         "answerTurn": {
             "boundary": "manual_button",
             "enableEvent": "giljob:interviewer-question-ended",
@@ -896,15 +702,10 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "mode": "interview-controller-scaffold",
                 "llmProvider": settings.provider,
-                "geminiModel": settings.gemini_model,
-                "geminiKeyConfigured": settings.key_configured,
                 "voiceProvider": tts_settings.provider,
                 "elevenLabsKeyConfigured": tts_settings.elevenlabs_key_configured,
                 "elevenLabsVoiceConfigured": tts_settings.elevenlabs_voice_configured,
                 "elevenLabsModel": tts_settings.elevenlabs_model,
-                "geminiTtsKeyConfigured": tts_settings.gemini_key_configured,
-                "geminiTtsModel": tts_settings.gemini_model,
-                "geminiTtsVoice": tts_settings.gemini_voice_name,
                 "avatarProvider": avatar_settings.provider,
                 "spatialRealKeyConfigured": avatar_settings.key_configured,
                 "spatialRealAppConfigured": avatar_settings.app_configured,

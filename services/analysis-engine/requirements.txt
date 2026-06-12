@@ -1,8 +1,10 @@
-# GilJobE owns STT + multimodal LiveKit subscriber logic AND the HTTP contract server
-# (server/http_app.py: /subscriber/start|stop, /signals, /healthz, /readyz).
+# GilJobE owns STT + multimodal LiveKit subscriber logic and the subscriber HTTP
+# contract (server/http_app.py: /subscriber/start|stop, /signals, /healthz, /readyz).
+# services/analysis-engine/server.py builds that GilJobE app and adds GilJob v2's
+# sanitized Realtime MMM ingress route: POST /realtime/turn-events.
 # Pin the integration source so Docker builds are reproducible. e0671f5 adds the objective
 # grounding lanes (vision MediaPipe + audio prosody, inject-and-emit) on top of the server
-# entrypoint (python -m giljobe.server). The [vision,prosody] extras install the lane
+# entrypoint logic. The [vision,prosody] extras install the lane
 # dependencies (mediapipe / praat-parselmouth+scipy); the lanes self-disable without them.
 # Licence note: praat-parselmouth is GPL-3 — revisit before any public image distribution.
 giljobe[vision,prosody] @ git+https://github.com/GilJob-E/GilJobE.git@e0671f5

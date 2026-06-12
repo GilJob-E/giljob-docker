@@ -14,7 +14,7 @@ Implemented now:
 - Browser-facing broker routes for interview question generation, room TTS, and avatar session metadata: `/api/interviews/{interviewId}/turns/{turnIndex}/question`, `/api/interviews/{interviewId}/turns/{turnIndex}/tts`, and `/api/interviews/{interviewId}/avatar/session`.
 - Primary OpenAI Realtime broker/readiness routes: `/api/interviews/{interviewId}/realtime/session`, `/api/interviews/{interviewId}/realtime/call`, `/api/interviews/{interviewId}/turns/{turnIndex}/events`, `/api/interviews/{interviewId}/turns/{turnIndex}/vision-events`, and `/api/interviews/{interviewId}/turns/{turnIndex}/mmm-ready`.
 - Provider calls stay internal to `services/ai-engine`; public responses are redacted and do not expose raw provider keys, LiveKit tokens, SpatialReal session-token logs, or upstream error bodies.
-- Standard OpenAI provider keys stay server-only; browser responses expose only ephemeral Realtime client-secret shape, route metadata, and redacted readiness status. `OPENAI_REALTIME_PRIMARY=true` is the documented primary interviewer voice mode; Gemini/other TTS providers remain downstream fallback boundaries outside the API-owned Realtime broker.
+- Standard OpenAI provider keys stay server-only; browser responses expose only ephemeral Realtime client-secret shape, route metadata, and redacted readiness status. `OPENAI_REALTIME_PRIMARY=true` is the documented Realtime-only interviewer voice mode; Gemini fallback is not supported. Internal fake/ElevenLabs routes are compatibility/smoke surfaces outside the API-owned Realtime broker.
 
 Deferred intentionally:
 

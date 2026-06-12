@@ -7,7 +7,7 @@
 
 ## Context
 
-GilJob v2 needs a browser-facing live interviewer voice path without exposing provider keys, raw tokens, raw media, or internal analysis prompts. The current room already has LiveKit candidate media, GilJobE/analysis-engine boundaries, Gemini question/TTS fallback support, and SpatialReal avatar scaffolding. The new Realtime path must fit that scaffold rather than replacing all room state with a direct browser-to-provider integration.
+GilJob v2 needs a browser-facing live interviewer voice path without exposing provider keys, raw tokens, raw media, or internal analysis prompts. The current room already has LiveKit candidate media, GilJobE/analysis-engine boundaries, Realtime sideband/MMM readiness gates, and SpatialReal avatar scaffolding. The Realtime path must fit that scaffold rather than replacing all room state with a direct browser-to-provider integration.
 
 The preserved constraints are:
 
@@ -78,7 +78,7 @@ The next ordinary `realtime.response.create` is allowed only when the API report
 
 - Caddy continues to expose only the public web/API broker surface for GilJob services.
 - Browser Realtime datachannel handling is allowed, but backend sideband routes remain the trusted business-logic boundary.
-- Gemini next-question/TTS remains available as a separate provider boundary and fallback path; it is not the primary Realtime WebRTC audio path when `OPENAI_REALTIME_PRIMARY=true`.
+- Gemini next-question/TTS fallback is intentionally removed from the accepted architecture. OpenAI Realtime is the only live interviewer voice path when `OPENAI_REALTIME_PRIMARY=true`; internal fake/ElevenLabs adapters are smoke/compatibility surfaces only and must not become ordinary fallback voice paths.
 - SpatialReal avatar rendering remains separate from interviewer audio; avatar RTC media is muted where needed to avoid dual-audio drift. The current SpatialReal RTC egress path accepts server-generated TTS WAV payloads, not OpenAI Realtime remote audio, so Realtime-avatar lip-sync is a known gap rather than a supported claim.
 - Provider smoke tests must distinguish session brokering readiness from provider/network attach failures.
 
@@ -87,7 +87,7 @@ The next ordinary `realtime.response.create` is allowed only when the API report
 Minimum verification before claiming this contract is intact:
 
 - `node --check apps/web/static/app.js`
-- `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py`
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py`
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v`
 - targeted smoke evidence that `/api/interviews/:id/realtime/session` does not expose a standard provider key
 - targeted smoke evidence that the browser uses `/v1/realtime/calls` for SDP attach and gates ordinary `realtime.response.create` on `full_mmm_ready`

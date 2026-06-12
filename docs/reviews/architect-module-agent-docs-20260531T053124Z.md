@@ -6,7 +6,7 @@ Architecture/scope is sound for a documentation + contract-test rollout. Do not 
 
 ## Minimal repairs before execution
 1. Scope the secret/JWT doc test to new `AGENTS.md` / `CLAUDE.md` files only, or add an allowlist for placeholders.
-2. Clarify `ai-engine` fail-closed wording: current code defaults to `LLM_PROVIDER=fake`; fail-closed applies when `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` is absent.
+2. Clarify `ai-engine`/voice fail-closed wording: live interviewer voice is OpenAI Realtime-only; missing `OPENAI_REALTIME_API_KEY` disables Realtime session creation rather than falling back to a secondary LLM/TTS route.
 3. Call out the current `/ai/*` ingress tension in `infra/AGENTS.md`: Caddy currently proxies `/ai/*` to `ai-engine`, while ADR 0002 treats AI Engine/Agent1 as internal.
 4. Make semantic-term tests path-specific, not global.
 

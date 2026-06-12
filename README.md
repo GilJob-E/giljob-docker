@@ -1,6 +1,6 @@
 # GilJob v2
 
-GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 LiveKit 기반 면접룸, GilJobE STT/분석, OpenAI Realtime primary voice, Gemini fallback 질문/TTS, SpatialReal RTC 아바타를 단계적으로 붙이는 것입니다.
+GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 LiveKit 기반 면접룸, GilJobE STT/분석, OpenAI Realtime-only voice, SpatialReal RTC 아바타를 단계적으로 붙이는 것입니다.
 
 ![GilJob v2 아키텍처](docs/assets/architecture.svg)
 
@@ -13,7 +13,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 - 단일 서버 Docker Compose 기반 scaffold
 - Caddy ingress (`/api/*` broker, direct `/ai/*`, `/tts/*`, `/avatar/*` 차단)
 - Python 기반 `api`, `web`, `ai-engine`, `agent1` scaffold
-- `services/analysis-engine` GilJobE dependency/health/subscriber boundary
+- `services/analysis-engine` GilJobE dependency/health/subscriber boundary plus `/realtime/turn-events` MMM sideband ingress
 - Postgres service 및 token hash 저장 계약
 - optional self-hosted LiveKit/coturn media overlay
 - `POST /api/sessions` 후보자 session 생성
@@ -31,12 +31,11 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   - 면접관 질문/TTS 종료 후 `답변 시작` 활성화
   - 후보자가 버튼을 눌러 답변 시작
   - 다시 버튼을 눌러 답변 종료 및 다음 질문 요청
-- OpenAI Realtime WebRTC broker route for primary live interviewer audio
-  - `OPENAI_REALTIME_PRIMARY=true` is the intended realtime branch mode when provider credentials/runtime are ready
+- OpenAI Realtime WebRTC broker route for live interviewer audio
+  - `OPENAI_REALTIME_PRIMARY=true` is the realtime branch default; missing credentials fail closed rather than falling back to another voice provider
   - browser obtains only an ephemeral Realtime client secret through `/api/interviews/:id/realtime/session`
   - browser attaches SDP to `https://api.openai.com/v1/realtime/calls`
   - `OPENAI_API_KEY` stays server-side; do not introduce a browser-visible OpenAI key
-- Gemini next-question provider and Gemini native TTS (`gemini-3.1-flash-tts-preview`) kept as legacy/non-primary fallback boundaries, not the primary live voice path
 - API-mediated Realtime turn/vision/MMM readiness routes
   - `/api/interviews/:id/turns/:turnIndex/events`
   - `/api/interviews/:id/turns/:turnIndex/vision-events`
@@ -82,7 +81,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 5. 후보자 답변 STT/분석은 `GilJobE`를 `services/analysis-engine`로 붙여 LiveKit audio/video track을 구독하는 구조입니다.
 6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 ephemeral client secret을 발급하고, 브라우저는 그 secret으로만 Realtime WebRTC SDP attach를 수행합니다. 표준 OpenAI API key는 브라우저에 노출하지 않습니다.
 7. Realtime turn loop는 브라우저의 transcript/prosody/vision sideband event를 API에 기록하고, `full_mmm_ready`가 true가 된 뒤에만 다음 ordinary `realtime.response.create`를 허용합니다.
-8. `ai-engine`은 legacy/non-primary Gemini 질문 생성과 Gemini TTS fallback/보조 provider 경계를 담당합니다; OpenAI Realtime이 primary live voice 경로입니다.
+8. `ai-engine`은 keyless route smoke와 optional internal TTS/avatar compatibility adapter만 담당합니다. 질문/음성의 메인 루프는 OpenAI Realtime-only이며 Gemini fallback은 없습니다.
 9. SpatialReal 아바타는 서버가 session token을 중개하고, 브라우저는 AvatarKit RTC renderer로 LiveKit room에 subscribe합니다.
 10. SpatialReal 서버 SDK egress는 post-TTS WAV/PCM audio를 SpatialReal에 보내고, SpatialReal이 LiveKit room에 avatar stream을 publish하는 구조입니다. OpenAI Realtime remote audio를 SpatialReal에 주입하는 bridge가 아니며, `SPATIALREAL_RTC_LIVEKIT_URL`은 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다.
 
@@ -125,6 +124,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   LiveKit candidate token 발급
   AvatarKit RTC viewer token 발급
   /api/interviews/:id/* broker
+  Realtime MMM sideband forward
 ]
 
 [<store> Postgres|
@@ -163,8 +163,8 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 ]
 
 [<service> AI Engine|
-  Gemini next-question boundary
-  Gemini native TTS voice boundary
+  keyless route-smoke adapter
+  optional ElevenLabs compatibility
   SpatialReal session broker
   SpatialReal LiveKit egress attempt
 ]
@@ -196,12 +196,13 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 [OpenAI Realtime API] - interviewer audio/transcript events -> [후보자 브라우저]
 [후보자 브라우저] - transcript/prosody/vision sideband -> [API Service]
 [API Service] - full_mmm_ready gate -> [후보자 브라우저]
+[API Service] - sanitized MMM events /realtime/turn-events -> [Analysis Engine Service\n(GilJobE)]
 [LiveKit Server] - candidate audio/video tracks -> [Analysis Engine Service\n(GilJobE)]
-[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [AI Engine]
-[AI Engine] - next question + TTS audio -> [API Service]
+[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [API Service]
+[AI Engine] - compatibility TTS/avatar metadata -> [API Service]
 [AI Engine] - session token / egress audio -> [SpatialReal Cloud]
 [SpatialReal Cloud] - avatar stream publish -> [LiveKit Server]
-[AI Engine] - next question / policy update -> [Main LLM / Interview Controller]
+[API Service] - response policy context -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
 [후보자 브라우저] - relay 필요 시 -> [coturn]
 [LiveKit Server] - TURN boundary -> [coturn]
@@ -218,8 +219,8 @@ npx --yes nomnoml docs/architecture.noml docs/assets/architecture.svg
 ```text
 apps/web/                       # 정적 web shell + LiveKit browser join UI
 services/api/                   # session/token/API broker scaffold
-services/ai-engine/             # Gemini question/TTS + SpatialReal avatar boundary
-services/analysis-engine/       # GilJobE STT/multimodal analysis boundary
+services/ai-engine/             # keyless/internal compatibility + SpatialReal avatar boundary
+services/analysis-engine/       # GilJobE STT/multimodal analysis boundary; services/analysis-engine/server.py adds MMM ingress
 services/agent1/                # legacy/future multimodal placeholder
 infra/docker-compose.yml        # base single-server stack
 infra/docker-compose.media.yml  # LiveKit/coturn overlay
@@ -275,13 +276,9 @@ OPENAI_REALTIME_MODEL=gpt-realtime-2
 OPENAI_REALTIME_VOICE=marin
 OPENAI_API_KEY=replace-me-openai-server-key
 
-# Legacy/non-primary Gemini fallback only when explicitly selected.
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.5-flash
-VOICE_PROVIDER=gemini
-GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
-GEMINI_TTS_VOICE=Kore
+LLM_PROVIDER=fake
+VOICE_PROVIDER=fake
+REALTIME_MMM_FORWARD_ENABLED=true
 AVATAR_PROVIDER=spatialreal
 SPATIALREAL_API_KEY=...
 SPATIALREAL_APP_ID=...
@@ -388,7 +385,7 @@ REQUIRE_REALTIME_LIVE=1 ./scripts/smoke.sh realtime-ready
 Operator contract:
 
 - OPENAI_API_KEY is the only OpenAI server key; do not add OPENAI_REALTIME_API_KEY.
-- OpenAI Realtime is the primary interviewer voice path when `OPENAI_REALTIME_PRIMARY=true`; Gemini/ElevenLabs/fake TTS are fallback or smoke paths only.
+- OpenAI Realtime is the only live interviewer voice path when `OPENAI_REALTIME_PRIMARY=true`; legacy `/question` and `/tts` routes are keyless/internal smoke or compatibility paths only, not fallback voice paths.
 - The browser receives only a browser-safe ephemeral client_secret from `/api/interviews/:id/realtime/session`.
 - Realtime client-secret requests keep the provider `{"session": {...}} wrapper`, omit session.metadata, and never return the server key.
 - `full_mmm_ready must pass before realtime.response.create`; latency evidence is redacted spans only.
@@ -483,7 +480,7 @@ npx --yes pyright
 
 1. SpatialReal RTC egress 실패 원인 세분화 및 provider error telemetry 강화
 2. TURN/public media path 구성 검증
-3. `services/analysis-engine` LiveKit subscriber runtime loop 강화
-4. analysis-engine → ai-engine signal delivery 안정화
+3. `services/analysis-engine` LiveKit subscriber/runtime loop 강화
+4. API Realtime sideband → analysis-engine MMM forward evidence 강화
 5. Main LLM / InterviewController turn orchestration 강화
 6. final report placeholder를 실제 report generator로 교체

@@ -157,7 +157,7 @@ def _realtime_unavailable_payload(error: str = "realtime_not_configured") -> dic
 
 
 def _realtime_route_config(interview_id: str) -> dict[str, object]:
-    primary = _env_enabled("OPENAI_REALTIME_PRIMARY", "false")
+    primary = _env_enabled("OPENAI_REALTIME_PRIMARY", "true")
     return {
         "enabled": primary,
         "mode": "primary" if primary else "prepared",
@@ -294,7 +294,7 @@ def _persist_realtime_mmm_record(record: dict[str, object]) -> dict[str, object]
 
 
 def _forward_realtime_mmm_record(record: dict[str, object]) -> dict[str, object]:
-    if not _env_enabled("REALTIME_MMM_FORWARD_ENABLED", "false"):
+    if not _env_enabled("REALTIME_MMM_FORWARD_ENABLED", "true"):
         return {"attempted": False, "reason": "disabled"}
     endpoint = f"{ANALYSIS_ENGINE_INTERNAL_URL}/realtime/turn-events"
     request = urllib.request.Request(
