@@ -1044,6 +1044,111 @@ function isForbiddenDebugKey(key) {
   return /(?:raw|transcript|media|sdp|token|secret|client_secret|api[_-]?key|audio|video|frame)/i.test(String(key || ""));
 }
 
+function safeDebugScalar(value, maxLength = 220) {
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "string") {
+    const redacted = redactSensitiveText(value).trim();
+    return redacted.length > maxLength ? `${redacted.slice(0, maxLength)}…` : redacted;
+  }
+  return "";
+}
+
+function safeDebugObject(value, depth = 0) {
+  if (depth > 2) {
+    return "[redacted-depth]";
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => safeDebugObject(item, depth + 1)).filter((item) => item !== "");
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !isForbiddenDebugKey(key))
+      .map(([key, item]) => [key, safeDebugObject(item, depth + 1)])
+      .filter(([, item]) => item !== ""));
+  }
+  return safeDebugScalar(value);
+}
+
+function safeDebugJson(value) {
+  const safe = safeDebugObject(value);
+  if (safe === "" || (Array.isArray(safe) && safe.length === 0)) {
+    return "";
+  }
+  if (safe && typeof safe === "object" && !Array.isArray(safe) && Object.keys(safe).length === 0) {
+    return "";
+  }
+  const encoded = JSON.stringify(safe, null, 2);
+  return encoded.length > 900 ? `${encoded.slice(0, 900)}…` : encoded;
+}
+
+function firstDebugValue(...values) {
+  for (const value of values) {
+    const rendered = safeDebugScalar(value);
+    if (rendered) {
+      return rendered;
+    }
+  }
+  return "-";
+}
+
+function renderMmmDebug(source, payload = {}) {
+  if (!mmmDebugSummary) {
+    return;
+  }
+  const debug = payload?.mmmDebug && typeof payload.mmmDebug === "object" ? payload.mmmDebug : {};
+  const readiness = debug?.readiness && typeof debug.readiness === "object"
+    ? debug.readiness
+    : (payload?.readiness && typeof payload.readiness === "object" ? payload.readiness : payload);
+  const responseCreate = debug?.responseCreate && typeof debug.responseCreate === "object"
+    ? debug.responseCreate
+    : (payload?.responseCreate && typeof payload.responseCreate === "object" ? payload.responseCreate : {});
+  const analysisEngine = debug?.analysisEngine && typeof debug.analysisEngine === "object"
+    ? debug.analysisEngine
+    : ((payload?.analysisEngine && typeof payload.analysisEngine === "object")
+      ? payload.analysisEngine
+      : (readiness?.analysisEngine && typeof readiness.analysisEngine === "object" ? readiness.analysisEngine : {}));
+  const analysisResult = debug?.analysisResult && typeof debug.analysisResult === "object"
+    ? debug.analysisResult
+    : ((payload?.analysisResult && typeof payload.analysisResult === "object")
+      ? payload.analysisResult
+      : (readiness?.analysisResult && typeof readiness.analysisResult === "object" ? readiness.analysisResult : {}));
+  const rows = [
+    ["source", source],
+    ["interviewId", debug?.interviewId || payload?.interviewId || readiness?.interviewId],
+    ["turnIndex", debug?.turnIndex || payload?.turnIndex || readiness?.turnIndex],
+    ["analysisTurnIndex", debug?.analysisTurnIndex || payload?.analysisTurnIndex || readiness?.analysisTurnIndex],
+    ["readiness.full_mmm_ready", readiness?.full_mmm_ready],
+    ["readiness.state", readiness?.state || readiness?.status],
+    ["readiness.reasonCodes", safeDebugJson(readiness?.reasonCodes || (readiness?.reason ? [readiness.reason] : []))],
+    ["readiness.lanes", safeDebugJson(readiness?.lanes || {})],
+    ["responseCreate.created", responseCreate.created],
+    ["responseCreate.reason", responseCreate.reason || responseCreate.commandType],
+    ["analysisEngine.endpoint", analysisEngine.endpoint],
+    ["analysisEngine.status", analysisEngine.status],
+    ["analysisEngine.error", analysisEngine.error || analysisEngine.reason],
+    ["analysisResult.status", analysisResult.status],
+    ["analysisResult.summary", analysisResult.publicSummary || analysisResult.summary],
+    ["analysisResult.guidance", analysisResult.publicGuidance || analysisResult.guidance],
+    ["analysisResult.coverage", safeDebugJson(analysisResult.coverage || {})],
+    ["analysisResult.confidence", analysisResult.confidence],
+    ["analysisResult.latency", analysisResult.latencyMs || analysisResult.latency],
+  ];
+  mmmDebugSummary.replaceChildren(...rows.map(([label, value]) => {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = typeof value === "string" && value ? value : firstDebugValue(value);
+    row.append(term, detail);
+    return row;
+  }));
+}
+
 function extractRealtimeOutputTranscript(event) {
   const direct = typeof event?.transcript === "string" ? event.transcript : "";
   if (direct.trim()) {
