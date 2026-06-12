@@ -785,8 +785,9 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
     realtimeTranscriptCompleted = false;
     await applyMediaStateToRoom();
     // 분석 구독자 stop → GilJobE turn_end → turnHandoff 생성. API가 다음 질문 직전
-    // /realtime/turn-results에서 이걸 당겨가므로 MMM 게이트보다 먼저 끝나야 한다.
-    await flushAnalysisTurn(analysisSessionId());
+    // /realtime/turn-results에서 이걸 당겨가므로 MMM 게이트보다 먼저 끝나야 하고,
+    // 재시작은 하지 않는다(빈 active 세션이 turnHandoff 조회를 가로채는 것 방지).
+    await flushAnalysisTurn(analysisSessionId(), { restart: false });
     renderTranscriptStatus("답변 종료. full MMM 준비 신호를 기다리는 중입니다.");
     await waitForFullMmmReady(completedTurnIndex);
     currentTurnIndex += 1;
@@ -1133,7 +1134,7 @@ async function markAnalysisTurnStart(sessionId) {
   }
 }
 
-async function flushAnalysisTurn(sessionId) {
+async function flushAnalysisTurn(sessionId, { restart = true } = {}) {
   await new Promise((resolve) => setTimeout(resolve, 1000));
   try {
     await postAnalysis("/subscriber/stop", {});
@@ -1143,11 +1144,16 @@ async function flushAnalysisTurn(sessionId) {
       ? payload.turnHandoff.prompt_block.join("\n")
       : "";
     appendLog(`analysis turn flushed for session ${sessionId}; records ${payload.recordCount || 0}`);
-    try {
-      await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
-      activeAnalysisSessionId = sessionId;
-    } catch (restartError) {
-      appendLog(`analysis subscriber restart failed: ${errorMessage(restartError)}`);
+    // restart:false — Realtime 경로. 즉시 재시작하면 같은 session_id의 빈 active 세션이
+    // signals 조회를 가로채 turnHandoff가 안 보인다(API turn-results가 pending → 409).
+    // 다음 턴 구독자는 답변 시작 시점에 새로 띄운다(GilJobE 세션=단일 턴 설계).
+    if (restart) {
+      try {
+        await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
+        activeAnalysisSessionId = sessionId;
+      } catch (restartError) {
+        appendLog(`analysis subscriber restart failed: ${errorMessage(restartError)}`);
+      }
     }
     return transcript;
   } catch (error) {
@@ -1504,6 +1510,12 @@ async function startAnswerCapture() {
     realtimeTranscriptCompleted = false;
     realtimeTranscriptCompletionForward = Promise.resolve();
     realtimeTranscriptCompletedItemIds = new Set();
+    // 턴마다 새 구독자 세션(GilJobE 세션=단일 턴) — flush에서 재시작하지 않으므로 여기서 시작.
+    try {
+      await restartAnalysisSubscriber(analysisSessionId());
+    } catch (error) {
+      appendLog(`analysis subscriber start failed (lanes degraded): ${errorMessage(error)}`);
+    }
     // 분석 턴 baseline — flush 폴링이 이 시점 이후의 레코드만 새 턴으로 센다.
     await markAnalysisTurnStart(analysisSessionId());
     await postRealtimeTurnEvent("turn.answer.start", { source: "browser-manual-button" });
