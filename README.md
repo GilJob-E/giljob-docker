@@ -40,7 +40,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   - `/api/interviews/:id/turns/:turnIndex/events`
   - `/api/interviews/:id/turns/:turnIndex/vision-events`
   - `/api/interviews/:id/turns/:turnIndex/mmm-ready`
-- ordinary next Realtime response creation is gated on `full_mmm_ready`
+- first Realtime interviewer question is bootstrap-only and does not require MMM; follow-up Realtime response creation is gated on the prior answer's `full_mmm_ready`
 - SpatialReal session-token broker
 - SpatialReal RTC/LiveKit client renderer shell
 - SpatialReal Python SDK LiveKit egress 시도 경로
@@ -80,7 +80,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 4. 브라우저는 Caddy를 통해 LiveKit media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다.
 5. 후보자 답변 STT/분석은 `GilJobE`를 `services/analysis-engine`로 붙여 LiveKit audio/video track을 구독하는 구조입니다.
 6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 Realtime session metadata를 중개하고, 브라우저의 WebRTC SDP attach도 `/api/interviews/:id/realtime/call`을 통해 서버가 수행합니다. 표준 OpenAI API key와 provider route는 브라우저에 노출하지 않습니다.
-7. Realtime turn loop는 브라우저의 transcript/prosody/vision sideband event를 API에 기록하고, `full_mmm_ready`가 true가 된 뒤에만 다음 ordinary `realtime.response.create`를 허용합니다.
+7. Realtime turn loop는 첫 질문만 MMM 없이 bootstrap하고, 이후 질문은 브라우저의 transcript/prosody/vision sideband event를 API에 기록한 뒤 직전 답변의 `full_mmm_ready`가 true일 때만 API-approved `realtime.response.create`를 허용합니다.
 8. `ai-engine`은 keyless route smoke와 optional internal TTS/avatar compatibility adapter만 담당합니다. 질문/음성의 메인 루프는 OpenAI Realtime-only이며 Gemini fallback은 없습니다.
 9. SpatialReal 아바타는 서버가 session token을 중개하고, 브라우저는 AvatarKit RTC renderer로 LiveKit room에 subscribe합니다.
 10. SpatialReal 서버 SDK egress는 post-TTS WAV/PCM audio를 SpatialReal에 보내고, SpatialReal이 LiveKit room에 avatar stream을 publish하는 구조입니다. OpenAI Realtime remote audio를 SpatialReal에 주입하는 bridge가 아니며, `SPATIALREAL_RTC_LIVEKIT_URL`은 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다.
@@ -450,7 +450,7 @@ SPATIALREAL_RTC_EGRESS_ENABLED=true
 - session token과 report token은 purpose-separated hash secret을 사용합니다.
 - browser visible UI와 event log에는 raw JWT, `access_token`, `join_request`, `gj_session_*`, `gj_report_*`, provider key를 노출하지 않습니다.
 - OpenAI Realtime 표준 API key는 server-only입니다. 브라우저는 API broker가 발급한 ephemeral client secret으로만 WebRTC SDP attach를 수행합니다.
-- ordinary Realtime next-question audio는 previous turn의 transcript/prosody/vision sideband가 `full_mmm_ready`를 만족한 뒤에만 `realtime.response.create`를 전송합니다.
+- 첫 Realtime 질문은 이전 답변이 없으므로 bootstrap 예외로 처리합니다. 이후 ordinary Realtime next-question audio는 previous answer turn의 transcript/prosody/vision sideband가 `full_mmm_ready`를 만족한 뒤에만 API-approved `realtime.response.create`를 browser transport로 relay합니다.
 - production/shared 환경에서는 `.env.example`의 `change-me`, `replace-me-local-only` 값을 그대로 쓰지 않습니다.
 
 ## 검증 명령

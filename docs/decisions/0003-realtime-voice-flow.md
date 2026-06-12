@@ -57,13 +57,13 @@ Choose **Option B: API-mediated Realtime session plus API-brokered browser WebRT
 
 The API owns `/api/interviews/:id/realtime/session` and `/api/interviews/:id/realtime/call`. It uses the standard server-side provider key for Realtime session checks and `/v1/realtime/calls` SDP attach, then returns only browser-safe route/session metadata and SDP answers. The browser must not call provider routes directly or receive/log the standard provider key, provider client-secret values, or raw SDP bodies.
 
-Ordinary next-question audio is gated. After the candidate answer ends, the browser forwards bounded transcript/prosody/vision sideband events to:
+The first interviewer question is a bootstrap Realtime response and does not require MMM because there is no prior candidate answer. Ordinary follow-up next-question audio is gated. After the candidate answer ends, the browser forwards bounded transcript/prosody/vision sideband events to:
 
 - `/api/interviews/:id/turns/:turnIndex/events`
 - `/api/interviews/:id/turns/:turnIndex/vision-events`
 - `/api/interviews/:id/turns/:turnIndex/mmm-ready`
 
-The next ordinary `realtime.response.create` is allowed only when the API reports `full_mmm_ready: true` for the prior turn. Degraded or incomplete readiness blocks ordinary next-question audio rather than silently bypassing the analysis contract.
+For turn `N >= 2`, the next ordinary `realtime.response.create` is allowed only when the API reports `full_mmm_ready: true` for prior answer turn `N-1` and resolves a candidate-safe MMM result. Degraded or incomplete readiness blocks ordinary next-question audio rather than silently bypassing the analysis contract. The browser may relay the API-approved command over the already-attached Realtime data channel, but it must not author the prompt or bypass the API decision.
 
 ## Public contract
 

@@ -462,31 +462,82 @@ def _resolve_analysis_result(interview_id: str, turn_index: int, payload: dict[s
     return _fetch_analysis_result(interview_id, turn_index)
 
 
+def _realtime_response_create_command(instructions: str) -> dict[str, object]:
+    return {
+        "type": "response.create",
+        "response": {
+            "output_modalities": ["audio"],
+            "instructions": instructions,
+        },
+    }
+
+
+def _initial_realtime_question_instructions(payload: dict[str, Any]) -> str:
+    requested = payload.get("response") if isinstance(payload.get("response"), dict) else {}
+    instructions = _candidate_safe_fragment(requested.get("instructions"))
+    if instructions:
+        return instructions
+    return (
+        "You are a Korean live interviewer. Ask one concise opening interview question in Korean. "
+        "Do not mention implementation details or internal labels. "
+        "If context is missing, ask a broadly useful first question about the candidate's recent relevant experience."
+    )
+
+
 def create_realtime_response(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
     start = time.perf_counter()
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
     if turn_index < 1:
         return 400, {"error": "invalid_turn_index"}
-    readiness = _readiness_payload_with_durable_fallback(interview_id, turn_index)
+
+    analysis_turn_index = turn_index - 1
+    if turn_index == 1:
+        instructions = _initial_realtime_question_instructions(payload)
+        command = _realtime_response_create_command(instructions)
+        REALTIME_RESPONSE_COMMANDS.setdefault(interview_id, {})[turn_index] = {
+            "commandType": "response.create",
+            "bootstrap": True,
+            "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        _log_latency_span("api.realtime.context.inject", 0, status=200, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="openai-realtime")
+        return _return_with_latency(202, {
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": None,
+            "status": "response_create_queued",
+            "bootstrap": {"firstQuestion": True, "mmmGateRequired": False, "reason": "no_prior_candidate_answer"},
+            "responseCreate": {"owner": "api", "created": True, "commandType": "response.create"},
+            "sideband": {
+                "controlBoundary": "server-sideband",
+                "singleResponseCreateOwner": "api",
+                "browserTransportOnly": True,
+                "command": command,
+            },
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
+
+    readiness = _readiness_payload_with_durable_fallback(interview_id, analysis_turn_index)
     if not readiness.get("full_mmm_ready"):
         return _return_with_latency(409, {
             "error": "analysis_result_not_ready",
             "interviewId": interview_id,
             "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
             "readiness": readiness,
-            "responseCreate": {"owner": "api", "created": False, "reason": "full_mmm_required"},
+            "responseCreate": {"owner": "api", "created": False, "reason": "full_mmm_required_for_prior_answer"},
             "delivery": _realtime_delivery("api-sideband-response-create"),
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
     wait_start = time.perf_counter()
-    result, source = _resolve_analysis_result(interview_id, turn_index, payload)
-    _log_latency_span("api.analysis.result.wait", _duration_ms(wait_start), status=200 if result else 504, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="analysis-engine")
+    result, source = _resolve_analysis_result(interview_id, analysis_turn_index, payload)
+    _log_latency_span("api.analysis.result.wait", _duration_ms(wait_start), status=200 if result else 504, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
     if not result:
         return _return_with_latency(409, {
             "error": "analysis_result_unavailable",
             "interviewId": interview_id,
             "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
             "analysisEngine": source,
             "responseCreate": {"owner": "api", "created": False, "reason": "structured_analysis_required"},
             "delivery": _realtime_delivery("api-sideband-response-create"),
@@ -499,41 +550,40 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
             "error": "analysis_result_not_usable",
             "interviewId": interview_id,
             "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
             "analysisResult": _analysis_result_public_summary(result),
             "analysisEngine": source,
             "responseCreate": {"owner": "api", "created": False, "reason": "candidate_safe_ready_result_required"},
             "delivery": _realtime_delivery("api-sideband-response-create"),
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
-    _log_latency_span("api.analysis.result.ready", 0, status=200, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="analysis-engine")
+    _log_latency_span("api.analysis.result.ready", 0, status=200, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
     instructions = (
-        "Use this candidate-safe guidance for the next Korean interview question. "
+        "Use this candidate-safe guidance from the previous answer to ask the next Korean interview question. "
         "Do not mention internal infrastructure, private gating, or analysis labels. "
         f"Guidance: {fragment}"
     )
-    command = {
-        "type": "response.create",
-        "response": {
-            "modalities": ["audio"],
-            "instructions": instructions,
-        },
-    }
+    command = _realtime_response_create_command(instructions)
+    analysis_summary = _analysis_result_public_summary(result)
     REALTIME_RESPONSE_COMMANDS.setdefault(interview_id, {})[turn_index] = {
         "commandType": "response.create",
-        "analysis": _analysis_result_public_summary(result),
+        "analysisTurnIndex": analysis_turn_index,
+        "analysis": analysis_summary,
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     _log_latency_span("api.realtime.context.inject", 0, status=200, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="openai-realtime")
     return _return_with_latency(202, {
         "interviewId": interview_id,
         "turnIndex": turn_index,
+        "analysisTurnIndex": analysis_turn_index,
         "status": "response_create_queued",
-        "analysisResult": _analysis_result_public_summary(result),
+        "analysisResult": analysis_summary,
         "analysisEngine": source,
         "responseCreate": {"owner": "api", "created": True, "commandType": "response.create"},
         "sideband": {
             "controlBoundary": "server-sideband",
             "singleResponseCreateOwner": "api",
+            "browserTransportOnly": True,
             "command": command,
         },
         "delivery": _realtime_delivery("api-sideband-response-create"),
@@ -680,6 +730,7 @@ def _realtime_post_connect_session_update() -> dict[str, object]:
     return {
         "type": "session.update",
         "session": {
+            "type": "realtime",
             "audio": {
                 "input": {
                     "transcription": {

@@ -283,20 +283,43 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertNotIn("bounded candidate answer", captured[0]["body"])
 
 
-    def test_realtime_response_create_blocks_until_structured_analysis_ready(self) -> None:
+    def test_realtime_response_create_allows_bootstrap_first_question_without_mmm_gate(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+
+        status, body = self._post("/api/interviews/local-demo/turns/1/realtime/response", b"{}")
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["turnIndex"], 1)
+        self.assertIsNone(payload["analysisTurnIndex"])
+        self.assertEqual(payload["bootstrap"], {"firstQuestion": True, "mmmGateRequired": False, "reason": "no_prior_candidate_answer"})
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": True, "commandType": "response.create"})
+        self.assertTrue(payload["sideband"]["browserTransportOnly"])
+        self.assertEqual(payload["sideband"]["command"]["type"], "response.create")
+        self.assertEqual(payload["sideband"]["command"]["response"]["output_modalities"], ["audio"])
+        self.assertNotIn("modalities", payload["sideband"]["command"]["response"])
+        self.assertNotIn("MMM", body)
+        self.assertNotIn("analysis-engine", body)
+        self.assertNotIn("backend", body)
+        self.assertNotIn("readiness gate", body)
+
+    def test_realtime_response_create_blocks_followup_until_prior_answer_analysis_ready(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
         os.environ["GILJOBE_VISION"] = "off"
         os.environ["GILJOBE_PROSODY"] = "off"
 
         status, body = self._post(
-            "/api/interviews/local-demo/turns/1/realtime/response",
+            "/api/interviews/local-demo/turns/2/realtime/response",
             json.dumps({"analysisResult": {"status": "ready", "candidatePromptFragment": "경험의 구체성을 자연스럽게 확인하세요."}}).encode("utf-8"),
         )
         self.assertEqual(status, 409, body)
         payload = json.loads(body)
         self.assertEqual(payload["error"], "analysis_result_not_ready")
-        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "full_mmm_required"})
+        self.assertEqual(payload["analysisTurnIndex"], 1)
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "full_mmm_required_for_prior_answer"})
 
     def test_realtime_response_create_uses_candidate_safe_analysis_fragment_only(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
@@ -322,13 +345,17 @@ class ApiHttpContractTest(unittest.TestCase):
             "/api/interviews/local-demo/turns/1/events",
             json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
         )
-        status, body = self._post("/api/interviews/local-demo/turns/1/realtime/response", b"{}")
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
         self.assertEqual(status, 202, body)
         payload = json.loads(body)
+        self.assertEqual(payload["turnIndex"], 2)
+        self.assertEqual(payload["analysisTurnIndex"], 1)
         self.assertEqual(payload["status"], "response_create_queued")
         self.assertEqual(payload["responseCreate"], {"owner": "api", "created": True, "commandType": "response.create"})
         self.assertEqual(payload["sideband"]["singleResponseCreateOwner"], "api")
         self.assertEqual(payload["sideband"]["command"]["type"], "response.create")
+        self.assertEqual(payload["sideband"]["command"]["response"]["output_modalities"], ["audio"])
+        self.assertNotIn("modalities", payload["sideband"]["command"]["response"])
         self.assertIn("갈등 해결 과정", payload["sideband"]["command"]["response"]["instructions"])
         self.assertEqual(payload["analysisResult"]["schemaVersion"], "2026-06-12.mmm-result.v1")
         self.assertEqual(analysis[-1]["method"], "GET")
@@ -352,7 +379,7 @@ class ApiHttpContractTest(unittest.TestCase):
         )
 
         status, body = self._post(
-            "/api/interviews/local-demo/turns/1/realtime/response",
+            "/api/interviews/local-demo/turns/2/realtime/response",
             json.dumps({"analysisResult": {"status": "ready", "candidatePromptFragment": "Use MMM backend readiness gate details."}}).encode("utf-8"),
         )
         self.assertEqual(status, 409, body)
@@ -404,6 +431,7 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["clientSecretPolicy"], "server-only-api-call-broker")
         update = payload["webrtc"]["postConnectSessionUpdate"]
         self.assertEqual(update["type"], "session.update")
+        self.assertEqual(update["session"]["type"], "realtime")
         self.assertFalse(update["session"]["audio"]["input"]["turn_detection"]["create_response"])
         self.assertEqual(update["session"]["audio"]["input"]["transcription"]["model"], "gpt-realtime-whisper")
         self.assertEqual(payload["sideband"]["controlBoundary"], "server-sideband")

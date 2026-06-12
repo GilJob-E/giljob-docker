@@ -513,6 +513,19 @@ async function waitForRealtimeDataChannelOpen(channel, timeoutMs = 5000) {
   });
 }
 
+function relayApiApprovedRealtimeCommand(payload) {
+  const command = payload?.sideband?.command;
+  const channel = activeRealtimeSession?.dataChannel;
+  if (!command || command.type !== "response.create") {
+    throw new Error("API-approved Realtime response command unavailable");
+  }
+  if (!channel || channel.readyState !== "open") {
+    throw new Error("Realtime data channel is not open for API-approved response command relay");
+  }
+  channel.send(JSON.stringify(command));
+  appendLog("API-approved Realtime response.create relayed over browser transport; browser did not author prompt; internal terms hidden");
+}
+
 async function requestApiRealtimeResponse(reason = "manual", turnIndex = currentTurnIndex) {
   realtimeFirstAudioMarked = false;
   realtimeResponseInFlight = true;
@@ -525,8 +538,9 @@ async function requestApiRealtimeResponse(reason = "manual", turnIndex = current
       instructions: REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS,
     },
   });
-  await postRealtimeTurnEvent("realtime.response.create", { reason, owner: "api" }, turnIndex);
-  appendLog(`Realtime response requested through API after MMM gate: ${reason}; browser did not send response.create; internal terms hidden from prompt`);
+  relayApiApprovedRealtimeCommand(payload);
+  await postRealtimeTurnEvent("realtime.response.create", { reason, owner: "api", transport: "browser-data-channel-relay" }, turnIndex);
+  appendLog(`Realtime response requested through API control plane: ${reason}; response.create command was API-approved`);
   return payload;
 }
 
@@ -628,7 +642,7 @@ function handleRealtimeServerEvent(event) {
 
 function bindRealtimeDataChannel(channel) {
   channel.addEventListener("open", () => {
-    appendLog("Realtime data channel open; browser response.create disabled; API sideband owns next-question creation");
+    appendLog("Realtime data channel open; browser-authored response.create disabled; API owns next-question command creation");
   });
   channel.addEventListener("message", (event) => {
     try {
