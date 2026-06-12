@@ -103,9 +103,17 @@ services:
       # Objective grounding lanes (vision/prosody); deps+models are baked into the image.
       GILJOBE_VISION: ${GILJOBE_VISION:-auto}
       GILJOBE_PROSODY: ${GILJOBE_PROSODY:-auto}
-      # Realtime flow: external = consume API sideband transcripts (sentence lane),
-      # internal (default) = gemma 3s STT grid. Flip only with the Realtime browser flow.
-      GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-internal}
+      # Realtime flow: external (default) = consume API sideband transcripts (sentence
+      # lane — the Realtime base owns transcription); internal = legacy gemma 3s STT grid
+      # (fallback for stacks without the Realtime browser flow).
+      GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}
+      # Deployment defaults per 2026-06-12 decisions (library defaults stay conservative):
+      # eval off = content judgement is delegated to the next-question LLM via turnHandoff
+      # (stop→turn_end 1.24s→0.03s); 3fps buffer + cap 24 = denser nv reads at ~zero cost
+      # (validated together in qa/runs/2026-06-12-nv3fps-evaloff).
+      GILJOBE_EVAL_GRID: ${GILJOBE_EVAL_GRID:-off}
+      GILJOBE_FRAME_FPS: ${GILJOBE_FRAME_FPS:-3}
+      GILJOBE_NV_FRAME_CAP: ${GILJOBE_NV_FRAME_CAP:-24}
       LIVEKIT_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
       LIVEKIT_SESSION_ID: ${LIVEKIT_SESSION_ID:-local-demo}
       LIVEKIT_IDENTITY: ${LIVEKIT_IDENTITY:-giljobe-analysis}

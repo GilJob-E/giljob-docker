@@ -145,7 +145,14 @@ class AnalysisEngineContractTest(unittest.TestCase):
             self.assertIn("GILJOBE_PROSODY", text)
             # Realtime sentence lane: transcript-source toggle must stay wired and default safe.
             self.assertIn("GILJOBE_TRANSCRIPT_SOURCE", text)
-        self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-internal}", compose)
+        # 2026-06-12 user decision: the Realtime base owns transcription — external is the
+        # deployment default (library default stays internal; compose pins the product config).
+        self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}", compose)
+        # Same decision set: eval delegated to the consumer LLM, denser nv reads (validated
+        # in qa/runs/2026-06-12-nv3fps-evaloff — stop→turn_end 0.03s, nv cost ~0).
+        self.assertIn("GILJOBE_EVAL_GRID: ${GILJOBE_EVAL_GRID:-off}", compose)
+        self.assertIn("GILJOBE_FRAME_FPS: ${GILJOBE_FRAME_FPS:-3}", compose)
+        self.assertIn("GILJOBE_NV_FRAME_CAP: ${GILJOBE_NV_FRAME_CAP:-24}", compose)
 
     def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
