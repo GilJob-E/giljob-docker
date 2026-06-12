@@ -55,8 +55,9 @@ services:
   analysis-engine:
     environment:
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://gemma:8000}
-      # 외부 전사 모드 QA 토글(PR #13 sideband) — internal(기본)이면 동작 무변경.
-      GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-internal}
+      # 기본 external (2026-06-12 사용자 확정 — realtime 베이스에선 전사=Realtime 위임이 표준).
+      # internal은 Realtime 플로우 없는 스택의 폴백.
+      GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}
 
   gemma:
     image: ${VLLM_IMAGE:-vllm-gemma4-audio:local}
