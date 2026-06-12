@@ -581,8 +581,8 @@ async def _realtime_turn_results(req: web.Request) -> web.Response:
     ``response.create`` authorization.
     """
     interview_id = _safe_str(req.query.get("interviewId"), 96)
-    turn_index = _safe_str(req.query.get("turnIndex"), 8)
-    requested_turn_index = _extract_turn_index(turn_index)
+    turn_index_param = _safe_str(req.query.get("turnIndex"), 8)
+    turn_index = _extract_turn_index(turn_index_param)
     service = req.app.get("analysis_service")
     pending = {
         "result": None, "status": "pending",
@@ -591,8 +591,8 @@ async def _realtime_turn_results(req: web.Request) -> web.Response:
     if service is None or render_prompt_fragment is None or not interview_id:
         return _json(pending)
     rnas = req.app.get("event_only_realtime_turns")
-    if isinstance(rnas, _EventOnlyRealtimeTurns) and requested_turn_index is not None:
-        rnas_result = rnas.turn_result(interview_id, requested_turn_index)
+    if isinstance(rnas, _EventOnlyRealtimeTurns) and turn_index is not None:
+        rnas_result = rnas.turn_result(interview_id, turn_index)
         if rnas_result.get("status") == "ready":
             return _json({
                 "result": rnas_result,
@@ -603,14 +603,14 @@ async def _realtime_turn_results(req: web.Request) -> web.Response:
     handoff = payload.get("turnHandoff")
     if not handoff:
         return _json(pending)
-    if not isinstance(handoff, dict) or not _turn_handoff_matches_requested_turn(payload, handoff, requested_turn_index):
+    if not isinstance(handoff, dict) or not _turn_handoff_matches_requested_turn(payload, handoff, turn_index):
         return _json(pending)
     return _json({
         "result": {
             "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
             "status": "ready",
             "sessionId": _safe_str(payload.get("sessionId"), 96),
-            "turnIndex": requested_turn_index,
+            "turnIndex": turn_index,
             "candidatePromptFragment": render_prompt_fragment(handoff),
             "coverage": (handoff.get("meta") or {}).get("coverage"),
             "rawTranscriptLogged": False,

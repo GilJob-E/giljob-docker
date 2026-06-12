@@ -770,6 +770,12 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
     }
     await sendBoundedVisionEvent("answer_end", completedTurnIndex);
     await sendRealtimeProsodyEvent("answer_end", completedTurnIndex);
+    await postRealtimeTurnEvent("turn.answer.end", {
+      source: "browser-manual-button",
+      transcriptAvailable: true,
+      rawTranscriptIncluded: false,
+      rawMediaIncluded: false,
+    }, completedTurnIndex);
     lastAnswerTranscript = realtimeAnswerTranscript || "Realtime transcript unavailable.";
     realtimeAnswerTranscript = "";
     realtimeTranscriptCompleted = false;
