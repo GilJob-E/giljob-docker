@@ -39,6 +39,15 @@ const avatarStatusText = document.querySelector("#avatar-status-text");
 const avatarPanelTitle = document.querySelector("#avatar-panel-title");
 const avatarPanelBody = document.querySelector("#avatar-panel-body");
 const transcriptBody = document.querySelector("#transcript-body");
+const liveSignalsBody = document.querySelector("#live-signals-body");
+const toggleSignalsBoxButton = document.querySelector("#toggle-signals-box");
+const sigGaze = document.querySelector("#sig-gaze");
+const sigRate = document.querySelector("#sig-rate");
+const sigPause = document.querySelector("#sig-pause");
+const sigExpression = document.querySelector("#sig-expression");
+const sigPosture = document.querySelector("#sig-posture");
+const sigCritique = document.querySelector("#sig-critique");
+const qaDialogue = document.querySelector("#qa-dialogue");
 
 let activeSession = null;
 let activeRoom = null;
@@ -49,6 +58,7 @@ let answerTurnAvailable = false;
 let nextQuestionRequested = false;
 let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
+let currentQuestionText = "";
 let activeAnalysisSessionId = "";
 let activeAvatarSession = null;
 let avatarRtcRuntime = { sdkInitialized: false, player: null, view: null, provider: null, avatarId: "" };
@@ -366,6 +376,7 @@ function renderInterviewQuestion(question) {
   if (currentQuestionBody) {
     currentQuestionBody.textContent = text;
   }
+  currentQuestionText = text;
   if (interviewerQuestionText) {
     interviewerQuestionText.textContent = text;
   }
@@ -380,6 +391,161 @@ function renderInterviewQuestion(question) {
 function renderTranscriptStatus(message) {
   if (transcriptBody) {
     transcriptBody.textContent = message;
+  }
+}
+
+// Accumulating Q&A dialogue: one entry per completed turn, with the question,
+// the answer transcript, and an expandable per-turn evaluation. DOM is built
+// with createElement/textContent only (no raw markup injection) and every
+// rendered string is redaction-guarded, matching the room's token-safety contract.
+function buildQaRow(label, text) {
+  const row = document.createElement("div");
+  row.className = label === "Q" ? "qa-row qa-q" : "qa-row qa-a";
+  const tag = document.createElement("span");
+  tag.className = "qa-tag";
+  tag.textContent = label;
+  const body = document.createElement("p");
+  body.className = "qa-text";
+  body.textContent = redactSensitiveText(text);
+  row.append(tag, body);
+  return row;
+}
+
+function appendEvalGroup(details, label, lines) {
+  const visible = lines.filter((line) => typeof line === "string" && line.trim());
+  if (!visible.length) {
+    return;
+  }
+  const group = document.createElement("div");
+  group.className = "qa-eval-group";
+  const heading = document.createElement("p");
+  heading.className = "qa-eval-label";
+  heading.textContent = label;
+  group.appendChild(heading);
+  for (const line of visible) {
+    const para = document.createElement("p");
+    para.className = "qa-eval-line";
+    para.textContent = redactSensitiveText(line);
+    group.appendChild(para);
+  }
+  details.appendChild(group);
+}
+
+function buildEvalDetails(evaluation) {
+  const details = document.createElement("details");
+  details.className = "qa-eval";
+  const summary = document.createElement("summary");
+  summary.textContent = "평가 펼치기";
+  details.appendChild(summary);
+
+  const verbal = evaluation.verbal || {};
+  const vocal = evaluation.vocal || {};
+  const visual = evaluation.visual || {};
+  appendEvalGroup(details, "언어", [verbal.logic, verbal.structure, verbal.specificity]);
+  appendEvalGroup(details, "음성", [vocal.pace, vocal.intonation, vocal.pauses, vocal.volume]);
+  appendEvalGroup(details, "시각", [visual.eye_contact, visual.expression, visual.posture]);
+
+  const critique = Array.isArray(evaluation.critique) ? evaluation.critique.filter(Boolean) : [];
+  if (critique.length) {
+    const group = document.createElement("div");
+    group.className = "qa-eval-group";
+    const heading = document.createElement("p");
+    heading.className = "qa-eval-label";
+    heading.textContent = "핵심 지적";
+    const list = document.createElement("ul");
+    list.className = "qa-critique-list";
+    for (const item of critique) {
+      const li = document.createElement("li");
+      li.textContent = redactSensitiveText(item);
+      list.appendChild(li);
+    }
+    group.append(heading, list);
+    details.appendChild(group);
+  }
+  return details;
+}
+
+function appendDialogueTurn(question, answer, evaluation) {
+  if (!qaDialogue) {
+    return;
+  }
+  const empty = qaDialogue.querySelector(".qa-empty");
+  if (empty) {
+    empty.remove();
+  }
+  const turnNumber = qaDialogue.querySelectorAll(".qa-turn").length + 1;
+  const item = document.createElement("li");
+  item.className = "qa-turn";
+
+  const head = document.createElement("p");
+  head.className = "qa-turn-head";
+  head.textContent = `턴 ${turnNumber}`;
+  item.appendChild(head);
+
+  item.appendChild(buildQaRow("Q", question || "질문 기록 없음"));
+  item.appendChild(buildQaRow("A", answer || "전사 결과가 비어 있습니다."));
+  if (evaluation && typeof evaluation === "object") {
+    item.appendChild(buildEvalDetails(evaluation));
+  }
+  qaDialogue.appendChild(item);
+}
+
+// Live state box: project the analysis-engine signal payload (kor-signals shape)
+// into the candidate-state box. Only summarized, token/media-safe fields are
+// shown; the raw eval text is redaction-guarded like every other rendered value.
+function signalPercent(value) {
+  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)}%` : null;
+}
+
+function latestEvalRecord(payload) {
+  const records = Array.isArray(payload?.records) ? payload.records : [];
+  return [...records].reverse().find((record) => record?.type === "eval" && record?.eval) || null;
+}
+
+function renderLiveSignals(payload) {
+  const record = latestEvalRecord(payload);
+  if (!record) {
+    return;
+  }
+  const evaluation = record.eval || {};
+  const visual = evaluation.objective_visual || {};
+  const vocal = evaluation.objective_vocal || {};
+  const faceSeen = Number(visual.face_seen_ratio ?? 0) > 0;
+
+  if (sigGaze) {
+    const gaze = signalPercent(visual.gaze_off_mean);
+    sigGaze.textContent = faceSeen && gaze ? `${gaze} 이탈` : "측정 불가";
+  }
+  if (sigRate) {
+    const rate = vocal?.rate?.speech_rate_syl_per_s;
+    sigRate.textContent = typeof rate === "number"
+      ? `${rate.toFixed(1)} 음절/초 · ${rate < 4.5 ? "느림" : rate > 6.5 ? "빠름" : "적정"}`
+      : "측정 불가";
+  }
+  if (sigPause) {
+    const longPause = vocal?.pauses?.pause_count_ge_0p25;
+    const shortJuncture = vocal?.pauses?.short_juncture_count_0p1_0p25;
+    sigPause.textContent = typeof longPause === "number" || typeof shortJuncture === "number"
+      ? `긴 휴지 ${longPause ?? 0}회 · 짧은 끊김 ${shortJuncture ?? 0}회`
+      : "측정 불가";
+  }
+  if (sigExpression) {
+    const smile = signalPercent(visual.smile_ratio);
+    sigExpression.textContent = faceSeen && smile ? `미소 ${smile}` : "측정 불가";
+  }
+  if (sigPosture) {
+    const sway = visual.head_sway;
+    sigPosture.textContent = faceSeen && typeof sway === "number"
+      ? (sway < 0.02 ? "안정" : sway < 0.05 ? "보통" : "흔들림 큼")
+      : "측정 불가";
+  }
+  if (sigCritique) {
+    const critique = Array.isArray(evaluation.critique) && evaluation.critique.length
+      ? evaluation.critique[0]
+      : (Array.isArray(evaluation.key_observations) && evaluation.key_observations.length ? evaluation.key_observations[0] : "");
+    sigCritique.textContent = critique
+      ? redactSensitiveText(critique)
+      : "분석이 도출되면 평가 요약이 표시됩니다.";
   }
 }
 
@@ -468,6 +634,8 @@ async function flushAnalysisTurn(sessionId) {
     await postAnalysis("/subscriber/stop", {});
     const payload = await fetchSignalsAfterTurnFlush(sessionId, answerTurnStartRecordCount);
     const transcript = renderAnalysisTranscript(payload, answerTurnStartRecordCount);
+    renderLiveSignals(payload);
+    appendDialogueTurn(currentQuestionText, transcript, latestEvalRecord(payload)?.eval || null);
     appendLog(`analysis turn flushed for session ${sessionId}; records ${payload.recordCount || 0}`);
     try {
       await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
@@ -764,6 +932,39 @@ async function startAnswerCapture() {
   appendLog("candidate answer turn started; GilJobE analysis-engine recording boundary active");
 }
 
+async function submitTurnAnswer(turnIndex, answer) {
+  // Real-time per-turn persistence: store this turn's answer and let the API
+  // ingest the turn's analysis signals as soon as the answer completes.
+  if (!answer) {
+    return;
+  }
+  try {
+    await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer }),
+    });
+    appendLog(`turn ${turnIndex} answer submitted; real-time signal ingest requested`);
+  } catch (error) {
+    appendLog(`turn answer submit skipped: ${errorMessage(error)}`);
+  }
+}
+
+async function finalizeInterview() {
+  // Interview over: ask the API for a final signal-ingest sweep (captures the
+  // last turn's eval windows). Best-effort; never blocks leaving the room.
+  try {
+    await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/finalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ turnIndex: currentTurnIndex, answer: lastAnswerTranscript }),
+    });
+    appendLog("interview finalized; final signal ingest requested");
+  } catch (error) {
+    appendLog(`finalize skipped: ${errorMessage(error)}`);
+  }
+}
+
 async function finishAnswerAndRequestNextQuestion() {
   micEnabled = false;
   await restartPreviewStream();
@@ -772,6 +973,7 @@ async function finishAnswerAndRequestNextQuestion() {
   renderTranscriptStatus("답변 종료. GilJobE analysis-engine에서 최종 전사를 가져오는 중입니다.");
   const transcript = await flushAnalysisTurn(sessionId);
   lastAnswerTranscript = transcript || "전사 결과가 비어 있습니다.";
+  submitTurnAnswer(currentTurnIndex, transcript);
   currentTurnIndex += 1;
   nextQuestionRequested = false;
   setAnswerTurnAvailability(false, "candidate answer ended; waiting for next interviewer question");
@@ -975,7 +1177,12 @@ function leaveRoom() {
   if (!activeRoom) {
     return;
   }
+  // Leave now doubles as "end interview + open report"; confirm before tearing down.
+  if (!window.confirm("현재 면접을 종료하고 지금까지의 레포트를 확인합니다.")) {
+    return;
+  }
   appendLog("leaving LiveKit room");
+  finalizeInterview();
   disconnectAvatarRtc();
   activeRoom.disconnect();
   activeRoom = null;
@@ -985,6 +1192,7 @@ function leaveRoom() {
   if (joinButton) {
     joinButton.disabled = false;
   }
+  window.location.assign(productionRouteFor("report"));
 }
 
 createButton?.addEventListener("click", async () => {
@@ -1015,6 +1223,16 @@ toggleMicButton?.addEventListener("click", toggleMic);
 toggleCameraButton?.addEventListener("click", toggleCamera);
 toggleContextDrawerButton?.addEventListener("click", toggleContextDrawer);
 closeContextDrawerButton?.addEventListener("click", () => setContextDrawerOpen(false));
+
+toggleSignalsBoxButton?.addEventListener("click", () => {
+  if (!liveSignalsBody) {
+    return;
+  }
+  const willShow = liveSignalsBody.hidden;
+  liveSignalsBody.hidden = !willShow;
+  toggleSignalsBoxButton.setAttribute("aria-expanded", String(willShow));
+  toggleSignalsBoxButton.textContent = willShow ? "박스 접기" : "박스 펴기";
+});
 document.addEventListener("giljob:interviewer-question-started", () => {
   if (!micEnabled) {
     setAnswerTurnAvailability(false, "interviewer question started; answer button disabled");

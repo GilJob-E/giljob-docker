@@ -6,13 +6,13 @@
     <title>GilJob v2 · Interview Report</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
+  <body class="report-app-body">
     <header class="top-nav" aria-label="Primary navigation">
       <a class="brand" href="/" aria-label="GilJob v2 home">
         <span class="brand-mark" aria-hidden="true">G</span>
         <span>GilJob</span>
       </a>
-      <nav class="nav-pill-group" aria-label="Interview setup steps">
+      <nav class="nav-pill-group" aria-label="Interview production flow">
         <a href="/interviews/new">New</a>
         <a href="/interviews/local-demo/lobby">Lobby</a>
         <a href="/interviews/local-demo/room">Room</a>
@@ -20,49 +20,171 @@
       </nav>
       <div class="nav-actions">
         <span class="nav-mode">Post interview</span>
-        <a class="button button-primary nav-cta" href="/interviews/local-demo/room">Back to room</a>
+        <a class="button button-secondary nav-cta" href="/interviews/local-demo/room">Room으로</a>
       </div>
     </header>
 
-    <main>
-      <section class="hero-band landing-hero" aria-labelledby="page-title">
-        <div class="hero-copy">
+    <main class="report-page-main">
+      <!-- ── 헤더 ─────────────────────────────────────────────────────── -->
+      <section class="report-header report-header-single" aria-labelledby="page-title">
+        <div class="report-header-copy">
           <p class="badge-pill">Production flow · Step 4</p>
-          <h1 id="page-title">최종 리포트 route</h1>
+          <h1 id="page-title">면접 리포트</h1>
           <p class="lede">
-            Production에서는 면접 종료 후 report route에서 구조화된 평가를 보여줍니다. 면접 중 빠른 turn-control signal과
-            종료 후 깊은 multimodal/report 분석은 분리합니다.
+            면접에서 나눈 질문과 답변, 답변별 피드백, 그리고 말하기·표정 같은 비언어 지표를
+            정리했습니다. 각 답변을 다시 보며 무엇을 잘했고 어떤 점을 보완하면 좋을지
+            스스로 점검해 보세요.
           </p>
-          <div class="hero-actions" aria-label="Primary actions">
-            <a class="button button-primary" href="/interviews/local-demo/room">Room으로 돌아가기</a>
+          <dl class="report-meta-row" aria-label="면접 정보">
+            <div class="meta"><dt>면접 일자</dt><dd id="meta-date">2026-06-11</dd></div>
+            <div class="meta"><dt>답변 수</dt><dd id="meta-turns">6개</dd></div>
+            <div class="meta"><dt>면접 형식</dt><dd>AI 화상 면접</dd></div>
+          </dl>
+          <div class="hero-actions" aria-label="Report actions">
+            <a class="button button-secondary" href="/interviews/local-demo/room">Room으로 돌아가기</a>
             <a class="button button-secondary" href="/interviews/new">새 면접 준비</a>
           </div>
-          <div class="trust-row" aria-label="Report constraints">
-            <span>Report token not in URL</span>
-            <span>Background analysis</span>
-            <span>Placeholder only</span>
-          </div>
         </div>
+      </section>
 
-        <section class="hero-app-mockup-card setup-card" aria-labelledby="report-title">
-          <div class="mockup-topbar" aria-hidden="true">
-            <span></span><span></span><span></span>
-          </div>
-          <div class="mockup-header">
+      <section class="report-grid" aria-label="리포트 상세">
+        <!-- 비언어 지표 종합: 전체 답변 평균 -->
+        <article class="report-card span-full" aria-labelledby="summary-title">
+          <div class="report-card-head">
             <div>
-              <p class="mockup-kicker">Final report</p>
-              <h2 id="report-title">리포트 placeholder</h2>
+              <p class="badge-pill muted-pill">비언어 종합</p>
+              <h2 id="summary-title">평균 비언어 지표</h2>
             </div>
-            <span class="status">Pending</span>
+            <span class="report-card-tag">답변 평균</span>
           </div>
-          <ol class="pipeline-list lobby-checklist">
-            <li><span>Transcript summary</span><small>placeholder</small></li>
-            <li><span>Answer quality</span><small>placeholder</small></li>
-            <li><span>Multimodal signal</span><small>background</small></li>
-            <li><span>Hiring recommendation</span><small>scope 밖</small></li>
+          <p class="report-card-intro">
+            전체 답변에서 측정된 비언어 지표의 평균입니다. 시각 지표(미소·시선 등)는
+            얼굴이 충분히 잡힌 답변만 평균에 포함됩니다.
+          </p>
+          <dl class="metric-grid summary-metric-grid">
+            <div class="metric"><dt>평균 말 속도</dt><dd id="avg-rate">5.3<span>음절/초</span></dd></div>
+            <div class="metric"><dt>평균 음높이</dt><dd id="avg-pitch">226<span>Hz</span></dd></div>
+            <div class="metric"><dt>긴 휴지 합계</dt><dd id="sum-pause">1<span>회</span></dd></div>
+            <div class="metric"><dt>평균 미소</dt><dd id="avg-smile">20<span>%</span></dd></div>
+            <div class="metric"><dt>평균 시선 이탈</dt><dd id="avg-gaze">32<span>%</span></dd></div>
+            <div class="metric"><dt>눈 깜빡임 합계</dt><dd id="sum-blink">1<span>회</span></dd></div>
+          </dl>
+          <p class="note" id="summary-coverage">시각 지표는 3개 답변 중 2개에서 측정되었습니다.</p>
+        </article>
+
+        <!-- 면접 대화: 질문·답변 + 접이식 피드백 -->
+        <article class="report-card span-full" aria-labelledby="dialog-title">
+          <div class="report-card-head">
+            <div>
+              <p class="badge-pill muted-pill">면접 대화</p>
+              <h2 id="dialog-title">질문과 답변</h2>
+            </div>
+            <span class="report-card-tag">6개 답변</span>
+          </div>
+          <p class="report-card-intro">
+            각 답변의 <strong>‘답변 분석 보기’</strong>를 누르면 잘한 점·보완할 점(피드백)과
+            말하기·표정 같은 <strong>비언어 지표</strong>를 함께 확인할 수 있습니다.
+          </p>
+
+          <ol class="turn-list">
+            <li class="turn-item">
+              <div class="turn-index">Q1</div>
+              <div class="turn-body">
+                <p class="turn-q">간단한 자기소개와 지원 동기를 말씀해 주세요.</p>
+                <p class="turn-a">안녕하세요. 4년 차 백엔드 엔지니어 김지원입니다. 결제 시스템의 정합성 문제를 다루며 분산 트랜잭션에 관심을 갖게 됐고, 이 팀의 도메인이 그 경험과 맞닿아 지원했습니다.</p>
+
+                <details class="turn-eval">
+                  <summary class="turn-eval-toggle">답변 분석 보기</summary>
+                  <div class="turn-eval-content">
+                    <div class="eval-block">
+                      <p class="eval-block-title">피드백</p>
+                      <p class="turn-eval-summary">지원 동기와 경험의 연결이 명확합니다. 도입부에서 긴장한 기색은 거의 없었습니다.</p>
+                      <ul class="turn-eval-tags">
+                        <li>동기-경험 연결</li>
+                        <li>안정적 도입</li>
+                      </ul>
+                    </div>
+                    <div class="eval-block">
+                      <p class="eval-block-title">비언어 지표</p>
+                      <dl class="metric-grid">
+                        <div class="metric"><dt>말 속도</dt><dd>5.7<span>음절/초</span></dd></div>
+                        <div class="metric"><dt>평균 음높이</dt><dd>237<span>Hz</span></dd></div>
+                        <div class="metric"><dt>긴 휴지</dt><dd>0<span>회</span></dd></div>
+                        <div class="metric"><dt>미소</dt><dd>19<span>%</span></dd></div>
+                        <div class="metric"><dt>시선 이탈</dt><dd>26<span>%</span></dd></div>
+                        <div class="metric"><dt>눈 깜빡임</dt><dd>0<span>회</span></dd></div>
+                      </dl>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </li>
+
+            <li class="turn-item">
+              <div class="turn-index">Q2</div>
+              <div class="turn-body">
+                <p class="turn-q">최근 해결한 가장 어려운 기술 문제는 무엇이었나요?</p>
+                <p class="turn-a">대량 정산 배치에서 중복 지급이 간헐적으로 발생했습니다. 멱등 키와 상태 머신을 도입해 재처리 안전성을 확보했고, 사고율을 0으로 떨어뜨렸습니다.</p>
+
+                <details class="turn-eval">
+                  <summary class="turn-eval-toggle">답변 분석 보기</summary>
+                  <div class="turn-eval-content">
+                    <div class="eval-block">
+                      <p class="eval-block-title">피드백</p>
+                      <p class="turn-eval-summary">문제–원인–해결의 흐름이 분명하고, 사고율 0이라는 정량 성과를 제시한 점이 좋습니다.</p>
+                      <ul class="turn-eval-tags">
+                        <li>구조적 서술</li>
+                        <li>정량 성과 제시</li>
+                      </ul>
+                    </div>
+                    <div class="eval-block">
+                      <p class="eval-block-title">비언어 지표</p>
+                      <dl class="metric-grid">
+                        <div class="metric"><dt>말 속도</dt><dd>5.9<span>음절/초</span></dd></div>
+                        <div class="metric"><dt>평균 음높이</dt><dd>250<span>Hz</span></dd></div>
+                        <div class="metric"><dt>긴 휴지</dt><dd>0<span>회</span></dd></div>
+                        <div class="metric"><dt>미소</dt><dd>20<span>%</span></dd></div>
+                        <div class="metric"><dt>시선 이탈</dt><dd>37<span>%</span></dd></div>
+                        <div class="metric"><dt>눈 깜빡임</dt><dd>1<span>회</span></dd></div>
+                      </dl>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </li>
+
+            <li class="turn-item">
+              <div class="turn-index">Q3</div>
+              <div class="turn-body">
+                <p class="turn-q">의견이 다른 동료와 협업한 경험을 말씀해 주세요.</p>
+                <p class="turn-a">스키마 설계에서 이견이 있었는데, 양쪽 안의 트레이드오프를 표로 정리해 함께 검토했습니다. 결국 상대 안을 일부 수용하는 절충안으로 합의했습니다.</p>
+
+                <details class="turn-eval">
+                  <summary class="turn-eval-toggle">답변 분석 보기</summary>
+                  <div class="turn-eval-content">
+                    <div class="eval-block">
+                      <p class="eval-block-title">피드백</p>
+                      <p class="turn-eval-summary">상대의 관점을 반영한 협업 태도가 잘 드러났습니다. 갈등을 풀어가는 과정이 구체적입니다.</p>
+                      <ul class="turn-eval-tags">
+                        <li>협업 지향</li>
+                        <li>절충 합의</li>
+                      </ul>
+                    </div>
+                    <div class="eval-block">
+                      <p class="eval-block-title">비언어 지표</p>
+                      <dl class="metric-grid">
+                        <div class="metric"><dt>말 속도</dt><dd>4.2<span>음절/초</span></dd></div>
+                        <div class="metric"><dt>평균 음높이</dt><dd>192<span>Hz</span></dd></div>
+                        <div class="metric"><dt>긴 휴지</dt><dd>1<span>회</span></dd></div>
+                      </dl>
+                      <p class="eval-unmeasured">이 구간은 얼굴이 충분히 잡히지 않아 시각 지표(미소·시선 등)는 측정되지 않았습니다.</p>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </li>
           </ol>
-          <p class="note">현재 route는 final report surface만 예약합니다. 실제 report token/session authorization은 backend slice에서 붙입니다.</p>
-        </section>
+        </article>
       </section>
     </main>
 
@@ -83,5 +205,7 @@
         </div>
       </div>
     </footer>
+
+    <script type="module" src="/report.js"></script>
   </body>
 </html>

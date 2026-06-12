@@ -28,19 +28,16 @@
       <section class="hero-band landing-hero" aria-labelledby="page-title">
         <div class="hero-copy">
           <p class="badge-pill">Production flow · Step 1</p>
-          <h1 id="page-title">새 면접 세션을 준비합니다</h1>
+          <h1 id="page-title">면접 세션을 준비합니다</h1>
           <p class="lede">
-            Production에서는 바로 media room으로 들어가지 않습니다. 먼저 CV, 직무 링크, 면접관 페르소나를 묶어
-            하나의 interview session을 만들고, 그 session id 기준으로 lobby, room, report가 이어집니다.
+            이력서와 지원하시는 공고, 면접관만 선택하면 맞춤형 모의 면접 세션이 준비됩니다.
+            입력하신 정보를 바탕으로 면접관이 질문을 구성할 것입니다.
+            준비가 끝나면 lobby에서 카메라·마이크를 점검한 뒤 면접을 시작하세요.
           </p>
-          <div class="hero-actions" aria-label="Primary actions">
-            <a class="button button-primary" href="/interviews/local-demo/lobby">Demo lobby로 이동</a>
-            <a class="button button-secondary" href="/interviews/local-demo/room">Room 바로 보기</a>
-          </div>
-          <div class="trust-row" aria-label="Production constraints">
-            <span>Session-scoped</span>
-            <span>No raw tokens in URL</span>
-            <span>LLM/multimodal placeholder</span>
+          <div class="trust-row" aria-label="세션 구성 안내">
+            <span>이력서 기반 맞춤 질문</span>
+            <span>공고 분석</span>
+            <span>AI 면접관 진행</span>
           </div>
         </div>
 
@@ -51,50 +48,61 @@
           <div class="mockup-header">
             <div>
               <p class="mockup-kicker">Interview setup</p>
-              <h2 id="setup-title">입력 계약 placeholder</h2>
+              <h2 id="setup-title">세션 구성</h2>
             </div>
-            <span class="status">Draft</span>
+            <span class="status">준비 중</span>
           </div>
-          <form class="session-form production-setup-form" aria-label="Production interview setup placeholder">
-            <label>
-              Candidate CV
-              <input value="CV upload / text extraction 예정" autocomplete="off" disabled />
-            </label>
-            <label>
-              Job link
-              <input value="직무 링크 parsing 예정" autocomplete="off" disabled />
-            </label>
-            <label>
-              Interviewer persona
-              <input value="SpatialReal / ElevenLabs persona 예정" autocomplete="off" disabled />
-            </label>
-            <label>
-              Interview session id
-              <input value="local-demo" autocomplete="off" disabled />
-            </label>
+          <form class="session-form production-setup-form" aria-label="면접 세션 구성">
+            <div class="setup-field">
+              <label for="resume-file">이력서 업로드</label>
+              <p class="field-hint">지원하시는 직무에 맞춘 이력서를 올려 주세요. CV upload · PDF·DOCX, 최대 10MB.</p>
+              <input id="resume-file" class="visually-hidden-input" type="file" accept=".pdf,.doc,.docx" />
+              <label class="upload-dropzone" for="resume-file">
+                <span class="upload-icon" aria-hidden="true">↑</span>
+                <span class="upload-primary">파일을 끌어다 놓거나 클릭해 선택</span>
+                <span class="upload-secondary">아직 업로드한 파일이 없습니다</span>
+              </label>
+            </div>
+
+            <div class="setup-field">
+              <label for="job-url">모집 공고 URL</label>
+              <p class="field-hint">지원할 공고 페이지 주소를 붙여넣어 주세요. 공고 내용을 분석해 질문을 맞춤화합니다.</p>
+              <input id="job-url" type="url" inputmode="url" placeholder="https://..." autocomplete="off" />
+            </div>
+
+            <div class="setup-field">
+              <label for="interviewer-select">면접관 선택</label>
+              <p class="field-hint">면접을 진행할 AI 면접관을 선택하세요.</p>
+              <select id="interviewer-select" class="setup-select">
+                <option value="default" selected>기본 면접관 · 표준 직무 면접</option>
+              </select>
+            </div>
+
             <div class="actions">
               <a class="button button-primary" href="/interviews/local-demo/lobby">세션 준비 완료</a>
             </div>
           </form>
-          <p class="note">현재 slice는 route contract만 고정합니다. 실제 CV parsing, persona 생성, production auth는 아직 scope 밖입니다.</p>
+          <p class="note">업로드한 이력서와 공고는 면접 세션 구성과 종료 후 리포트 생성에만 사용됩니다.</p>
         </section>
       </section>
 
-      <section class="feature-band" aria-label="Production gates">
+      <div class="section-divider"><span>면접 전 숙지사항</span></div>
+
+      <section class="feature-band" aria-label="면접 전 숙지사항">
         <article class="feature-card">
           <span class="feature-icon">01</span>
-          <h3>Session first</h3>
-          <p>모든 화면은 `/interviews/:id/*` 아래에서 동작합니다. media token이나 report token을 URL에 직접 싣지 않습니다.</p>
+          <h3>조용한 공간에서 진행하세요</h3>
+          <p>카메라·마이크 사용을 허용하고, 주변 소음이 적고 얼굴이 잘 보이는 환경에서 면접을 진행해 주세요. 안정적인 인터넷 연결이 필요합니다.</p>
         </article>
         <article class="feature-card">
           <span class="feature-icon">02</span>
-          <h3>Lobby before room</h3>
-          <p>카메라/마이크 permission, 네트워크 readiness, interview 안내는 room 이전 lobby에서 처리하는 방향입니다.</p>
+          <h3>질문이 끝난 뒤 답변하세요</h3>
+          <p>면접관의 질문이 끝나면 ‘답변 시작’ 버튼이 활성화됩니다. 버튼을 누르고 답변한 뒤, 말을 마치면 다시 눌러 답변을 마무리합니다.</p>
         </article>
         <article class="feature-card">
           <span class="feature-icon">03</span>
-          <h3>Report after room</h3>
-          <p>최종 report는 면접 종료 후 별도 route에서 열립니다. 깊은 multimodal/report 분석은 background로 분리합니다.</p>
+          <h3>표정·음성·답변이 함께 평가됩니다</h3>
+          <p>또렷한 발화와 자연스러운 자세가 도움이 됩니다. 정해진 정답을 맞히기보다, 솔직하고 구체적으로 답변하는 데 집중하세요.</p>
         </article>
       </section>
     </main>
@@ -116,5 +124,6 @@
         </div>
       </div>
     </footer>
+    <script src="/new.js"></script>
   </body>
 </html>
