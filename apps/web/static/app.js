@@ -780,6 +780,10 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
     await postRealtimeTurnEvent("turn.answer.end", { transcriptAvailable: transcriptReady }, completedTurnIndex);
     await sendBoundedVisionEvent("answer_end", completedTurnIndex);
     await sendRealtimeProsodyEvent("answer_end", completedTurnIndex);
+    const analysisPayload = await flushRealtimeAnalysisTurn(analysisSessionId());
+    if (!analysisPayload?.turnHandoff) {
+      appendLog("Realtime analysis turnHandoff not ready after flush; response.create will remain gated by analysis result");
+    }
     lastAnswerTranscript = realtimeAnswerTranscript || "Realtime transcript unavailable.";
     realtimeAnswerTranscript = "";
     realtimeTranscriptCompleted = false;
@@ -1105,6 +1109,14 @@ async function restartAnalysisSubscriber(sessionId) {
   return payload;
 }
 
+async function startRealtimeAnalysisTurn(sessionId) {
+  const payload = await restartAnalysisSubscriber(sessionId);
+  await markAnalysisTurnStart(sessionId);
+  renderTranscriptStatus("Realtime sideband transcript를 GilJobE sentence lane으로 전달합니다.");
+  appendLog(`Realtime analysis turn ready for session ${sessionId}; sideband transcript will feed turnHandoff`);
+  return payload;
+}
+
 async function fetchSignalsAfterTurnFlush(sessionId, sinceRecordCount) {
   let payload = null;
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -1126,6 +1138,24 @@ async function markAnalysisTurnStart(sessionId) {
   } catch (error) {
     answerTurnStartRecordCount = 0;
     appendLog(`analysis turn baseline unavailable: ${errorMessage(error)}`);
+  }
+}
+
+async function flushRealtimeAnalysisTurn(sessionId) {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  try {
+    await postAnalysis("/subscriber/stop", {});
+    const payload = await fetchSignalsAfterTurnFlush(sessionId, answerTurnStartRecordCount);
+    lastAnalysisBlock = Array.isArray(payload?.turnHandoff?.prompt_block)
+      ? payload.turnHandoff.prompt_block.join("\n")
+      : "";
+    appendLog(`Realtime analysis turn flushed for session ${sessionId}; records ${payload.recordCount || 0}; turnHandoff ${payload?.turnHandoff ? "ready" : "pending"}`);
+    return payload;
+  } catch (error) {
+    const message = errorMessage(error);
+    renderTranscriptStatus(`Realtime analysis flush 실패: ${message}`);
+    appendLog(`Realtime analysis flush failed: ${message}`);
+    throw error;
   }
 }
 
@@ -1496,6 +1526,8 @@ async function applyMediaStateToRoom() {
 
 async function startAnswerCapture() {
   if (activeRealtimeSession) {
+    const sessionId = analysisSessionId();
+    await startRealtimeAnalysisTurn(sessionId);
     realtimeAnswerTranscript = "";
     realtimeTranscriptCompleted = false;
     realtimeTranscriptCompletionForward = Promise.resolve();

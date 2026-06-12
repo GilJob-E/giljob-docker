@@ -28,6 +28,15 @@ def load_analysis_engine_wrapper():
 
     service_mod = types.ModuleType("giljobe.server.service")
     service_mod.AnalysisService = lambda **_kwargs: object()
+    service_mod.signals_payload = lambda session_id, records: {
+        "service": "analysis-engine",
+        "sessionId": session_id,
+        "records": records,
+        "recordCount": len(records),
+        "turnHandoff": None,
+        "rawMediaExposed": False,
+        "rawSecretsExposed": False,
+    }
 
     sys.modules["aiohttp"] = aiohttp
     sys.modules.setdefault("giljobe", types.ModuleType("giljobe"))
@@ -53,6 +62,9 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("rawMediaAccepted", wrapper)
         self.assertIn("perTurnMmmResult", wrapper)
         self.assertIn("candidateSafePromptFragment", wrapper)
+        self.assertIn("class _EventOnlyRealtimeTurns", wrapper)
+        self.assertIn("_install_event_only_realtime_fallback", wrapper)
+        self.assertIn("eventOnlyFallback", wrapper)
         self.assertIn("2026-06-12.per-turn-mmm-result.v1", wrapper)
         self.assertIn("2026-06-12.candidate-safe-prompt-fragment.v1", wrapper)
         dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
@@ -143,9 +155,9 @@ class AnalysisEngineContractTest(unittest.TestCase):
         for text in (compose, env_example):
             self.assertIn("GILJOBE_VISION", text)
             self.assertIn("GILJOBE_PROSODY", text)
-            # Realtime sentence lane: transcript-source toggle must stay wired and default safe.
+            # Realtime sentence lane: transcript-source toggle must stay wired and default to sideband.
             self.assertIn("GILJOBE_TRANSCRIPT_SOURCE", text)
-        self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-internal}", compose)
+        self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}", compose)
 
     def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()

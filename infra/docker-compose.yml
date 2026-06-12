@@ -103,9 +103,9 @@ services:
       # Objective grounding lanes (vision/prosody); deps+models are baked into the image.
       GILJOBE_VISION: ${GILJOBE_VISION:-auto}
       GILJOBE_PROSODY: ${GILJOBE_PROSODY:-auto}
-      # Realtime flow: external = consume API sideband transcripts (sentence lane),
-      # internal (default) = gemma 3s STT grid. Flip only with the Realtime browser flow.
-      GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-internal}
+      # Realtime flow default: external consumes API sideband transcripts (sentence lane).
+      # Set internal only for legacy LiveKit/Gemma STT grid testing.
+      GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}
       LIVEKIT_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
       LIVEKIT_SESSION_ID: ${LIVEKIT_SESSION_ID:-local-demo}
       LIVEKIT_IDENTITY: ${LIVEKIT_IDENTITY:-giljobe-analysis}
