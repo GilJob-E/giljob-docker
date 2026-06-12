@@ -390,7 +390,7 @@ Operator contract:
 - OpenAI Realtime is the only live interviewer voice path when `OPENAI_REALTIME_PRIMARY=true`; legacy `/question` and `/tts` routes are keyless/internal smoke or compatibility paths only, not fallback voice paths.
 - The browser receives only browser-safe Realtime session metadata from `/api/interviews/:id/realtime/session`; WebRTC SDP attach goes through `/api/interviews/:id/realtime/call`, not a browser-direct provider route or browser-held provider secret.
 - Realtime provider requests keep the `{"session": {...}} wrapper`, omit session.metadata, and never return server keys, provider routes, SDP, or client-secret values to logs/UI.
-- `full_mmm_ready` and exact-turn analysis result acceptance must pass before API-authored `response.create`; latency evidence is redacted spans only.
+- `full_mmm_ready` and exact-turn analysis result acceptance must pass before API-authored `response.create`; full_mmm_ready must pass before realtime.response.create; latency evidence is redacted spans only.
 - `realtime.call` must be API-brokered for live browser WebRTC. A disabled/prepared broker is a runtime blocker for actual Realtime browser QA, even if static session/MMM readiness is healthy.
 - `request_failed / Connection refused` against room/app routes is stale-runtime evidence, not a provider-secret or frontend-contract leak by itself.
 

@@ -590,6 +590,15 @@ async def _realtime_turn_results(req: web.Request) -> web.Response:
     }
     if service is None or render_prompt_fragment is None or not interview_id:
         return _json(pending)
+    rnas = req.app.get("event_only_realtime_turns")
+    if isinstance(rnas, _EventOnlyRealtimeTurns) and requested_turn_index is not None:
+        rnas_result = rnas.turn_result(interview_id, requested_turn_index)
+        if rnas_result.get("status") == "ready":
+            return _json({
+                "result": rnas_result,
+                "rawTranscriptLogged": False,
+                "rawMediaAccepted": False,
+            })
     payload = service.signals(interview_id)
     handoff = payload.get("turnHandoff")
     if not handoff:

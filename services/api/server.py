@@ -587,14 +587,9 @@ def _extract_analysis_result(payload: dict[str, Any]) -> dict[str, Any] | None:
 def _analysis_result_gate_failure(result: dict[str, Any] | None, interview_id: str, turn_index: int) -> tuple[str, str] | None:
     if result is None:
         return ("analysis_result_unavailable", "structured_analysis_required")
-    if not _analysis_result_turn_matches(result, interview_id, turn_index):
-        return ("analysis_result_wrong_turn", "exact_turn_analysis_result_required")
     status = _safe_str(result.get("status"), 40)
     if status != "ready":
         return ("analysis_result_not_ready", "ready_analysis_result_required")
-    fragment = _candidate_safe_fragment_from_result(result)
-    if not fragment or bool(result.get("rawTranscriptLogged", False)) or bool(result.get("rawMediaAccepted", False)):
-        return ("analysis_result_not_usable", "candidate_safe_ready_result_required")
     return None
 
 
@@ -712,7 +707,8 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         _log_latency_span("api.realtime.context.inject", 0, status=200, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="openai-realtime")
-        response_create = {"owner": "api", "created": True, "commandType": "response.create", "reason": "no_prior_candidate_answer"}
+        response_create = {"owner": "api", "created": True, "commandType": "response.create"}
+        debug_response_create = {**response_create, "reason": "no_prior_candidate_answer"}
         return _return_with_latency(202, {
             "interviewId": interview_id,
             "turnIndex": turn_index,
@@ -720,7 +716,7 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
             "status": "response_create_queued",
             "bootstrap": {"firstQuestion": True, "mmmGateRequired": False, "reason": "no_prior_candidate_answer"},
             "responseCreate": response_create,
-            "mmmDebug": _mmm_debug_envelope(interview_id, turn_index, analysis_turn_index=None, response_create=response_create),
+            "mmmDebug": _mmm_debug_envelope(interview_id, turn_index, analysis_turn_index=None, response_create=debug_response_create),
             "sideband": {
                 "controlBoundary": "server-sideband",
                 "singleResponseCreateOwner": "api",
@@ -747,6 +743,27 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
     wait_start = time.perf_counter()
     result, source = _fetch_analysis_result(interview_id, analysis_turn_index)
     _log_latency_span("api.analysis.result.wait", _duration_ms(wait_start), status=200 if result else 504, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
+    inline_result = _extract_analysis_result(payload)
+    if result is None and inline_result is not None and not _analysis_result_turn_matches(inline_result, interview_id, analysis_turn_index):
+        response_create = {"owner": "api", "created": False, "reason": "exact_turn_analysis_result_required"}
+        return _return_with_latency(409, {
+            "error": "analysis_result_wrong_turn",
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
+            "readiness": readiness,
+            "analysisEngine": source,
+            "responseCreate": response_create,
+            "mmmDebug": _mmm_debug_envelope(
+                interview_id,
+                turn_index,
+                analysis_turn_index=analysis_turn_index,
+                readiness=readiness,
+                analysis_engine=source,
+                response_create=response_create,
+            ),
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
     gate_failure = _analysis_result_gate_failure(result, interview_id, analysis_turn_index)
     if gate_failure:
         error, reason = gate_failure
@@ -783,7 +800,31 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
             "delivery": _realtime_delivery("api-sideband-response-create"),
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
+    status = _safe_str(result.get("status"), 40)
     fragment = _candidate_safe_fragment_from_result(result)
+    exact_turn = _analysis_result_turn_matches(result, interview_id, analysis_turn_index)
+    if status != "ready" or not exact_turn or not fragment or bool(result.get("rawTranscriptLogged", False)) or bool(result.get("rawMediaAccepted", False)):
+        response_create = {"owner": "api", "created": False, "reason": "candidate_safe_ready_result_required"}
+        return _return_with_latency(409, {
+            "error": "analysis_result_not_usable",
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
+            "readiness": readiness,
+            "analysisResult": _analysis_result_public_summary(result),
+            "analysisEngine": source,
+            "responseCreate": response_create,
+            "mmmDebug": _mmm_debug_envelope(
+                interview_id,
+                turn_index,
+                analysis_turn_index=analysis_turn_index,
+                readiness=readiness,
+                analysis_engine=source,
+                response_create=response_create,
+                analysis_result=result,
+            ),
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
     _log_latency_span("api.analysis.result.ready", 0, status=200, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
     instructions = (
@@ -807,7 +848,7 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
         "status": "response_create_queued",
         "analysisResult": analysis_summary,
         "analysisEngine": source,
-        "responseCreate": {"owner": "api", "created": True, "commandType": "response.create", "reason": "candidate_safe_ready_result_available"},
+        "responseCreate": {"owner": "api", "created": True, "commandType": "response.create"},
         "mmmDebug": _mmm_debug_envelope(
             interview_id,
             turn_index,
