@@ -5,9 +5,9 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
-PINNED_GILJOBE_REF = "e0671f5"
+PINNED_GILJOBE_REF = "dae5191"
 # Superseded pins must not resurface anywhere a stale copy could mislead operators.
-OLD_GILJOBE_REFS = ("b769120", "88a4df5")
+OLD_GILJOBE_REFS = ("b769120", "88a4df5", "e0671f5")
 
 
 class AnalysisEngineContractTest(unittest.TestCase):
@@ -61,6 +61,9 @@ class AnalysisEngineContractTest(unittest.TestCase):
         for text in (compose, env_example):
             self.assertIn("GILJOBE_VISION", text)
             self.assertIn("GILJOBE_PROSODY", text)
+            # Realtime sentence lane: transcript-source toggle must stay wired and default safe.
+            self.assertIn("GILJOBE_TRANSCRIPT_SOURCE", text)
+        self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-internal}", compose)
 
     def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
