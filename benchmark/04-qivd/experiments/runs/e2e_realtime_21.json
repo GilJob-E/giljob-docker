@@ -1,0 +1,170 @@
+[
+  {
+    "video": "00000162.mp4",
+    "cat": "object attributes",
+    "q": "What's the color of the sock on the bottom hand?",
+    "ref": "White",
+    "ans": "White.",
+    "pass": true
+  },
+  {
+    "video": "00001192.mp4",
+    "cat": "object referencing",
+    "q": "What is there at my back?",
+    "ref": "A door and a wardrobe",
+    "ans": "A wardrobe/closet is behind you.",
+    "pass": false
+  },
+  {
+    "video": "00002893.mp4",
+    "cat": "object counting",
+    "q": "How many pens do I have?",
+    "ref": "3",
+    "ans": "Three pens.",
+    "pass": false
+  },
+  {
+    "video": "00000601.mp4",
+    "cat": "object referencing",
+    "q": "What I am holding in my left hand",
+    "ref": "A pen or stick",
+    "ans": "A yellow straw (or thin yellow stick).",
+    "pass": true
+  },
+  {
+    "video": "00001921.mp4",
+    "cat": "object referencing",
+    "q": "What am I holding in my left hand?",
+    "ref": "Glasses",
+    "ans": "You’re holding a pair of red eyeglasses.",
+    "pass": true
+  },
+  {
+    "video": "00001537.mp4",
+    "cat": "object referencing",
+    "q": "There is something missing in this toy. What is it?",
+    "ref": "A head",
+    "ans": "Yes—its head is missing.",
+    "pass": true
+  },
+  {
+    "video": "00002792.mp4",
+    "cat": "action counting",
+    "q": "How often did I hit?",
+    "ref": "2",
+    "ans": "Once.",
+    "pass": false
+  },
+  {
+    "video": "00002902.mp4",
+    "cat": "action attributes",
+    "q": "Which direction am I looking?",
+    "ref": "Right",
+    "ans": "You’re looking to your right (toward the right side of the frame).",
+    "pass": true
+  },
+  {
+    "video": "00000403.mp4",
+    "cat": "object referencing",
+    "q": "What is the object to my right?",
+    "ref": "Lamp",
+    "ans": "A floor lamp.",
+    "pass": true
+  },
+  {
+    "video": "00001883.mp4",
+    "cat": "object referencing",
+    "q": "Will you find any light behind me?",
+    "ref": "Yes",
+    "ans": "There is a light fixture behind you, but it appears to be off.",
+    "pass": false
+  },
+  {
+    "video": "00002488.mp4",
+    "cat": "action detection",
+    "q": "Did I close the fridge?",
+    "ref": "Yes",
+    "ans": "Yes, the fridge is closed.",
+    "pass": true
+  },
+  {
+    "video": "00002067.mp4",
+    "cat": "object referencing",
+    "q": "Can you see the mirror that's behind me?",
+    "ref": "Yes",
+    "ans": "Yes, there’s a mirror behind you in the center of the background.",
+    "pass": true
+  },
+  {
+    "video": "00002530.mp4",
+    "cat": "object attributes",
+    "q": "What color is the bicycle behind me?",
+    "ref": "White",
+    "ans": "White.",
+    "pass": true
+  },
+  {
+    "video": "00000079.mp4",
+    "cat": "object counting",
+    "q": "How many bags do you see in the room?",
+    "ref": "2",
+    "ans": "I don’t see any beds in the room.",
+    "pass": false
+  },
+  {
+    "video": "00002134.mp4",
+    "cat": "scene understanding",
+    "q": "Do we have good weather to go swimming?",
+    "ref": "Yes",
+    "ans": "It looks sunny, but the beanie and sweater suggest it’s chilly—probably not great swimming weather.",
+    "pass": false
+  },
+  {
+    "video": "00001795.mp4",
+    "cat": "object attributes",
+    "q": "What color is this bag?",
+    "ref": "Pink",
+    "ans": "Pink.",
+    "pass": true
+  },
+  {
+    "video": "00002393.mp4",
+    "cat": "object attributes",
+    "q": "Is this cup empty or full?",
+    "ref": "Empty",
+    "ans": "The cup is empty.",
+    "pass": true
+  },
+  {
+    "video": "00001547.mp4",
+    "cat": "action understanding",
+    "q": "What is this gesture?",
+    "ref": "Holding both hands",
+    "ans": "It’s a celebratory clasped-hands gesture, like a happy “yes!”",
+    "pass": false
+  },
+  {
+    "video": "00002593.mp4",
+    "cat": "action detection",
+    "q": "What am I doing with my finger?",
+    "ref": "On nose",
+    "ans": "You’re touching your nose with your finger.",
+    "pass": true
+  },
+  {
+    "video": "00002271.mp4",
+    "cat": "action detection",
+    "q": "What I am doing with this cup?",
+    "ref": "Drinking from it",
+    "ans": "You’re drinking from the cup.",
+    "pass": true
+  },
+  {
+    "video": "00001801.mp4",
+    "cat": "object referencing",
+    "q": "In which hand am I holding the bottle?",
+    "ref": "Left",
+    "ans": "Right hand.",
+    "pass": false
+  }
+]
