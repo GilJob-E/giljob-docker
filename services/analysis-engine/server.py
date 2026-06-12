@@ -25,6 +25,11 @@ from giljobe.server.__main__ import _build_critic, _make_lanes, _port, _vllm_rea
 from giljobe.server.http_app import make_app
 from giljobe.server.service import AnalysisService
 
+try:
+    from giljobe.emit.handoff import render_prompt_fragment
+except ImportError:  # 구 핀(turn_handoff 이전) — turn-results는 pending으로 강등
+    render_prompt_fragment = None
+
 logger = logging.getLogger(__name__)
 
 MAX_REALTIME_MMM_RECORD_BYTES = int(os.getenv("MAX_REALTIME_MMM_RECORD_BYTES", "16384"))
@@ -197,6 +202,44 @@ async def _realtime_turn_events_tail(req: web.Request) -> web.Response:
     })
 
 
+async def _realtime_turn_results(req: web.Request) -> web.Response:
+    """GilJob v2 계약: API가 next-question 직전 서버사이드로 당겨가는 턴 분석 결과
+    (services/api `_fetch_analysis_result` → response.create instructions 주입).
+
+    GilJobE turn_handoff v2가 있으면 status=ready + candidatePromptFragment(≤880자 단일라인,
+    전사 인용 없음 — API의 900자 _safe_str·금칙어 필터를 통과하도록 설계). 턴 미완결이면
+    pending(result=null) — API가 409로 게이트한다. 세션 룩업은 interviewId 정확 일치만
+    (활성 폴백 없음 — 다른 인터뷰 결과가 새는 것보다 pending이 낫다). turnIndex는 에코 전용
+    (엔진 세션=단일 턴, 인덱스 추적은 API 몫)."""
+    interview_id = _safe_str(req.query.get("interviewId"), 96)
+    turn_index = _safe_str(req.query.get("turnIndex"), 8)
+    service = req.app.get("analysis_service")
+    pending = {
+        "result": None, "status": "pending",
+        "rawTranscriptLogged": False, "rawMediaAccepted": False,
+    }
+    if service is None or render_prompt_fragment is None or not interview_id:
+        return _json(pending)
+    payload = service.signals(interview_id)
+    handoff = payload.get("turnHandoff")
+    if not handoff:
+        return _json(pending)
+    return _json({
+        "result": {
+            "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+            "status": "ready",
+            "sessionId": _safe_str(payload.get("sessionId"), 96),
+            "turnIndex": int(turn_index) if turn_index.isdigit() else None,
+            "candidatePromptFragment": render_prompt_fragment(handoff),
+            "coverage": (handoff.get("meta") or {}).get("coverage"),
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        },
+        "rawTranscriptLogged": False,
+        "rawMediaAccepted": False,
+    })
+
+
 def _route_registered(app: web.Application, method: str, path: str) -> bool:
     for route in app.router.routes():
         if route.method == method and route.resource.canonical == path:
@@ -206,13 +249,15 @@ def _route_registered(app: web.Application, method: str, path: str) -> bool:
 
 def _add_realtime_sideband_routes(app: web.Application) -> None:
     routes = []
-    # GilJobE dae5191 owns POST /realtime/turn-events for the external transcript
+    # GilJobE 5ba7249 owns POST /realtime/turn-events for the external transcript
     # sentence lane. Keep this wrapper fallback only for older pins and never
     # duplicate a provider-owned route, because aiohttp rejects duplicate method/path.
     if not _route_registered(app, "POST", "/realtime/turn-events"):
         routes.append(web.post("/realtime/turn-events", _realtime_turn_events))
     if not _route_registered(app, "GET", "/realtime/turn-events"):
         routes.append(web.get("/realtime/turn-events", _realtime_turn_events_tail))
+    if not _route_registered(app, "GET", "/realtime/turn-results"):
+        routes.append(web.get("/realtime/turn-results", _realtime_turn_results))
     if routes:
         app.add_routes(routes)
 
@@ -222,6 +267,7 @@ def _make_app() -> web.Application:
     service = AnalysisService(make_critic=lambda _mode: critic, make_lanes=_make_lanes)
     app = make_app(service, ready_check=lambda: _vllm_ready(critic))
     app["realtime_mmm_records"] = []
+    app["analysis_service"] = service  # turn-results가 turn_handoff를 읽는 경로
     _add_realtime_sideband_routes(app)
 
     async def _warmup(_app: web.Application) -> None:

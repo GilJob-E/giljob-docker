@@ -169,6 +169,15 @@ def _safe_str(value: object, max_len: int = 4_000) -> str:
     return text[:max_len]
 
 
+def _safe_multiline(value: object, max_len: int = 4_000) -> str:
+    """_safe_str의 멀티라인 변형 — analysisBlock은 섹션 헤더/불릿이 줄 구조라 개행을 보존한다
+    (공백 압축·길이 클램프는 동일)."""
+    text = "" if value is None else str(value)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text[:max_len]
+
+
 def _candidate_context(payload: dict[str, Any]) -> dict[str, str]:
     return {
         "interviewId": _safe_str(payload.get("interviewId") or "local-demo", 96),
@@ -176,11 +185,18 @@ def _candidate_context(payload: dict[str, Any]) -> dict[str, str]:
         "job": _safe_str(payload.get("job") or "아직 직무 링크/공고가 입력되지 않았습니다.", 2_000),
         "persona": _safe_str(payload.get("persona") or "차분하고 명확한 한국어 면접관", 500),
         "lastAnswer": _safe_str(payload.get("lastAnswer") or "아직 이전 답변이 없습니다.", 2_000),
+        # analysis-engine turn_handoff prompt_block(줄 배열 join) — 실측+관찰+판단 규칙.
+        # lastAnswer(2,000)와 별도 예산: 블록 자체가 ~1,000자 설계라 4,000이면 여유.
+        "analysisBlock": _safe_multiline(payload.get("analysisBlock") or "", 4_000),
     }
 
 
 def build_question_prompt(payload: dict[str, Any], turn_index: int) -> str:
     context = _candidate_context(payload)
+    analysis_section = (
+        f"\n이전 답변 분석(분석 엔진 실측·관찰 — 아래 판단 규칙 준수):\n{context['analysisBlock']}\n"
+        if context["analysisBlock"] else ""
+    )
     return f"""
 너는 GilJob의 실시간 모의면접 InterviewController다.
 목표는 후보자의 역량을 검증하는 한국어 면접 질문을 한 번에 하나씩 생성하는 것이다.
@@ -198,7 +214,7 @@ turnIndex: {turn_index}
 후보자 정보: {context['candidateProfile']}
 직무 정보: {context['job']}
 이전 답변 요약: {context['lastAnswer']}
-""".strip()
+{analysis_section}""".strip()
 
 
 def fake_question(payload: dict[str, Any], turn_index: int) -> str:

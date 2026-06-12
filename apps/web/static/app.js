@@ -49,6 +49,7 @@ let answerTurnAvailable = false;
 let nextQuestionRequested = false;
 let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
+let lastAnalysisBlock = ""; // analysis-engine turnHandoff.prompt_block join — next-question 주입용
 let activeAnalysisSessionId = "";
 let activeAvatarSession = null;
 let avatarRtcRuntime = { sdkInitialized: false, player: null, view: null, provider: null, avatarId: "" };
@@ -1134,6 +1135,9 @@ async function flushAnalysisTurn(sessionId) {
     await postAnalysis("/subscriber/stop", {});
     const payload = await fetchSignalsAfterTurnFlush(sessionId, answerTurnStartRecordCount);
     const transcript = renderAnalysisTranscript(payload, answerTurnStartRecordCount);
+    lastAnalysisBlock = Array.isArray(payload?.turnHandoff?.prompt_block)
+      ? payload.turnHandoff.prompt_block.join("\n")
+      : "";
     appendLog(`analysis turn flushed for session ${sessionId}; records ${payload.recordCount || 0}`);
     try {
       await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
@@ -1317,6 +1321,7 @@ async function requestNextQuestion(reason = "manual") {
         candidateProfile: "not provided in this slice",
         job: "not provided in this slice",
         lastAnswer: lastAnswerTranscript || "아직 이전 답변 전사가 없습니다.",
+        analysisBlock: lastAnalysisBlock || "",
       }),
     });
     const payload = await response.json().catch(() => ({}));
