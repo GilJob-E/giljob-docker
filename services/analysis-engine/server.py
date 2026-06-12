@@ -23,7 +23,7 @@ from aiohttp import web
 
 from giljobe.server.__main__ import _build_critic, _make_lanes, _port, _vllm_ready
 from giljobe.server.http_app import make_app
-from giljobe.server.service import AnalysisService
+from giljobe.server.service import AnalysisService, signals_payload
 
 try:
     from giljobe.emit.handoff import render_prompt_fragment
@@ -37,6 +37,173 @@ MAX_REALTIME_MMM_RECORDS = int(os.getenv("MAX_REALTIME_MMM_RECORDS", "500"))
 RAW_FIELD_MARKERS = {"rawMedia", "frame", "audio", "video", "sdp", "client_secret", "token", "apiKey", "transcript", "text"}
 INTERNAL_TRANSCRIPT_DETAIL_PATHS = {("detail", "transcript"), ("detail", "text")}
 SAFE_LANE_KEYS = ("transcript", "prosody", "vision")
+
+
+class _EventOnlySession:
+    def __init__(self, session_id: str, critic_mode: str, started_at: float) -> None:
+        self.session_id = session_id
+        self.critic_mode = critic_mode
+        self.started_at = started_at
+        self.records: list[dict[str, Any]] = []
+        self.seen_sentence_keys: set[str] = set()
+        self.last_sentence_end_s = 0.0
+
+
+class _EventOnlyRealtimeTurns:
+    """External transcript fallback for the Realtime branch.
+
+    GilJobE's normal `/subscriber/start` path still owns the full LiveKit media
+    analyzer. The Realtime base stack can run without LiveKit, though, so an
+    external transcript turn must still be able to accept API sideband sentence
+    events and produce a candidate-safe turn handoff.
+    """
+
+    def __init__(self) -> None:
+        self._active: _EventOnlySession | None = None
+        self._last: _EventOnlySession | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return os.getenv("GILJOBE_TRANSCRIPT_SOURCE", "internal").strip().lower() == "external"
+
+    def start(self, session_id: str, critic_mode: str = "window") -> dict[str, object]:
+        if self._active is not None:
+            self.stop()
+        self._active = _EventOnlySession(session_id, critic_mode, time.monotonic())
+        return {
+            "sessionId": session_id,
+            "criticMode": critic_mode,
+            "startedAt": self._active.started_at,
+            "state": "running",
+            "status": "running",
+            "eventOnlyFallback": True,
+            "rawMediaAccepted": False,
+            "rawSecretsExposed": False,
+        }
+
+    def stop(self) -> dict[str, object]:
+        sess = self._active
+        if sess is None:
+            return {"status": "idle"}
+        self._finish(sess)
+        self._active = None
+        self._last = sess
+        return {
+            "sessionId": sess.session_id,
+            "status": "stopped",
+            "eventOnlyFallback": True,
+            "recordCount": len(sess.records),
+            "rawMediaAccepted": False,
+            "rawSecretsExposed": False,
+        }
+
+    def ingest(self, payload: dict[str, Any]) -> dict[str, object]:
+        sess = self._active
+        if sess is None:
+            return {"accepted": False, "reason": "no_active_session"}
+        session_id = _safe_str(payload.get("sessionId") or payload.get("interviewId"), 96)
+        if session_id and session_id != sess.session_id:
+            return {"accepted": False, "reason": "session_mismatch"}
+        kind = _safe_str(payload.get("eventKind") or payload.get("normalizedType") or payload.get("type"), 120)
+        detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else {}
+        text = detail.get("transcript") or detail.get("text")
+        item_id = detail.get("itemId") or payload.get("itemId")
+        sentence_added = False
+        if isinstance(text, str) and text.strip() and kind in {"transcript.completed", "analysis.transcript.completed"}:
+            key = _safe_str(item_id or text, 160)
+            if key and key not in sess.seen_sentence_keys:
+                sess.seen_sentence_keys.add(key)
+                sentence = _safe_str(text, 8000)
+                start_s = sess.last_sentence_end_s
+                duration_s = max(0.8, min(8.0, len(sentence) / 18.0))
+                end_s = start_s + duration_s
+                sess.records.append({
+                    "type": "sentence",
+                    "t": round(time.monotonic() - sess.started_at, 3),
+                    "start_s": round(start_s, 3),
+                    "end_s": round(end_s, 3),
+                    "text": sentence,
+                })
+                sess.last_sentence_end_s = end_s
+                sentence_added = True
+        if kind in {"turn.answer_ended", "turn.answer.end"}:
+            self._finish(sess)
+        return {
+            "accepted": True,
+            "eventKind": kind,
+            "eventOnlyFallback": True,
+            "sentenceAdded": sentence_added,
+            "recordCount": len(sess.records),
+        }
+
+    def signals(self, session_id: str | None = None) -> dict[str, object]:
+        for sess in (self._active, self._last):
+            if sess is not None and (session_id is None or session_id == sess.session_id):
+                return signals_payload(sess.session_id, sess.records)
+        return signals_payload(session_id or "", [])
+
+    def _finish(self, sess: _EventOnlySession) -> None:
+        if any(record.get("type") == "turn_end" for record in sess.records):
+            return
+        transcript = " ".join(
+            str(record.get("text", "")).strip()
+            for record in sess.records
+            if record.get("type") == "sentence" and str(record.get("text", "")).strip()
+        )
+        sess.records.append({
+            "type": "turn_end",
+            "t": round(time.monotonic() - sess.started_at, 3),
+            "transcript_full": transcript,
+        })
+
+
+def _install_event_only_realtime_fallback(service: AnalysisService) -> _EventOnlyRealtimeTurns:
+    event_only = _EventOnlyRealtimeTurns()
+    original_start = service.start
+    original_stop = service.stop
+    original_ingest = service.ingest_realtime_event
+    original_signals = service.signals
+
+    async def start(session_id: str, critic_mode: str = "window") -> dict[str, object]:
+        try:
+            return await original_start(session_id, critic_mode)
+        except Exception as exc:
+            if not event_only.enabled:
+                raise
+            logger.warning(
+                "LiveKit subscriber start failed; using external transcript event-only turn session=%s detail=%s",
+                session_id,
+                type(exc).__name__,
+            )
+            return event_only.start(session_id, critic_mode)
+
+    async def stop() -> dict[str, object]:
+        if event_only._active is not None:
+            return event_only.stop()
+        return await original_stop()
+
+    def ingest_realtime_event(payload: dict[str, Any]) -> dict[str, object]:
+        result = original_ingest(payload)
+        if result.get("accepted") is False and event_only.enabled:
+            fallback = event_only.ingest(payload)
+            if fallback.get("accepted"):
+                return fallback
+        return result
+
+    def signals(session_id: str | None = None) -> dict[str, object]:
+        payload = original_signals(session_id)
+        if payload.get("recordCount"):
+            return payload
+        fallback = event_only.signals(session_id)
+        if fallback.get("recordCount"):
+            return fallback
+        return payload
+
+    service.start = start  # type: ignore[method-assign]
+    service.stop = stop  # type: ignore[method-assign]
+    service.ingest_realtime_event = ingest_realtime_event  # type: ignore[method-assign]
+    service.signals = signals  # type: ignore[method-assign]
+    return event_only
 
 
 def _safe_str(value: object, max_len: int = 240) -> str:
@@ -265,9 +432,11 @@ def _add_realtime_sideband_routes(app: web.Application) -> None:
 def _make_app() -> web.Application:
     critic = _build_critic()
     service = AnalysisService(make_critic=lambda _mode: critic, make_lanes=_make_lanes)
+    event_only = _install_event_only_realtime_fallback(service)
     app = make_app(service, ready_check=lambda: _vllm_ready(critic))
     app["realtime_mmm_records"] = []
     app["analysis_service"] = service  # turn-results가 turn_handoff를 읽는 경로
+    app["event_only_realtime_turns"] = event_only
     _add_realtime_sideband_routes(app)
 
     async def _warmup(_app: web.Application) -> None:

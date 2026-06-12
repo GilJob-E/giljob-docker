@@ -40,8 +40,12 @@ background auto-start to gate. `transcript_full` is bounded candidate-answer evi
 - Realtime MMM sideband delivery from `services/api` is push-based: `/realtime/turn-events`
   accepts sanitized answer-state/readiness records. It does not store raw transcript/media and it does
   not replace GilJobE's LiveKit subscriber path.
-- Realtime sentence-lane mode (GilJobE `5ba7249`) can consume API sideband transcript events when
-  `GILJOBE_TRANSCRIPT_SOURCE=external`; the default remains internal Gemma STT grid unless flipped.
+- Realtime sentence-lane mode (GilJobE `5ba7249`) consumes API sideband transcript events when
+  `GILJOBE_TRANSCRIPT_SOURCE=external`; this is the Realtime branch default. Set
+  `GILJOBE_TRANSCRIPT_SOURCE=internal` only for legacy LiveKit/Gemma STT grid testing.
+- If the Realtime base stack has no LiveKit media service, `/subscriber/start` falls back to an
+  event-only external-transcript turn. It accepts API sideband sentence events and still emits a
+  candidate-safe `turnHandoff`; full audio/video measurement remains a LiveKit media-path feature.
 - Objective grounding lanes (GilJobE `5ba7249`): CPU-only vision (MediaPipe Face+Pose at full fps)
   and audio prosody (pitch/rate/pauses/energy) measurements are injected into the Gemma prompts
   with anti-hallucination rules and additionally emitted raw on records as `objective_nonverbal`
