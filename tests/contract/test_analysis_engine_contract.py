@@ -64,7 +64,9 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("candidateSafePromptFragment", wrapper)
         self.assertIn("class _EventOnlyRealtimeTurns", wrapper)
         self.assertIn("_install_event_only_realtime_fallback", wrapper)
-        self.assertIn("eventOnlyFallback", wrapper)
+        self.assertIn("realtimeNativeAnalysisSession", wrapper)
+        self.assertIn("_active_by_key", wrapper)
+        self.assertIn("_finalized_by_key", wrapper)
         self.assertIn("2026-06-12.per-turn-mmm-result.v1", wrapper)
         self.assertIn("2026-06-12.candidate-safe-prompt-fragment.v1", wrapper)
         dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
@@ -199,11 +201,11 @@ class AnalysisEngineContractTest(unittest.TestCase):
 
     def test_root_docs_and_verification_no_longer_reference_deleted_wrapper(self) -> None:
         root_readme = (REPO_ROOT / "README.md").read_text()
-        root_agents = (REPO_ROOT / "AGENTS.md").read_text()
+        analysis_agents = (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text()
         self.assertIn("services/analysis-engine/server.py", root_readme)
         self.assertIn("docker build -q services/analysis-engine", root_readme)
-        self.assertIn("services/analysis-engine/", root_agents)
-        self.assertIn("/realtime/turn-events", root_agents)
+        self.assertIn("/realtime/turn-events", analysis_agents)
+        self.assertIn("analysis-engine", analysis_agents)
 
     def test_no_raw_secret_or_media_examples_in_analysis_docs(self) -> None:
         docs = "\n".join(
@@ -241,9 +243,38 @@ class TurnResultsContractTest(unittest.TestCase):
         # 구 핀 강등(ImportError → None) + 턴 미완결 pending — API 409 게이트와 정합
         self.assertIn("render_prompt_fragment = None", wrapper)
         self.assertIn('"status": "pending"', wrapper)
-        # 활성 세션 폴백 금지 — interviewId 정확 일치만(타 인터뷰 결과 누출 방지)
-        self.assertIn("service.signals(interview_id)", wrapper)
+        # 활성/last/session-wide 폴백 금지 — exact turn-keyed RNAS storage only.
+        self.assertIn("rnas.turn_result(interview_id, turn_index)", wrapper)
+        self.assertIn("no_exact_turn_result", wrapper)
         self.assertNotIn("service.signals(None)", wrapper)
+
+    def test_realtime_native_analysis_session_is_exact_turn_keyed_and_requires_all_lanes(self) -> None:
+        module = load_analysis_engine_wrapper()
+        rnas = module._EventOnlyRealtimeTurns()
+        start = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_started"})
+        self.assertTrue(start["accepted"])
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "prosody.window_metrics"})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "vision.frame_metrics"})
+        end = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_ended"})
+        self.assertTrue(end["accepted"])
+        ready = rnas.turn_result("demo", 1)
+        self.assertEqual(ready["status"], "ready")
+        self.assertEqual(ready["turnIndex"], 1)
+        self.assertIn("candidatePromptFragment", ready)
+        self.assertFalse(ready["rawTranscriptLogged"])
+        self.assertEqual(rnas.turn_result("demo", 2)["reason"], "no_exact_turn_result")
+        self.assertEqual(rnas.turn_result("other", 1)["reason"], "no_exact_turn_result")
+
+    def test_realtime_native_analysis_session_missing_lane_stays_pending(self) -> None:
+        module = load_analysis_engine_wrapper()
+        rnas = module._EventOnlyRealtimeTurns()
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_started"})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_ended"})
+        pending = rnas.turn_result("demo", 1)
+        self.assertEqual(pending["status"], "pending")
+        self.assertIn(pending["reason"], {"missing_prosody", "missing_vision"})
 
     def test_turn_results_loads_with_legacy_pin_mocks(self) -> None:
         # giljobe.emit.handoff가 없는(구 핀) 모킹 환경에서도 래퍼 로드는 성공해야 한다
