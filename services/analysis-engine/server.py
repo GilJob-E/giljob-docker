@@ -39,26 +39,51 @@ INTERNAL_TRANSCRIPT_DETAIL_PATHS = {("detail", "transcript"), ("detail", "text")
 SAFE_LANE_KEYS = ("transcript", "prosody", "vision")
 
 
-class _EventOnlySession:
-    def __init__(self, session_id: str, critic_mode: str, started_at: float) -> None:
-        self.session_id = session_id
+class _RnasSession:
+    def __init__(self, interview_id: str, turn_index: int, critic_mode: str, started_at: float) -> None:
+        self.interview_id = interview_id
+        self.turn_index = turn_index
         self.critic_mode = critic_mode
         self.started_at = started_at
         self.records: list[dict[str, Any]] = []
         self.seen_sentence_keys: set[str] = set()
         self.last_sentence_end_s = 0.0
+        self.transcript_observed = False
+        self.prosody_observed = False
+        self.vision_observed = False
+        self.answer_ended = False
+
+    @property
+    def key(self) -> tuple[str, int]:
+        return (self.interview_id, self.turn_index)
+
+
+class _EventOnlySession(_RnasSession):
+    """Backward-compatible alias for older tests/importers."""
+
+    def __init__(self, session_id: str, critic_mode: str, started_at: float, turn_index: int = 0) -> None:
+        super().__init__(session_id, turn_index, critic_mode, started_at)
+
+    @property
+    def session_id(self) -> str:
+        return self.interview_id
 
 
 class _EventOnlyRealtimeTurns:
-    """External transcript fallback for the Realtime branch.
+    """First-class Realtime-native analysis sessions keyed by interview + turn.
 
-    GilJobE's normal `/subscriber/start` path still owns the full LiveKit media
-    analyzer. The Realtime base stack can run without LiveKit, though, so an
-    external transcript turn must still be able to accept API sideband sentence
-    events and produce a candidate-safe turn handoff.
+    The Realtime main path does not depend on the LiveKit subscriber lifecycle.
+    API-forwarded answer lifecycle and bounded sideband metadata open, update,
+    finalize, and expose candidate-safe results for the exact
+    ``(interviewId, turnIndex)`` requested by the ordinary response gate. No
+    active/last/session-wide fallback is used for `/realtime/turn-results`.
     """
 
     def __init__(self) -> None:
+        self._active_by_key: dict[tuple[str, int], _RnasSession] = {}
+        self._finalized_by_key: dict[tuple[str, int], _RnasSession] = {}
+        # Legacy subscriber fallback fields are retained only for the wrapped
+        # GilJobE /subscriber/start|stop compatibility path.
         self._active: _EventOnlySession | None = None
         self._last: _EventOnlySession | None = None
 
@@ -77,6 +102,7 @@ class _EventOnlyRealtimeTurns:
             "state": "running",
             "status": "running",
             "eventOnlyFallback": True,
+            "realtimeNativeMainPath": False,
             "rawMediaAccepted": False,
             "rawSecretsExposed": False,
         }
@@ -97,18 +123,79 @@ class _EventOnlyRealtimeTurns:
             "rawSecretsExposed": False,
         }
 
+    def start_turn(self, interview_id: str, turn_index: int, critic_mode: str = "window") -> dict[str, object]:
+        key = (interview_id, turn_index)
+        sess = _RnasSession(interview_id, turn_index, critic_mode, time.monotonic())
+        self._active_by_key[key] = sess
+        self._finalized_by_key.pop(key, None)
+        return {
+            "accepted": True,
+            "status": "running",
+            "sessionId": interview_id,
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "realtimeNativeAnalysisSession": True,
+            "rawMediaAccepted": False,
+            "rawTranscriptLogged": False,
+        }
+
     def ingest(self, payload: dict[str, Any]) -> dict[str, object]:
+        interview_id = _safe_str(payload.get("interviewId") or payload.get("sessionId"), 96)
+        turn_index = _safe_turn_index(payload.get("turnIndex"))
+        kind = _safe_str(payload.get("eventKind") or payload.get("normalizedType") or payload.get("type"), 120)
+        if interview_id and turn_index is not None:
+            return self.ingest_turn(payload, interview_id=interview_id, turn_index=turn_index, kind=kind)
+        return self._ingest_legacy(payload, kind)
+
+    def ingest_turn(self, payload: dict[str, Any], *, interview_id: str, turn_index: int, kind: str) -> dict[str, object]:
+        key = (interview_id, turn_index)
+        if kind in {"turn.answer_started", "turn.answer.start"}:
+            return self.start_turn(interview_id, turn_index)
+        sess = self._active_by_key.get(key)
+        if sess is None:
+            return {"accepted": False, "reason": "no_active_rnas_session", "interviewId": interview_id, "turnIndex": turn_index}
+        detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else {}
+        sentence_added = self._apply_payload(sess, kind, payload, detail)
+        if kind in {"turn.answer_ended", "turn.answer.end"}:
+            self._finish(sess)
+            sess.answer_ended = True
+            self._finalized_by_key[key] = sess
+            self._active_by_key.pop(key, None)
+        return {
+            "accepted": True,
+            "eventKind": kind,
+            "realtimeNativeAnalysisSession": True,
+            "sentenceAdded": sentence_added,
+            "recordCount": len(sess.records),
+            "resultStatus": self.turn_result_status(interview_id, turn_index),
+            "rawMediaAccepted": False,
+            "rawTranscriptLogged": False,
+        }
+
+    def _ingest_legacy(self, payload: dict[str, Any], kind: str) -> dict[str, object]:
         sess = self._active
         if sess is None:
             return {"accepted": False, "reason": "no_active_session"}
         session_id = _safe_str(payload.get("sessionId") or payload.get("interviewId"), 96)
         if session_id and session_id != sess.session_id:
             return {"accepted": False, "reason": "session_mismatch"}
-        kind = _safe_str(payload.get("eventKind") or payload.get("normalizedType") or payload.get("type"), 120)
         detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else {}
+        sentence_added = self._apply_payload(sess, kind, payload, detail)
+        if kind in {"turn.answer_ended", "turn.answer.end"}:
+            self._finish(sess)
+            sess.answer_ended = True
+        return {
+            "accepted": True,
+            "eventKind": kind,
+            "eventOnlyFallback": True,
+            "sentenceAdded": sentence_added,
+            "recordCount": len(sess.records),
+        }
+
+    def _apply_payload(self, sess: _RnasSession, kind: str, payload: dict[str, Any], detail: dict[str, Any]) -> bool:
+        sentence_added = False
         text = detail.get("transcript") or detail.get("text")
         item_id = detail.get("itemId") or payload.get("itemId")
-        sentence_added = False
         if isinstance(text, str) and text.strip() and kind in {"transcript.completed", "analysis.transcript.completed"}:
             key = _safe_str(item_id or text, 160)
             if key and key not in sess.seen_sentence_keys:
@@ -125,15 +212,59 @@ class _EventOnlyRealtimeTurns:
                     "text": sentence,
                 })
                 sess.last_sentence_end_s = end_s
+                sess.transcript_observed = True
                 sentence_added = True
-        if kind in {"turn.answer_ended", "turn.answer.end"}:
-            self._finish(sess)
+        if kind in {"prosody.window_metrics", "analysis.prosody.window_metrics"}:
+            sess.prosody_observed = True
+            sess.records.append({"type": "prosody_marker", "t": round(time.monotonic() - sess.started_at, 3)})
+        if kind in {"vision.frame_metrics", "vision_metadata"}:
+            sess.vision_observed = True
+            sess.records.append({"type": "vision_marker", "t": round(time.monotonic() - sess.started_at, 3)})
+        return sentence_added
+
+    def turn_result_status(self, interview_id: str, turn_index: int) -> str:
+        result = self.turn_result(interview_id, turn_index)
+        return _safe_str(result.get("status"), 40)
+
+    def turn_result(self, interview_id: str, turn_index: int) -> dict[str, object]:
+        key = (interview_id, turn_index)
+        sess = self._finalized_by_key.get(key)
+        if sess is None:
+            if key in self._active_by_key:
+                return _pending_result(interview_id, turn_index, "answer_not_finalized")
+            return _pending_result(interview_id, turn_index, "no_exact_turn_result")
+        missing = []
+        if not sess.answer_ended:
+            missing.append("missing_answer_end")
+        if not sess.transcript_observed:
+            missing.append("missing_transcript")
+        if not sess.prosody_observed:
+            missing.append("missing_prosody")
+        if not sess.vision_observed:
+            missing.append("missing_vision")
+        if missing:
+            return _pending_result(interview_id, turn_index, missing[0], missing)
+        coverage = {
+            "transcript": {"observed": True, "status": "complete"},
+            "prosody": {"observed": True, "status": "metadata_observed"},
+            "vision": {"observed": True, "status": "metadata_observed"},
+        }
+        fragment = (
+            "Use the previous answer coverage to ask one focused Korean follow-up. "
+            "The answer had complete transcript plus prosody and visual metadata markers; "
+            "probe for a concrete example, decision, or measurable outcome without quoting the transcript."
+        )
         return {
-            "accepted": True,
-            "eventKind": kind,
-            "eventOnlyFallback": True,
-            "sentenceAdded": sentence_added,
+            "schemaVersion": "2026-06-12.rnas-turn-result.v1",
+            "status": "ready",
+            "sessionId": interview_id,
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "candidatePromptFragment": fragment,
+            "coverage": coverage,
             "recordCount": len(sess.records),
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
         }
 
     def signals(self, session_id: str | None = None) -> dict[str, object]:
@@ -142,7 +273,7 @@ class _EventOnlyRealtimeTurns:
                 return signals_payload(sess.session_id, sess.records)
         return signals_payload(session_id or "", [])
 
-    def _finish(self, sess: _EventOnlySession) -> None:
+    def _finish(self, sess: _RnasSession) -> None:
         if any(record.get("type") == "turn_end" for record in sess.records):
             return
         transcript = " ".join(
@@ -155,6 +286,28 @@ class _EventOnlyRealtimeTurns:
             "t": round(time.monotonic() - sess.started_at, 3),
             "transcript_full": transcript,
         })
+
+
+def _safe_turn_index(value: object) -> int | None:
+    if isinstance(value, int) and 0 <= value <= 9999:
+        return value
+    text = _safe_str(value, 8)
+    if text.isdigit():
+        return int(text)
+    return None
+
+
+def _pending_result(interview_id: str, turn_index: int, reason: str, reasons: list[str] | None = None) -> dict[str, object]:
+    return {
+        "result": None,
+        "status": "pending",
+        "reason": reason,
+        "reasonCodes": reasons or [reason],
+        "interviewId": interview_id,
+        "turnIndex": turn_index,
+        "rawTranscriptLogged": False,
+        "rawMediaAccepted": False,
+    }
 
 
 def _install_event_only_realtime_fallback(service: AnalysisService) -> _EventOnlyRealtimeTurns:
@@ -341,14 +494,21 @@ async def _realtime_turn_events(req: web.Request) -> web.Response:
     records: list[dict[str, object]] = req.app["realtime_mmm_records"]
     records.append(record)
     del records[:-MAX_REALTIME_MMM_RECORDS]
+    rnas = req.app.get("event_only_realtime_turns")
+    rnas_result = {"accepted": False, "reason": "rnas_unavailable"}
+    if isinstance(rnas, _EventOnlyRealtimeTurns):
+        rnas_result = rnas.ingest(payload)
+    status = 202 if rnas_result.get("accepted") is not False else 409
     return _json({
-        "accepted": True,
+        "accepted": bool(rnas_result.get("accepted")),
         "service": "analysis-engine",
         "endpoint": "/realtime/turn-events",
+        "realtimeNativeAnalysisSession": bool(rnas_result.get("realtimeNativeAnalysisSession")),
+        "reason": _safe_str(rnas_result.get("reason"), 120),
         "rawTranscriptLogged": False,
         "rawMediaAccepted": False,
         "recordCount": len(records),
-    }, status=202)
+    }, status=status)
 
 
 async def _realtime_turn_events_tail(req: web.Request) -> web.Response:
@@ -370,38 +530,26 @@ async def _realtime_turn_events_tail(req: web.Request) -> web.Response:
 
 
 async def _realtime_turn_results(req: web.Request) -> web.Response:
-    """GilJob v2 계약: API가 next-question 직전 서버사이드로 당겨가는 턴 분석 결과
-    (services/api `_fetch_analysis_result` → response.create instructions 주입).
+    """Return the exact turn-keyed RNAS result consumed by the API gate.
 
-    GilJobE turn_handoff v2가 있으면 status=ready + candidatePromptFragment(≤880자 단일라인,
-    전사 인용 없음 — API의 900자 _safe_str·금칙어 필터를 통과하도록 설계). 턴 미완결이면
-    pending(result=null) — API가 409로 게이트한다. 세션 룩업은 interviewId 정확 일치만
-    (활성 폴백 없음 — 다른 인터뷰 결과가 새는 것보다 pending이 낫다). turnIndex는 에코 전용
-    (엔진 세션=단일 턴, 인덱스 추적은 API 몫)."""
+    This route intentionally resolves only ``(interviewId, turnIndex)`` from
+    Realtime-native storage. It never falls back to active, last, global, or
+    session-wide GilJobE state, preventing stale cross-turn bleed into ordinary
+    ``response.create`` authorization.
+    """
     interview_id = _safe_str(req.query.get("interviewId"), 96)
-    turn_index = _safe_str(req.query.get("turnIndex"), 8)
-    service = req.app.get("analysis_service")
-    pending = {
-        "result": None, "status": "pending",
-        "rawTranscriptLogged": False, "rawMediaAccepted": False,
-    }
-    if service is None or render_prompt_fragment is None or not interview_id:
-        return _json(pending)
-    payload = service.signals(interview_id)
-    handoff = payload.get("turnHandoff")
-    if not handoff:
-        return _json(pending)
+    turn_index = _safe_turn_index(req.query.get("turnIndex"))
+    if not interview_id or turn_index is None:
+        return _json(_pending_result(interview_id, turn_index or 0, "missing_exact_turn_key"), status=400)
+    rnas = req.app.get("event_only_realtime_turns")
+    if not isinstance(rnas, _EventOnlyRealtimeTurns):
+        return _json(_pending_result(interview_id, turn_index, "rnas_unavailable"))
+    result = rnas.turn_result(interview_id, turn_index)
+    if result.get("status") != "ready":
+        return _json(result)
     return _json({
-        "result": {
-            "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
-            "status": "ready",
-            "sessionId": _safe_str(payload.get("sessionId"), 96),
-            "turnIndex": int(turn_index) if turn_index.isdigit() else None,
-            "candidatePromptFragment": render_prompt_fragment(handoff),
-            "coverage": (handoff.get("meta") or {}).get("coverage"),
-            "rawTranscriptLogged": False,
-            "rawMediaAccepted": False,
-        },
+        "result": result,
+        "status": "ready",
         "rawTranscriptLogged": False,
         "rawMediaAccepted": False,
     })

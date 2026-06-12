@@ -469,6 +469,25 @@ def _extract_analysis_result(payload: dict[str, Any]) -> dict[str, Any] | None:
         return payload
     return None
 
+def _analysis_result_gate_failure(result: dict[str, Any] | None, interview_id: str, turn_index: int) -> tuple[str, str] | None:
+    if result is None:
+        return ("analysis_result_unavailable", "structured_analysis_required")
+    status = _safe_str(result.get("status"), 40)
+    result_interview_id = _safe_str(result.get("interviewId") or result.get("sessionId"), 96)
+    result_turn_index = result.get("turnIndex")
+    if result_interview_id and result_interview_id != interview_id:
+        return ("analysis_result_wrong_turn", "exact_turn_analysis_result_required")
+    if isinstance(result_turn_index, int) and result_turn_index != turn_index:
+        return ("analysis_result_wrong_turn", "exact_turn_analysis_result_required")
+    if isinstance(result_turn_index, str) and result_turn_index.isdigit() and int(result_turn_index) != turn_index:
+        return ("analysis_result_wrong_turn", "exact_turn_analysis_result_required")
+    if status != "ready":
+        return ("analysis_result_not_ready", "ready_analysis_result_required")
+    fragment = _candidate_safe_fragment(result.get("candidatePromptFragment") or result.get("realtimePromptFragment") or result.get("nextQuestionGuidance"))
+    if not fragment or bool(result.get("rawTranscriptLogged", False)) or bool(result.get("rawMediaAccepted", False)):
+        return ("analysis_result_not_usable", "candidate_safe_ready_result_required")
+    return None
+
 
 def _fetch_analysis_result(interview_id: str, turn_index: int) -> tuple[dict[str, Any] | None, dict[str, object]]:
     endpoint = f"{ANALYSIS_ENGINE_INTERNAL_URL}/realtime/turn-results?{_analysis_result_query(interview_id, turn_index)}"
@@ -568,31 +587,23 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
     wait_start = time.perf_counter()
     result, source = _resolve_analysis_result(interview_id, analysis_turn_index, payload)
     _log_latency_span("api.analysis.result.wait", _duration_ms(wait_start), status=200 if result else 504, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
-    if not result:
-        return _return_with_latency(409, {
-            "error": "analysis_result_unavailable",
+    gate_failure = _analysis_result_gate_failure(result, interview_id, analysis_turn_index)
+    if gate_failure:
+        error, reason = gate_failure
+        payload = {
+            "error": error,
             "interviewId": interview_id,
             "turnIndex": turn_index,
             "analysisTurnIndex": analysis_turn_index,
             "analysisEngine": source,
-            "responseCreate": {"owner": "api", "created": False, "reason": "structured_analysis_required"},
+            "responseCreate": {"owner": "api", "created": False, "reason": reason},
             "delivery": _realtime_delivery("api-sideband-response-create"),
-        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
+        }
+        if result:
+            payload["analysisResult"] = _analysis_result_public_summary(result)
+        return _return_with_latency(409, payload, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
-    status = _safe_str(result.get("status"), 40)
     fragment = _candidate_safe_fragment(result.get("candidatePromptFragment") or result.get("realtimePromptFragment") or result.get("nextQuestionGuidance"))
-    if status != "ready" or not fragment or bool(result.get("rawTranscriptLogged", False)) or bool(result.get("rawMediaAccepted", False)):
-        return _return_with_latency(409, {
-            "error": "analysis_result_not_usable",
-            "interviewId": interview_id,
-            "turnIndex": turn_index,
-            "analysisTurnIndex": analysis_turn_index,
-            "analysisResult": _analysis_result_public_summary(result),
-            "analysisEngine": source,
-            "responseCreate": {"owner": "api", "created": False, "reason": "candidate_safe_ready_result_required"},
-            "delivery": _realtime_delivery("api-sideband-response-create"),
-        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
-
     _log_latency_span("api.analysis.result.ready", 0, status=200, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
     instructions = (
         "Use this candidate-safe guidance from the previous answer to ask the next Korean interview question. "
@@ -1253,7 +1264,7 @@ class Handler(BaseHTTPRequestHandler):
             if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
                 self._json(400, {"error": "invalid_interview_id"})
                 return
-            self._json(200, _readiness_payload_with_durable_fallback(interview_id, turn_index))
+            self._json(200, _readiness_payload_with_analysis_result(interview_id, turn_index))
             return
         if self.path == "/healthz":
             self._json(200, {"service": SERVICE_NAME, "status": "ok"})
