@@ -34,6 +34,7 @@
   LiveKit candidate token 발급
   AvatarKit RTC viewer token 발급
   /api/interviews/:id/* broker
+  Realtime MMM sideband forward
 ]
 
 [<store> Postgres|
@@ -66,15 +67,16 @@
 
 [<service> OpenAI Realtime API|
   /v1/realtime/client_secrets
-  /v1/realtime/calls SDP attach
-  ephemeral browser WebRTC secret only
+  /v1/realtime/calls server-side SDP attach
+  browser-facing API call broker only
   interviewer audio + transcript events
 ]
 
 [<service> AI Engine|
-  Gemini next-question boundary
-  Gemini native TTS voice boundary
-  SpatialReal session broker
+  internal compatibility boundary only
+  keyless route-smoke adapter
+  API-called TTS/avatar adapters
+  no Realtime broker/question fallback
   SpatialReal LiveKit egress attempt
 ]
 
@@ -105,12 +107,13 @@
 [OpenAI Realtime API] - interviewer audio/transcript events -> [후보자 브라우저]
 [후보자 브라우저] - transcript/prosody/vision sideband -> [API Service]
 [API Service] - full_mmm_ready gate -> [후보자 브라우저]
+[API Service] - sanitized MMM events /realtime/turn-events -> [Analysis Engine Service\n(GilJobE)]
 [LiveKit Server] - candidate audio/video tracks -> [Analysis Engine Service\n(GilJobE)]
-[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [AI Engine]
-[AI Engine] - next question + TTS audio -> [API Service]
+[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [API Service]
+[AI Engine] - compatibility TTS/avatar metadata -> [API Service]
 [AI Engine] - session token / egress audio -> [SpatialReal Cloud]
 [SpatialReal Cloud] - avatar stream publish -> [LiveKit Server]
-[AI Engine] - next question / policy update -> [Main LLM / Interview Controller]
+[API Service] - response policy context -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
 [후보자 브라우저] - relay 필요 시 -> [coturn]
 [LiveKit Server] - TURN boundary -> [coturn]

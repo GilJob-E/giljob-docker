@@ -23,12 +23,12 @@ DEFAULT_MARKERS = (
     "function connectRealtimeRoom",
     "requestRealtimeSessionBroker",
     "requestRealtimeWebrtcAnswer",
-    "ephemeral client secret hidden",
+    "provider secrets hidden",
     "waitForFullMmmReady",
     "realtime.response.create",
     "realtime.first_audio",
     "vision.frame_metrics",
-    "browser tools disabled; backend sideband required",
+    "Realtime WebRTC SDP attached through API call broker",
 )
 
 
@@ -258,10 +258,10 @@ def run(argv: list[str]) -> tuple[dict[str, Any], int]:
     primary_check_names = ("staticReadiness", "sessionRoutes", "realtimeSessionBroker", "fullMmmGate")
     primary_ok = all(checks[name].get("ok") is True for name in primary_check_names)
     live_ready = checks["realtimeSessionBroker"].get("liveConfigured") is True
-    # The browser-primary WebRTC flow posts SDP with an ephemeral client_secret directly to
-    # /v1/realtime/calls. The server-side /realtime/call broker is retained as a diagnostic
-    # boundary only; a provider 502 from its synthetic SDP probe must not fail the primary
-    # live-readiness gate once session minting, static markers, and full-MMM sideband are OK.
+    # The browser-primary WebRTC flow posts SDP to the GilJob API call broker. The
+    # synthetic /realtime/call probe remains diagnostic because it cannot provide a
+    # real browser SDP/media session, but a disabled/prepared broker is not enough for
+    # an actual browser smoke.
     ok = primary_ok
     summary = {
         "ok": ok,

@@ -24,7 +24,7 @@ PATH_SPECIFIC_TERMS = {
     "AGENTS.md": ["single-server", "multi-container", "LIVEKIT_INTERNAL_URL", "LIVEKIT_PUBLIC_URL"],
     "apps/web/AGENTS.md": ["DESIGN.md", "manual button", "right sidebar", "redaction", "raw token"],
     "services/api/AGENTS.md": ["hash-only", "raw token", "LIVEKIT_INTERNAL_URL", "LIVEKIT_PUBLIC_URL"],
-    "services/ai-engine/AGENTS.md": ["GEMINI_API_KEY", "next-question provider", "LLM_PROVIDER=gemini"],
+    "services/ai-engine/AGENTS.md": ["Realtime-only", "VOICE_PROVIDER=fake", "VOICE_PROVIDER=elevenlabs"],
     "services/agent1/AGENTS.md": ["future multimodal placeholder", "structured signal", "raw media"],
     "infra/AGENTS.md": ["Caddy", "LiveKit", "coturn", "direct media", "/ai/*", "broker routes", "Direct public"],
     "tests/AGENTS.md": ["tests/contract", "tests/integration", "path-specific"],
@@ -37,7 +37,7 @@ RUNBOOK_SPECIFIC_TERMS = {
     "docs/runbooks/verification.md": [
         "ssh hoddukzoa@kiostation",
         "node --check apps/web/static/app.js",
-        "py_compile services/api/server.py services/ai-engine/server.py",
+        "py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py",
         "python3 -m unittest discover -s tests/contract -v",
         "git diff --check",
         "Do not use `/home/hoddukzoa/GilJob`",
@@ -52,10 +52,13 @@ RUNBOOK_SPECIFIC_TERMS = {
     ],
     "docs/runbooks/tts-avatar-contract.md": [
         "VOICE_PROVIDER=fake",
-        "VOICE_PROVIDER=gemini",
-        "TTS_PROVIDER_FAILURE_FALLBACK=fake",
+        "Gemini TTS fallback is removed",
+        "TTS_PROVIDER_FAILURE_FALLBACK",
         "AVATAR_PROVIDER=disabled",
         "AVATAR_PROVIDER_FAILURE_FALLBACK=disabled",
+        "post-TTS publisher only",
+        "does not ingest OpenAI Realtime remote audio",
+        "No OpenAI Realtime remote-audio injection into SpatialReal",
         "Do not downgrade `livekit-client`",
     ],
     "docs/source-manifest.md": [
@@ -67,7 +70,7 @@ RUNBOOK_SPECIFIC_TERMS = {
 
 REMOTE_VERIFICATION_COMMANDS = [
     "node --check apps/web/static/app.js",
-    "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py",
+    "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py",
     "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v",
     "git diff --check",
 ]
@@ -81,7 +84,7 @@ FORBIDDEN_IMPLEMENTED_CLAIMS = [
 ]
 
 JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
-GEMINI_KEY_RE = re.compile(r"AIza[0-9A-Za-z_-]{20,}")
+GOOGLE_AI_KEY_RE = re.compile(r"AIza[0-9A-Za-z_-]{20,}")
 LIVEKIT_SECRET_RE = re.compile(r"(?i)(livekit[_-]api[_-]secret\s*[=:]\s*)(?!your-|example|placeholder|devsecret)[A-Za-z0-9_-]{16,}")
 
 
@@ -128,13 +131,24 @@ class AgentDocsContractTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn(command, body)
 
+
+    def test_env_example_keeps_openai_realtime_primary_and_removes_gemini_fallback(self) -> None:
+        body = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertIn("OPENAI_REALTIME_PRIMARY=true", body)
+        self.assertIn("LLM_PROVIDER=fake", body)
+        self.assertIn("REALTIME_MMM_FORWARD_ENABLED=true", body)
+        self.assertNotIn("GEMINI_API_KEY", body)
+        self.assertNotIn("GEMINI_MODEL", body)
+        self.assertNotIn("GEMINI_TTS_MODEL", body)
+        self.assertIsNone(re.search(r"(?m)^OPENAI_REALTIME_PRIMARY=false$", body))
+
     def test_agent_docs_do_not_include_raw_secret_shapes(self) -> None:
         for path in self.agent_doc_paths():
             body = path.read_text(encoding="utf-8")
             rel = str(path.relative_to(REPO_ROOT))
             with self.subTest(path=rel):
                 self.assertIsNone(JWT_RE.search(body))
-                self.assertIsNone(GEMINI_KEY_RE.search(body))
+                self.assertIsNone(GOOGLE_AI_KEY_RE.search(body))
                 self.assertIsNone(LIVEKIT_SECRET_RE.search(body))
 
     def test_agent_docs_do_not_claim_future_features_are_complete(self) -> None:

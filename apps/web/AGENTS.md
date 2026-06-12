@@ -10,7 +10,7 @@ This module owns the browser-facing GilJob v2 web shell. Follow the root `AGENTS
 - Keep interview context as a right sidebar, not an overlay that covers the interviewer screen.
 - Preserve the manual button answer flow: interviewer question ends, the manual answer button enables, the candidate starts speaking, and the candidate presses again to end/finalize the answer; STT output belongs to the future GilJobE analysis-engine boundary, not a browser-owned transcription path.
 - Use LiveKit only as the browser media/signaling client. Do not move token issuing into the browser.
-- Use OpenAI Realtime only through API-issued ephemeral client secrets. The browser may attach SDP to `/v1/realtime/calls`, but it must never receive the standard provider key.
+- Use OpenAI Realtime only through API-mediated routes. The browser posts SDP to `/api/interviews/:id/realtime/call`; it must never call provider `/v1/realtime/calls` directly or receive the standard provider key.
 - Keep ordinary next Realtime response creation gated on API-reported `full_mmm_ready`; transcript/prosody/vision sideband events go through `/api/interviews/...` routes.
 - Keep SpatialReal AvatarKit RTC rendering separate from interviewer audio and token issuance; browser code consumes only API-brokered avatar session/viewer metadata.
 

@@ -45,17 +45,21 @@ REALTIME_CALL_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-
 REALTIME_TURN_EVENTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/events/?$")
 REALTIME_VISION_EVENTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/vision-events/?$")
 REALTIME_MMM_READY_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/mmm-ready/?$")
+REALTIME_RESPONSE_CREATE_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/realtime/response/?$")
 MAX_TTS_TEXT_CHARS = 1_200
 MAX_REALTIME_EVENT_BYTES = int(os.getenv("MAX_REALTIME_EVENT_BYTES", "8192"))
 REALTIME_MMM_EVENT_LOG_PATH = os.getenv("REALTIME_MMM_EVENT_LOG_PATH", "/tmp/giljob-realtime-mmm-events.jsonl")
 REALTIME_MMM_FORWARD_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_FORWARD_TIMEOUT_SECONDS", "2"))
+REALTIME_MMM_RESULT_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_RESULT_TIMEOUT_SECONDS", "1.2"))
 MAX_REALTIME_INSTRUCTIONS_CHARS = 2_000
+MAX_REALTIME_PROMPT_FRAGMENT_CHARS = 900
 MAX_SDP_CHARS = 64_000
 
 # In-process scaffold store for G006. The persistence contract is represented by
 # services/api/db/schema.sql; a later M2 slice will wire this to Postgres.
 SESSION_HASH_STORE: dict[str, dict[str, object]] = {}
 REALTIME_TURN_STATE: dict[str, dict[int, dict[str, object]]] = {}
+REALTIME_RESPONSE_COMMANDS: dict[str, dict[int, dict[str, object]]] = {}
 REALTIME_MMM_EVENT_LOG_LOCK = threading.Lock()
 
 
@@ -118,6 +122,18 @@ def _safe_str(value: object, max_len: int = 4_000) -> str:
     return text[:max_len]
 
 
+def _safe_sdp(value: object, max_len: int = MAX_SDP_CHARS) -> str:
+    """Sanitize SDP without destroying its line-oriented grammar."""
+    text = "" if value is None else str(value)
+    text = text.replace("\x00", "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in text.split("\n")]
+    normalized = "\r\n".join(lines).strip()
+    if normalized:
+        normalized += "\r\n"
+    return normalized[:max_len]
+
+
 def _redact_provider_error(text: str) -> str:
     for name in ("ELEVENLABS_API_KEY", "SPATIALREAL_API_KEY", "LIVEKIT_API_SECRET"):
         value = os.getenv(name, "").strip()
@@ -157,7 +173,7 @@ def _realtime_unavailable_payload(error: str = "realtime_not_configured") -> dic
 
 
 def _realtime_route_config(interview_id: str) -> dict[str, object]:
-    primary = _env_enabled("OPENAI_REALTIME_PRIMARY", "false")
+    primary = _env_enabled("OPENAI_REALTIME_PRIMARY", "true")
     return {
         "enabled": primary,
         "mode": "primary" if primary else "prepared",
@@ -167,10 +183,11 @@ def _realtime_route_config(interview_id: str) -> dict[str, object]:
         "turnEventsEndpoint": f"/api/interviews/{interview_id}/turns/{{turnIndex}}/events",
         "visionEventsEndpoint": f"/api/interviews/{interview_id}/turns/{{turnIndex}}/vision-events",
         "mmmReadyEndpoint": f"/api/interviews/{interview_id}/turns/{{turnIndex}}/mmm-ready",
+        "responseCreateEndpoint": f"/api/interviews/{interview_id}/turns/{{turnIndex}}/realtime/response",
         "fullMmmRequiredBeforeResponseCreate": True,
-        "browserWebrtcAttach": "ephemeral-client-secret-sdp",
+        "browserWebrtcAttach": "api-call-broker",
         "standardOpenAIKey": "server-only",
-        "directProviderRoutes": "ephemeral-webrtc-only",
+        "directProviderRoutes": "blocked",
     }
 
 
@@ -294,7 +311,7 @@ def _persist_realtime_mmm_record(record: dict[str, object]) -> dict[str, object]
 
 
 def _forward_realtime_mmm_record(record: dict[str, object]) -> dict[str, object]:
-    if not _env_enabled("REALTIME_MMM_FORWARD_ENABLED", "false"):
+    if not _env_enabled("REALTIME_MMM_FORWARD_ENABLED", "true"):
         return {"attempted": False, "reason": "disabled"}
     endpoint = f"{ANALYSIS_ENGINE_INTERNAL_URL}/realtime/turn-events"
     request = urllib.request.Request(
@@ -402,6 +419,202 @@ def _readiness_payload_with_durable_fallback(interview_id: str, turn_index: int)
     if durable and (durable.get("full_mmm_ready") or not in_process.get("full_mmm_ready")):
         return durable
     return in_process
+
+
+_CANDIDATE_PROMPT_FORBIDDEN_RE = re.compile(
+    r"\b(?:MMM|analysis-engine|backend|sideband|readiness\s*gate|raw\s*rubric|provider\s*internal|server-only)\b",
+    re.IGNORECASE,
+)
+
+
+def _analysis_result_query(interview_id: str, turn_index: int) -> str:
+    return urllib.parse.urlencode({"interviewId": interview_id, "turnIndex": str(turn_index)})
+
+
+def _candidate_safe_fragment(value: object) -> str:
+    fragment = _safe_str(value, MAX_REALTIME_PROMPT_FRAGMENT_CHARS)
+    if not fragment:
+        return ""
+    if _CANDIDATE_PROMPT_FORBIDDEN_RE.search(fragment):
+        return ""
+    return fragment
+
+
+def _analysis_result_public_summary(result: dict[str, Any]) -> dict[str, object]:
+    return {
+        "schemaVersion": _safe_str(result.get("schemaVersion") or result.get("schema_version"), 80),
+        "status": _safe_str(result.get("status"), 40),
+        "confidence": result.get("confidence") if isinstance(result.get("confidence"), (int, float)) else None,
+        "latencyMs": result.get("latencyMs") if isinstance(result.get("latencyMs"), (int, float)) else None,
+        "rawTranscriptLogged": bool(result.get("rawTranscriptLogged", False)),
+        "rawMediaAccepted": bool(result.get("rawMediaAccepted", False)),
+    }
+
+
+def _extract_analysis_result(payload: dict[str, Any]) -> dict[str, Any] | None:
+    for key in ("result", "analysisResult", "mmmResult"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return value
+    if payload.get("schemaVersion") or payload.get("schema_version") or payload.get("candidatePromptFragment"):
+        return payload
+    return None
+
+
+def _fetch_analysis_result(interview_id: str, turn_index: int) -> tuple[dict[str, Any] | None, dict[str, object]]:
+    endpoint = f"{ANALYSIS_ENGINE_INTERNAL_URL}/realtime/turn-results?{_analysis_result_query(interview_id, turn_index)}"
+    request = urllib.request.Request(endpoint, method="GET", headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=REALTIME_MMM_RESULT_TIMEOUT_SECONDS) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            status = response.status
+    except urllib.error.HTTPError as error:
+        error.read()
+        return None, {"attempted": True, "status": error.code, "endpoint": "/realtime/turn-results", "error": "analysis_result_rejected"}
+    except urllib.error.URLError:
+        return None, {"attempted": True, "endpoint": "/realtime/turn-results", "error": "analysis_engine_unavailable"}
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return None, {"attempted": True, "status": status, "endpoint": "/realtime/turn-results", "error": "invalid_analysis_result"}
+    if not isinstance(parsed, dict):
+        return None, {"attempted": True, "status": status, "endpoint": "/realtime/turn-results", "error": "invalid_analysis_result"}
+    return _extract_analysis_result(parsed), {"attempted": True, "status": status, "endpoint": "/realtime/turn-results"}
+
+
+def _resolve_analysis_result(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, object]]:
+    inline_result = _extract_analysis_result(payload)
+    if inline_result is not None:
+        return inline_result, {"attempted": False, "source": "request-inline-test-fixture"}
+    return _fetch_analysis_result(interview_id, turn_index)
+
+
+def _realtime_response_create_command(instructions: str) -> dict[str, object]:
+    return {
+        "type": "response.create",
+        "response": {
+            "output_modalities": ["audio"],
+            "instructions": instructions,
+        },
+    }
+
+
+def _initial_realtime_question_instructions(payload: dict[str, Any]) -> str:
+    requested = payload.get("response") if isinstance(payload.get("response"), dict) else {}
+    instructions = _candidate_safe_fragment(requested.get("instructions"))
+    if instructions:
+        return instructions
+    return (
+        "You are a Korean live interviewer. Ask one concise opening interview question in Korean. "
+        "Do not mention implementation details or internal labels. "
+        "If context is missing, ask a broadly useful first question about the candidate's recent relevant experience."
+    )
+
+
+def create_realtime_response(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
+    start = time.perf_counter()
+    if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
+        return 400, {"error": "invalid_interview_id"}
+    if turn_index < 1:
+        return 400, {"error": "invalid_turn_index"}
+
+    analysis_turn_index = turn_index - 1
+    if turn_index == 1:
+        instructions = _initial_realtime_question_instructions(payload)
+        command = _realtime_response_create_command(instructions)
+        REALTIME_RESPONSE_COMMANDS.setdefault(interview_id, {})[turn_index] = {
+            "commandType": "response.create",
+            "bootstrap": True,
+            "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        _log_latency_span("api.realtime.context.inject", 0, status=200, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="openai-realtime")
+        return _return_with_latency(202, {
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": None,
+            "status": "response_create_queued",
+            "bootstrap": {"firstQuestion": True, "mmmGateRequired": False, "reason": "no_prior_candidate_answer"},
+            "responseCreate": {"owner": "api", "created": True, "commandType": "response.create"},
+            "sideband": {
+                "controlBoundary": "server-sideband",
+                "singleResponseCreateOwner": "api",
+                "browserTransportOnly": True,
+                "command": command,
+            },
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
+
+    readiness = _readiness_payload_with_durable_fallback(interview_id, analysis_turn_index)
+    if not readiness.get("full_mmm_ready"):
+        return _return_with_latency(409, {
+            "error": "analysis_result_not_ready",
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
+            "readiness": readiness,
+            "responseCreate": {"owner": "api", "created": False, "reason": "full_mmm_required_for_prior_answer"},
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
+
+    wait_start = time.perf_counter()
+    result, source = _resolve_analysis_result(interview_id, analysis_turn_index, payload)
+    _log_latency_span("api.analysis.result.wait", _duration_ms(wait_start), status=200 if result else 504, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
+    if not result:
+        return _return_with_latency(409, {
+            "error": "analysis_result_unavailable",
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
+            "analysisEngine": source,
+            "responseCreate": {"owner": "api", "created": False, "reason": "structured_analysis_required"},
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
+
+    status = _safe_str(result.get("status"), 40)
+    fragment = _candidate_safe_fragment(result.get("candidatePromptFragment") or result.get("realtimePromptFragment") or result.get("nextQuestionGuidance"))
+    if status != "ready" or not fragment or bool(result.get("rawTranscriptLogged", False)) or bool(result.get("rawMediaAccepted", False)):
+        return _return_with_latency(409, {
+            "error": "analysis_result_not_usable",
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
+            "analysisResult": _analysis_result_public_summary(result),
+            "analysisEngine": source,
+            "responseCreate": {"owner": "api", "created": False, "reason": "candidate_safe_ready_result_required"},
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
+
+    _log_latency_span("api.analysis.result.ready", 0, status=200, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
+    instructions = (
+        "Use this candidate-safe guidance from the previous answer to ask the next Korean interview question. "
+        "Do not mention internal infrastructure, private gating, or analysis labels. "
+        f"Guidance: {fragment}"
+    )
+    command = _realtime_response_create_command(instructions)
+    analysis_summary = _analysis_result_public_summary(result)
+    REALTIME_RESPONSE_COMMANDS.setdefault(interview_id, {})[turn_index] = {
+        "commandType": "response.create",
+        "analysisTurnIndex": analysis_turn_index,
+        "analysis": analysis_summary,
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    _log_latency_span("api.realtime.context.inject", 0, status=200, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="openai-realtime")
+    return _return_with_latency(202, {
+        "interviewId": interview_id,
+        "turnIndex": turn_index,
+        "analysisTurnIndex": analysis_turn_index,
+        "status": "response_create_queued",
+        "analysisResult": analysis_summary,
+        "analysisEngine": source,
+        "responseCreate": {"owner": "api", "created": True, "commandType": "response.create"},
+        "sideband": {
+            "controlBoundary": "server-sideband",
+            "singleResponseCreateOwner": "api",
+            "browserTransportOnly": True,
+            "command": command,
+        },
+        "delivery": _realtime_delivery("api-sideband-response-create"),
+    }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
 
 def record_realtime_turn_event(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
@@ -516,6 +729,53 @@ def _default_realtime_session_config(interview_id: str, payload: dict[str, Any] 
     }
 
 
+def _default_realtime_call_session_config(interview_id: str, payload: dict[str, Any] | None = None) -> dict[str, object]:
+    """Session config for the unified WebRTC /realtime/calls attach.
+
+    Keep the initial calls payload close to the official unified-interface
+    example: SDP plus a small `session` object. STT/VAD knobs are applied after
+    the data channel opens via `session.update`, which avoids provider-side 400s
+    during SDP attach while preserving the API-owned response gate.
+    """
+    session = _default_realtime_session_config(interview_id, payload).get("session")
+    if not isinstance(session, dict):
+        session = {}
+    audio = session.get("audio") if isinstance(session.get("audio"), dict) else {}
+    output = audio.get("output") if isinstance(audio.get("output"), dict) else {"voice": OPENAI_REALTIME_VOICE}
+    config: dict[str, object] = {
+        "type": "realtime",
+        "model": _safe_str(session.get("model") or OPENAI_REALTIME_MODEL, 120),
+        "audio": {"output": output},
+    }
+    instructions = session.get("instructions")
+    if isinstance(instructions, str) and instructions.strip():
+        config["instructions"] = _safe_str(instructions, MAX_REALTIME_INSTRUCTIONS_CHARS)
+    return config
+
+
+def _realtime_post_connect_session_update() -> dict[str, object]:
+    return {
+        "type": "session.update",
+        "session": {
+            "type": "realtime",
+            "audio": {
+                "input": {
+                    "transcription": {
+                        "model": OPENAI_REALTIME_TRANSCRIPTION_MODEL,
+                        **({"language": OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE} if OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE else {}),
+                        **({"delay": OPENAI_REALTIME_TRANSCRIPTION_DELAY} if OPENAI_REALTIME_TRANSCRIPTION_DELAY else {}),
+                    },
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "create_response": False,
+                        "interrupt_response": False,
+                    },
+                }
+            }
+        },
+    }
+
+
 def _openai_realtime_sdp_endpoint(model: object | None = None) -> str:
     _ = model  # Realtime Calls SDP attach endpoint is model-less; model is set when minting the ephemeral session.
     return f"{OPENAI_REALTIME_API_BASE}/realtime/calls"
@@ -570,9 +830,10 @@ def _parse_realtime_response(raw_body: str, status: int) -> dict[str, object]:
         for key in ("id", "object", "model", "modalities", "voice", "expires_at"):
             if key in session and key not in parsed:
                 parsed[key] = session[key]
-    for key in ("id", "object", "model", "modalities", "voice", "expires_at", "client_secret"):
+    for key in ("id", "object", "model", "modalities", "voice", "expires_at"):
         if key in parsed:
             safe[key] = parsed[key]
+    safe["clientSecretPolicy"] = "server-only-api-call-broker"
     return safe
 
 
@@ -616,9 +877,10 @@ def create_realtime_session(interview_id: str, payload: dict[str, Any]) -> tuple
     public["webrtc"] = {
         "sdpEndpoint": _openai_realtime_sdp_endpoint(public.get("model") or OPENAI_REALTIME_MODEL),
         "sdpContentType": "application/sdp",
-        "auth": "ephemeral-client-secret-only",
+        "auth": "api-call-broker-server-side-provider-auth",
         "standardOpenAIKey": "server-only",
         "rawSdpLogging": "forbidden",
+        "postConnectSessionUpdate": _realtime_post_connect_session_update(),
     }
     public["delivery"] = _realtime_delivery("api-mediated-realtime-session")
     return _return_with_latency(upstream_status if upstream_status < 500 else 502, public, start, "api.realtime.session.total", session_id=interview_id, provider="openai-realtime")
@@ -631,10 +893,10 @@ def create_realtime_call(interview_id: str, payload: dict[str, Any]) -> tuple[in
     api_key = _openai_realtime_key()
     if not api_key:
         return _return_with_latency(503, _realtime_unavailable_payload("realtime_not_configured"), start, "api.realtime.call.total", session_id=interview_id, provider="openai-realtime")
-    sdp = _safe_str(payload.get("sdp") or payload.get("offerSdp") or "", MAX_SDP_CHARS)
+    sdp = _safe_sdp(payload.get("sdp") or payload.get("offerSdp") or "", MAX_SDP_CHARS)
     if not sdp:
         return 400, {"error": "missing_sdp"}
-    if os.getenv("OPENAI_REALTIME_CALL_BROKER_ENABLED", "false").lower() not in {"1", "true", "yes"}:
+    if os.getenv("OPENAI_REALTIME_CALL_BROKER_ENABLED", "true").lower() not in {"1", "true", "yes"}:
         return _return_with_latency(202, {
             "interviewId": interview_id,
             "provider": "openai-realtime",
@@ -649,9 +911,7 @@ def create_realtime_call(interview_id: str, payload: dict[str, Any]) -> tuple[in
             "delivery": _realtime_delivery("api-mediated-realtime-call"),
         }, start, "api.realtime.call.total", session_id=interview_id, provider="openai-realtime")
 
-    session_config = _default_realtime_session_config(interview_id, payload).get("session")
-    if not isinstance(session_config, dict):
-        session_config = {"type": "realtime", "model": OPENAI_REALTIME_MODEL}
+    session_config = _default_realtime_call_session_config(interview_id, payload)
     multipart_body, content_type = _multipart_form_data({
         "sdp": sdp,
         "session": json.dumps(session_config),
@@ -1030,6 +1290,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "invalid_json", "message": str(exc)})
                 return
             status, payload = create_realtime_call(realtime_call_match.group(1), body)
+            self._json(status, payload)
+            return
+        realtime_response_match = REALTIME_RESPONSE_CREATE_ROUTE_PATTERN.fullmatch(self.path)
+        if realtime_response_match:
+            try:
+                body = self._read_json_body()
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+                self._json(400, {"error": "invalid_json", "message": str(exc)})
+                return
+            status, payload = create_realtime_response(realtime_response_match.group(1), int(realtime_response_match.group(2)), body)
             self._json(status, payload)
             return
         turn_event_match = REALTIME_TURN_EVENTS_ROUTE_PATTERN.fullmatch(self.path)

@@ -1,4 +1,4 @@
-<svg version="1.1" baseProfile="full" width="1997.3" height="1151.0" viewBox="0 0 1997.2581699346406 1151" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:ev="http://www.w3.org/2001/xml-events">
+<svg version="1.1" baseProfile="full" width="1983.5" height="893.0" viewBox="0 0 1983.5 893" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:ev="http://www.w3.org/2001/xml-events">
 	<desc >#.service: fill=#f5f5f5 stroke=#111111
 	#.external: fill=#ffffff stroke=#6b7280 dashed
 	#.media: fill=#e0f2fe stroke=#0369a1
@@ -35,6 +35,7 @@
 	  LiveKit candidate token 발급
 	  AvatarKit RTC viewer token 발급
 	  /api/interviews/:id/* broker
+	  Realtime MMM sideband forward
 	]
 
 	[&lt;store&gt; Postgres|
@@ -67,15 +68,16 @@
 
 	[&lt;service&gt; OpenAI Realtime API|
 	  /v1/realtime/client_secrets
-	  /v1/realtime/calls SDP attach
-	  ephemeral browser WebRTC secret only
+	  /v1/realtime/calls server-side SDP attach
+	  browser-facing API call broker only
 	  interviewer audio + transcript events
 	]
 
 	[&lt;service&gt; AI Engine|
-	  Gemini next-question boundary
-	  Gemini native TTS voice boundary
-	  SpatialReal session broker
+	  internal compatibility boundary only
+	  keyless route-smoke adapter
+	  API-called TTS/avatar adapters
+	  no Realtime broker/question fallback
 	  SpatialReal LiveKit egress attempt
 	]
 
@@ -106,12 +108,13 @@
 	[OpenAI Realtime API] - interviewer audio/transcript events -&gt; [후보자 브라우저]
 	[후보자 브라우저] - transcript/prosody/vision sideband -&gt; [API Service]
 	[API Service] - full_mmm_ready gate -&gt; [후보자 브라우저]
+	[API Service] - sanitized MMM events /realtime/turn-events -&gt; [Analysis Engine Service\n(GilJobE)]
 	[LiveKit Server] - candidate audio/video tracks -&gt; [Analysis Engine Service\n(GilJobE)]
-	[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -&gt; [AI Engine]
-	[AI Engine] - next question + TTS audio -&gt; [API Service]
+	[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -&gt; [API Service]
+	[AI Engine] - compatibility TTS/avatar metadata -&gt; [API Service]
 	[AI Engine] - session token / egress audio -&gt; [SpatialReal Cloud]
 	[SpatialReal Cloud] - avatar stream publish -&gt; [LiveKit Server]
-	[AI Engine] - next question / policy update -&gt; [Main LLM / Interview Controller]
+	[API Service] - response policy context -&gt; [Main LLM / Interview Controller]
 	[Main LLM / Interview Controller] - interview state/report -&gt; [API Service]
 	[후보자 브라우저] - relay 필요 시 -&gt; [coturn]
 	[LiveKit Server] - TURN boundary -&gt; [coturn]
@@ -119,68 +122,70 @@
 	<g stroke-width="1.0" text-align="left" font="12pt Helvetica, Arial, sans-serif" font-size="12pt" font-family="Helvetica" font-weight="normal" font-style="normal">
 		<g font-family="Helvetica" font-size="12pt" font-weight="bold" font-style="normal" stroke-width="3.0" stroke-linejoin="round" stroke-linecap="round" stroke="#33322E">
 			<g stroke="transparent" fill="transparent">
-				<rect x="0.0" y="0.0" height="1151.0" width="1997.3" stroke="none"></rect>
+				<rect x="0.0" y="0.0" height="893.0" width="1983.5" stroke="none"></rect>
 			</g>
-			<g transform="translate(26.5, 8)" fill="#33322E">
+			<g transform="translate(81.75, 8)" fill="#33322E">
 				<g transform="translate(20, 20)" fill="#33322E" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal">
-					<text x="116.0" y="636.0" stroke="none">HTTP app/API -&gt;</text>
-					<path d="M956.0 58.5 L255 117 L255 217.5 L255 217.5 L255 318 L255 318 L255 394.5 L255 394.5 L255 471 L255 471 L255 547.5 L255 547.5 L255 624 L255 624 L255 644 L255.0 644.0 " fill="none"></path>
-					<text x="130.0" y="797.0" stroke="none">static pages -&gt;</text>
-					<path d="M255.0 757.0 L255 777 L255 805 L255.0 805.0 " fill="none"></path>
-					<text x="1141.0" y="844.7" stroke="none">/api/* -&gt;</text>
-					<path d="M360.0 732.8 L504 777 L1133 852.6599479843953 L1133.0 852.7 " fill="none"></path>
-					<text x="1099.0" y="982.0" stroke="none">token hash 저장 -&gt;</text>
-					<path d="M1257.3 942.0 L1253 962 L1253 990 L1253.0 990.0 " fill="none"></path>
-					<text x="941.0" y="86.4" stroke="none">candidate room URL + token -&gt;</text>
-					<path d="M1413.0 819.9 L1534 777 L1534 700.5 L1534 700.5 L1534 624 L1534 624 L1534 547.5 L1534 547.5 L1534 471 L1534 471 L1534 394.5 L1534 394.5 L1534 318 L1534 318 L1534 217.5 L1534 217.5 L1534 117 L1534 117 L1196 66.44759825327512 L1196.0 66.4 " fill="none"></path>
-					<text x="958.0" y="85.0" stroke="none">avatar viewer URL + token -&gt;</text>
-					<path d="M1413.0 826.5 L1574 777 L1574 700.5 L1574 700.5 L1574 624 L1574 624 L1574 547.5 L1574 547.5 L1574 471 L1574 471 L1574 394.5 L1574 394.5 L1574 318 L1574 318 L1574 217.5 L1574 217.5 L1574 117 L1574 117 L1196 65.00602409638554 L1196.0 65.0 " fill="none"></path>
-					<text x="180.6" y="129.0" stroke="none">direct WebRTC publish/subscribe -&gt;</text>
-					<path d="M956.0 61.6 L449.75 117 L472.5858208955224 137 L472.6 137.0 " fill="none"></path>
-					<text x="403.0" y="129.0" stroke="none">AvatarKit RTC subscribe -&gt;</text>
-					<path d="M956.0 67.3 L638.75 117 L623.973880597015 137 L624.0 137.0 " fill="none"></path>
-					<text x="1141.0" y="836.6" stroke="none">push-to-talk turn_start/turn_end -&gt;</text>
-					<path d="M956.0 73.9 L753 117 L753 217.5 L753 217.5 L753 318 L753 318 L753 394.5 L753 394.5 L753 471 L753 471 L753 547.5 L753 547.5 L753 624 L753 624 L753 700.5 L753 700.5 L753 777 L753 777 L1133 844.5961538461538 L1133.0 844.6 " fill="none"></path>
-					<text x="1580.8" y="974.0" stroke="none">server key -&gt; ephemeral Realtime secret -&gt;</text>
-					<path d="M1413.0 917.3 L1544 962 L1572.7581699346406 982 L1572.8 982.0 " fill="none"></path>
-					<text x="1662.0" y="974.0" stroke="none">ephemeral SDP attach only -&gt;</text>
-					<path d="M1196.0 62.7 L1654 117 L1654 217.5 L1654 217.5 L1654 318 L1654 318 L1654 394.5 L1654 394.5 L1654 471 L1654 471 L1654 547.5 L1654 547.5 L1654 624 L1654 624 L1654 700.5 L1654 700.5 L1654 777 L1654 777 L1654 869.5 L1654 869.5 L1654 962 L1654 962 L1654 982 L1654.0 982.0 " fill="none"></path>
-					<text x="895.0" y="81.8" stroke="none">interviewer audio/transcript events -&gt;</text>
-					<path d="M1683.5 982.0 L1694 962 L1694 869.5 L1694 869.5 L1694 777 L1694 777 L1694 700.5 L1694 700.5 L1694 624 L1694 624 L1694 547.5 L1694 547.5 L1694 471 L1694 471 L1694 394.5 L1694 394.5 L1694 318 L1694 318 L1694 217.5 L1694 217.5 L1694 117 L1694 117 L1196 61.80097087378641 L1196.0 61.8 " fill="none"></path>
-					<text x="1181.5" y="789.0" stroke="none">transcript/prosody/vision sideband -&gt;</text>
-					<path d="M1125.6 97.0 L1146 117 L1146 217.5 L1146 217.5 L1146 318 L1146 318 L1146 394.5 L1146 394.5 L1146 471 L1146 471 L1146 547.5 L1146 547.5 L1146 624 L1146 624 L1146 700.5 L1146 700.5 L1146 777 L1146 777 L1173.4594594594594 797 L1173.5 797.0 " fill="none"></path>
-					<text x="997.0" y="83.8" stroke="none">full_mmm_ready gate -&gt;</text>
-					<path d="M1413.0 831.5 L1614 777 L1614 700.5 L1614 700.5 L1614 624 L1614 624 L1614 547.5 L1614 547.5 L1614 471 L1614 471 L1614 394.5 L1614 394.5 L1614 318 L1614 318 L1614 217.5 L1614 217.5 L1614 117 L1614 117 L1196 63.778810408921935 L1196.0 63.8 " fill="none"></path>
-					<text x="957.5" y="330.0" stroke="none">candidate audio/video tracks -&gt;</text>
-					<path d="M713.0 256.3 L949.5 318 L949.5 338 L949.5 338.0 " fill="none"></path>
-					<text x="647.5" y="483.0" stroke="none">transcript_full + multimodal signals -&gt;</text>
-					<path d="M949.5 451.0 L949.5 471 L949.5 491 L949.5 491.0 " fill="none"></path>
-					<text x="1212.8" y="789.0" stroke="none">next question + TTS audio -&gt;</text>
-					<path d="M1093.0 593.9 L1186 624 L1186 700.5 L1186 700.5 L1186 777 L1186 777 L1204.8108108108108 797 L1204.8 797.0 " fill="none"></path>
-					<text x="197.5" y="636.0" stroke="none">session token / egress audio -&gt;</text>
-					<path d="M806.0 568.6 L429.75 624 L454.5212418300654 644 L454.5 644.0 " fill="none"></path>
-					<text x="364.5" y="290.0" stroke="none">avatar stream publish -&gt;</text>
-					<path d="M554.0 644.0 L564.5 624 L564.5 547.5 L564.5 547.5 L564.5 471 L564.5 471 L564.5 394.5 L564.5 394.5 L564.5 318 L564.5 318 L564.5 298 L564.5 298.0 " fill="none"></path>
-					<text x="1368.0" y="644.0" stroke="none">next question / policy update -&gt;</text>
-					<path d="M1093.0 574.2 L1360 624 L1360 652 L1360.0 652.0 " fill="none"></path>
-					<text x="1146.2" y="789.0" stroke="none">interview state/report -&gt;</text>
-					<path d="M1360.0 749.0 L1360 777 L1341.1891891891892 797 L1341.2 797.0 " fill="none"></path>
-					<text x="-18.5" y="346.5" stroke="none">relay 필요 시 -&gt;</text>
-					<path d="M956.0 57.0 L107.5 117 L107.5 217.5 L107.5 217.5 L107.5 318 L107.5 318 L107.5 354.5 L107.5 354.5 " fill="none"></path>
-					<text x="-8.9" y="346.5" stroke="none">TURN boundary -&gt;</text>
-					<path d="M416.0 256.4 L181.25 318 L146.06209150326796 354.5 L146.1 354.5 " fill="none"></path>
+					<text x="854.0" y="338.0" stroke="none">HTTP app/API -&gt;</text>
+					<path d="M844.6 274.0 L846 302 L846 346 L846.0 346.0 " fill="none"></path>
+					<text x="33.5" y="531.0" stroke="none">static pages -&gt;</text>
+					<path d="M741.0 417.8 L158.5 503 L158.5 539 L158.5 539.0 " fill="none"></path>
+					<text x="1235.9" y="515.0" stroke="none">/api/* -&gt;</text>
+					<path d="M951.0 427.9 L1261 503 L1227.915422885572 523 L1227.9 523.0 " fill="none"></path>
+					<text x="-42.5" y="724.0" stroke="none">token hash 저장 -&gt;</text>
+					<path d="M954.8 617.8 L111.5 704 L111.5 732 L111.5 732.0 " fill="none"></path>
+					<text x="706.9" y="294.0" stroke="none">candidate room URL + token -&gt;</text>
+					<path d="M1043.7 523.0 L1031 503 L1031 402.5 L1031 402.5 L1031 302 L1031 302 L961.9150326797386 274 L961.9 274.0 " fill="none"></path>
+					<text x="698.6" y="294.0" stroke="none">avatar viewer URL + token -&gt;</text>
+					<path d="M1011.6 523.0 L991 503 L991 402.5 L991 402.5 L991 302 L991 302 L936.5555555555555 274 L936.6 274.0 " fill="none"></path>
+					<text x="155.6" y="314.0" stroke="none">direct WebRTC publish/subscribe -&gt;</text>
+					<path d="M722.3 250.4 L473 302 L447.6268656716418 322 L447.6 322.0 " fill="none"></path>
+					<text x="124.5" y="314.0" stroke="none">AvatarKit RTC subscribe -&gt;</text>
+					<path d="M722.3 244.0 L345.5 302 L345.5 322 L345.5 322.0 " fill="none"></path>
+					<text x="1203.9" y="515.0" stroke="none">push-to-talk turn_start/turn_end -&gt;</text>
+					<path d="M962.3 249.7 L1221 302 L1221 402.5 L1221 402.5 L1221 503 L1221 503 L1195.8756218905473 523 L1195.9 523.0 " fill="none"></path>
+					<text x="1414.3" y="716.0" stroke="none">server key -&gt; ephemeral Realtime secret -&gt;</text>
+					<path d="M1234.8 643.6 L1445.75 704 L1406.2728758169935 724 L1406.3 724.0 " fill="none"></path>
+					<text x="1314.8" y="716.0" stroke="none">ephemeral SDP attach only -&gt;</text>
+					<path d="M962.3 245.1 L1311 302 L1311 402.5 L1311 402.5 L1311 503 L1311 503 L1311 603.5 L1311 603.5 L1311 704 L1311 704 L1306.751633986928 724 L1306.8 724.0 " fill="none"></path>
+					<text x="426.3" y="294.0" stroke="none">interviewer audio/transcript events -&gt;</text>
+					<path d="M1126.8 760.2 L661 704 L661 603.5 L661 603.5 L661 503 L661 503 L661 402.5 L661 402.5 L661 302 L661 302 L727.3398692810457 274 L727.3 274.0 " fill="none"></path>
+					<text x="1171.8" y="515.0" stroke="none">transcript/prosody/vision sideband -&gt;</text>
+					<path d="M962.3 252.6 L1181 302 L1181 402.5 L1181 402.5 L1181 503 L1181 503 L1163.8358208955224 523 L1163.8 523.0 " fill="none"></path>
+					<text x="553.7" y="294.0" stroke="none">full_mmm_ready gate -&gt;</text>
+					<path d="M954.8 567.8 L701 503 L701 402.5 L701 402.5 L701 302 L701 302 L752.6993464052288 274 L752.7 274.0 " fill="none"></path>
+					<text x="140.7" y="716.0" stroke="none">sanitized MMM events /realtime/turn-events -&gt;</text>
+					<path d="M954.8 629.2 L547 704 L513.6666666666666 724 L513.7 724.0 " fill="none"></path>
+					<text x="358.1" y="716.0" stroke="none">candidate audio/video tracks -&gt;</text>
+					<path d="M329.5 483.0 L325.5 503 L325.5 603.5 L325.5 603.5 L325.5 704 L325.5 704 L350.0751633986928 724 L350.1 724.0 " fill="none"></path>
+					<text x="962.8" y="640.5" stroke="none">transcript_full + multimodal signals -&gt;</text>
+					<path d="M305.8 724.0 L265.5 704 L954.75 620.4671389810069 L954.8 620.5 " fill="none"></path>
+					<text x="1131.8" y="515.0" stroke="none">compatibility TTS/avatar metadata -&gt;</text>
+					<path d="M885.8 96.9 L1131 149 L1131 225.5 L1131 225.5 L1131 302 L1131 302 L1131 402.5 L1131 402.5 L1131 503 L1131 503 L1123.7860696517414 523 L1123.8 523.0 " fill="none"></path>
+					<text x="-73.8" y="161.0" stroke="none">session token / egress audio -&gt;</text>
+					<path d="M580.8 87.9 L183.25 149 L183.25 169 L183.3 169.0 " fill="none"></path>
+					<text x="223.5" y="314.0" stroke="none">avatar stream publish -&gt;</text>
+					<path d="M183.3 282.0 L183.25 302 L215.53855721393035 322 L215.5 322.0 " fill="none"></path>
+					<text x="1644.8" y="724.0" stroke="none">response policy context -&gt;</text>
+					<path d="M1234.8 629.5 L1636.75 704 L1636.75 732 L1636.8 732.0 " fill="none"></path>
+					<text x="1039.8" y="659.5" stroke="none">interview state/report -&gt;</text>
+					<path d="M1541.0 732.0 L1485.75 704 L1234.75 639.4846547314578 L1234.8 639.5 " fill="none"></path>
+					<text x="408.9" y="555.5" stroke="none">relay 필요 시 -&gt;</text>
+					<path d="M722.3 258.9 L567.25 302 L567.25 402.5 L567.25 402.5 L567.25 503 L567.25 503 L534.8930348258707 563.5 L534.9 563.5 " fill="none"></path>
+					<text x="484.0" y="555.5" stroke="none">TURN boundary -&gt;</text>
+					<path d="M404.6 483.0 L419.25 503 L475.98756218905476 563.5 L476.0 563.5 " fill="none"></path>
 					<g data-name="후보자 브라우저">
 						<g fill="#ffffff" stroke="#6b7280" stroke-dasharray="6 6" data-name="후보자 브라우저">
-							<rect x="956.0" y="0.0" height="97.0" width="240.0" data-name="후보자 브라우저"></rect>
-							<path d="M956.0 32.0 L1196.0 32.0" fill="none" data-name="후보자 브라우저"></path>
+							<rect x="722.3" y="177.0" height="97.0" width="240.0" data-name="후보자 브라우저"></rect>
+							<path d="M722.3 209.0 L962.3 209.0" fill="none" data-name="후보자 브라우저"></path>
 						</g>
-						<g transform="translate(956, 0)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="후보자 브라우저" data-compartment="0">
+						<g transform="translate(722.25, 177)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="후보자 브라우저" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#6b7280" text-align="center" data-name="후보자 브라우저" data-compartment="0">
 								<text x="112.0" y="14.1" stroke="none" text-anchor="middle" data-name="후보자 브라우저" data-compartment="0">후보자 브라우저</text>
 
 							</g>
 						</g>
-						<g transform="translate(956, 32)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="후보자 브라우저" data-compartment="1">
+						<g transform="translate(722.25, 209)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="후보자 브라우저" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#6b7280" text-align="left" data-name="후보자 브라우저" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="후보자 브라우저" data-compartment="1">/interviews/:id/room</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="후보자 브라우저" data-compartment="1">LiveKit candidate participant</text>
@@ -191,16 +196,16 @@
 					</g>
 					<g data-name="Caddy Ingress">
 						<g fill="#f5f5f5" stroke="#111111" data-name="Caddy Ingress">
-							<rect x="150.0" y="644.0" height="113.0" width="210.0" data-name="Caddy Ingress"></rect>
-							<path d="M150.0 676.0 L360.0 676.0" fill="none" data-name="Caddy Ingress"></path>
+							<rect x="741.0" y="346.0" height="113.0" width="210.0" data-name="Caddy Ingress"></rect>
+							<path d="M741.0 378.0 L951.0 378.0" fill="none" data-name="Caddy Ingress"></path>
 						</g>
-						<g transform="translate(150, 644)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Caddy Ingress" data-compartment="0">
+						<g transform="translate(741, 346)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Caddy Ingress" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#111111" text-align="center" data-name="Caddy Ingress" data-compartment="0">
 								<text x="97.0" y="14.1" stroke="none" text-anchor="middle" data-name="Caddy Ingress" data-compartment="0">Caddy Ingress</text>
 
 							</g>
 						</g>
-						<g transform="translate(150, 676)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Caddy Ingress" data-compartment="1">
+						<g transform="translate(741, 378)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Caddy Ingress" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#111111" text-align="left" data-name="Caddy Ingress" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="Caddy Ingress" data-compartment="1">:80/:443</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="Caddy Ingress" data-compartment="1">정적 Web 라우팅</text>
@@ -212,16 +217,16 @@
 					</g>
 					<g data-name="Web App">
 						<g fill="#f5f5f5" stroke="#111111" data-name="Web App">
-							<rect x="128.0" y="805.0" height="129.0" width="254.0" data-name="Web App"></rect>
-							<path d="M128.0 837.0 L382.0 837.0" fill="none" data-name="Web App"></path>
+							<rect x="31.5" y="539.0" height="129.0" width="254.0" data-name="Web App"></rect>
+							<path d="M31.5 571.0 L285.5 571.0" fill="none" data-name="Web App"></path>
 						</g>
-						<g transform="translate(128, 805)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Web App" data-compartment="0">
+						<g transform="translate(31.5, 539)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Web App" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#111111" text-align="center" data-name="Web App" data-compartment="0">
 								<text x="119.0" y="14.1" stroke="none" text-anchor="middle" data-name="Web App" data-compartment="0">Web App</text>
 
 							</g>
 						</g>
-						<g transform="translate(128, 837)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Web App" data-compartment="1">
+						<g transform="translate(31.5, 571)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Web App" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#111111" text-align="left" data-name="Web App" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="Web App" data-compartment="1">vanilla HTML/CSS/JS</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="Web App" data-compartment="1">production room shell</text>
@@ -234,16 +239,16 @@
 					</g>
 					<g data-name="API Service">
 						<g fill="#ecfdf5" stroke="#047857" data-name="API Service">
-							<rect x="1133.0" y="797.0" height="145.0" width="280.0" data-name="API Service"></rect>
-							<path d="M1133.0 829.0 L1413.0 829.0" fill="none" data-name="API Service"></path>
+							<rect x="954.8" y="523.0" height="161.0" width="280.0" data-name="API Service"></rect>
+							<path d="M954.8 555.0 L1234.8 555.0" fill="none" data-name="API Service"></path>
 						</g>
-						<g transform="translate(1133, 797)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="API Service" data-compartment="0">
+						<g transform="translate(954.75, 523)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="API Service" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#047857" text-align="center" data-name="API Service" data-compartment="0">
 								<text x="132.0" y="14.1" stroke="none" text-anchor="middle" data-name="API Service" data-compartment="0">API Service</text>
 
 							</g>
 						</g>
-						<g transform="translate(1133, 829)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="API Service" data-compartment="1">
+						<g transform="translate(954.75, 555)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="API Service" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#047857" text-align="left" data-name="API Service" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="API Service" data-compartment="1">POST /api/sessions</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="API Service" data-compartment="1">session/report token 발급</text>
@@ -251,22 +256,23 @@
 								<text x="0.0" y="62.7" stroke="none" data-name="API Service" data-compartment="1">LiveKit candidate token 발급</text>
 								<text x="0.0" y="78.9" stroke="none" data-name="API Service" data-compartment="1">AvatarKit RTC viewer token 발급</text>
 								<text x="0.0" y="95.1" stroke="none" data-name="API Service" data-compartment="1">/api/interviews/:id/* broker</text>
+								<text x="0.0" y="111.3" stroke="none" data-name="API Service" data-compartment="1">Realtime MMM sideband forward</text>
 
 							</g>
 						</g>
 					</g>
 					<g data-name="Postgres">
 						<g fill="#f8fafc" stroke="#475569" data-name="Postgres">
-							<rect x="1141.5" y="990.0" height="97.0" width="223.0" data-name="Postgres"></rect>
-							<path d="M1141.5 1022.0 L1364.5 1022.0" fill="none" data-name="Postgres"></path>
+							<rect x="0.0" y="732.0" height="97.0" width="223.0" data-name="Postgres"></rect>
+							<path d="M0.0 764.0 L223.0 764.0" fill="none" data-name="Postgres"></path>
 						</g>
-						<g transform="translate(1141.5, 990)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Postgres" data-compartment="0">
+						<g transform="translate(0, 732)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Postgres" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#475569" text-align="center" data-name="Postgres" data-compartment="0">
 								<text x="103.5" y="14.1" stroke="none" text-anchor="middle" data-name="Postgres" data-compartment="0">Postgres</text>
 
 							</g>
 						</g>
-						<g transform="translate(1141.5, 1022)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Postgres" data-compartment="1">
+						<g transform="translate(0, 764)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Postgres" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#475569" text-align="left" data-name="Postgres" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="Postgres" data-compartment="1">durable session state 예정</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="Postgres" data-compartment="1">token hash only</text>
@@ -277,16 +283,16 @@
 					</g>
 					<g data-name="LiveKit Server">
 						<g fill="#e0f2fe" stroke="#0369a1" data-name="LiveKit Server">
-							<rect x="416.0" y="137.0" height="161.0" width="297.0" data-name="LiveKit Server"></rect>
-							<path d="M416.0 169.0 L713.0 169.0" fill="none" data-name="LiveKit Server"></path>
+							<rect x="197.0" y="322.0" height="161.0" width="297.0" data-name="LiveKit Server"></rect>
+							<path d="M197.0 354.0 L494.0 354.0" fill="none" data-name="LiveKit Server"></path>
 						</g>
-						<g transform="translate(416, 137)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="LiveKit Server" data-compartment="0">
+						<g transform="translate(197, 322)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="LiveKit Server" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#0369a1" text-align="center" data-name="LiveKit Server" data-compartment="0">
 								<text x="140.5" y="14.1" stroke="none" text-anchor="middle" data-name="LiveKit Server" data-compartment="0">LiveKit Server</text>
 
 							</g>
 						</g>
-						<g transform="translate(416, 169)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="LiveKit Server" data-compartment="1">
+						<g transform="translate(197, 354)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="LiveKit Server" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#0369a1" text-align="left" data-name="LiveKit Server" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="LiveKit Server" data-compartment="1">self-hosted signaling/media</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="LiveKit Server" data-compartment="1">browser candidate participant</text>
@@ -301,16 +307,16 @@
 					</g>
 					<g data-name="coturn">
 						<g fill="#e0f2fe" stroke="#0369a1" data-name="coturn">
-							<rect x="0.0" y="354.5" height="80.0" width="215.0" data-name="coturn"></rect>
-							<path d="M0.0 386.5 L215.0 386.5" fill="none" data-name="coturn"></path>
+							<rect x="406.0" y="563.5" height="80.0" width="215.0" data-name="coturn"></rect>
+							<path d="M406.0 595.5 L621.0 595.5" fill="none" data-name="coturn"></path>
 						</g>
-						<g transform="translate(0, 354.5)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="coturn" data-compartment="0">
+						<g transform="translate(406, 563.5)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="coturn" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#0369a1" text-align="center" data-name="coturn" data-compartment="0">
 								<text x="99.5" y="14.1" stroke="none" text-anchor="middle" data-name="coturn" data-compartment="0">coturn</text>
 
 							</g>
 						</g>
-						<g transform="translate(0, 386.5)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="coturn" data-compartment="1">
+						<g transform="translate(406, 595.5)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="coturn" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#0369a1" text-align="left" data-name="coturn" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="coturn" data-compartment="1">TURN/STUN relay 후보</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="coturn" data-compartment="1">direct media 실패 시 relay</text>
@@ -322,12 +328,12 @@
 					(GilJobE)">
 						<g fill="#fef3c7" stroke="#a16207" data-name="Analysis Engine Service
 						(GilJobE)">
-							<rect x="793.0" y="338.0" height="113.0" width="313.0" data-name="Analysis Engine Service
+							<rect x="263.0" y="724.0" height="113.0" width="313.0" data-name="Analysis Engine Service
 							(GilJobE)"></rect>
-							<path d="M793.0 370.0 L1106.0 370.0" fill="none" data-name="Analysis Engine Service
+							<path d="M263.0 756.0 L576.0 756.0" fill="none" data-name="Analysis Engine Service
 							(GilJobE)"></path>
 						</g>
-						<g transform="translate(793, 338)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Analysis Engine Service
+						<g transform="translate(263, 724)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Analysis Engine Service
 						(GilJobE)" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#a16207" text-align="center" data-name="Analysis Engine Service
 							(GilJobE)" data-compartment="0">
@@ -337,7 +343,7 @@
 
 							</g>
 						</g>
-						<g transform="translate(793, 370)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Analysis Engine Service
+						<g transform="translate(263, 756)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Analysis Engine Service
 						(GilJobE)" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#a16207" text-align="left" data-name="Analysis Engine Service
 							(GilJobE)" data-compartment="1">
@@ -355,20 +361,20 @@
 					</g>
 					<g data-name="OpenAI Realtime API">
 						<g fill="#f5f5f5" stroke="#111111" data-name="OpenAI Realtime API">
-							<rect x="1486.5" y="982.0" height="113.0" width="335.0" data-name="OpenAI Realtime API"></rect>
-							<path d="M1486.5 1014.0 L1821.5 1014.0" fill="none" data-name="OpenAI Realtime API"></path>
+							<rect x="1126.8" y="724.0" height="113.0" width="336.0" data-name="OpenAI Realtime API"></rect>
+							<path d="M1126.8 756.0 L1462.8 756.0" fill="none" data-name="OpenAI Realtime API"></path>
 						</g>
-						<g transform="translate(1486.5, 982)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="OpenAI Realtime API" data-compartment="0">
+						<g transform="translate(1126.75, 724)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="OpenAI Realtime API" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#111111" text-align="center" data-name="OpenAI Realtime API" data-compartment="0">
-								<text x="159.5" y="14.1" stroke="none" text-anchor="middle" data-name="OpenAI Realtime API" data-compartment="0">OpenAI Realtime API</text>
+								<text x="160.0" y="14.1" stroke="none" text-anchor="middle" data-name="OpenAI Realtime API" data-compartment="0">OpenAI Realtime API</text>
 
 							</g>
 						</g>
-						<g transform="translate(1486.5, 1014)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="OpenAI Realtime API" data-compartment="1">
+						<g transform="translate(1126.75, 756)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="OpenAI Realtime API" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#111111" text-align="left" data-name="OpenAI Realtime API" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="OpenAI Realtime API" data-compartment="1">/v1/realtime/client_secrets</text>
-								<text x="0.0" y="30.3" stroke="none" data-name="OpenAI Realtime API" data-compartment="1">/v1/realtime/calls SDP attach</text>
-								<text x="0.0" y="46.5" stroke="none" data-name="OpenAI Realtime API" data-compartment="1">ephemeral browser WebRTC secret only</text>
+								<text x="0.0" y="30.3" stroke="none" data-name="OpenAI Realtime API" data-compartment="1">/v1/realtime/calls server-side SDP attach</text>
+								<text x="0.0" y="46.5" stroke="none" data-name="OpenAI Realtime API" data-compartment="1">browser-facing API call broker only</text>
 								<text x="0.0" y="62.7" stroke="none" data-name="OpenAI Realtime API" data-compartment="1">interviewer audio + transcript events</text>
 
 							</g>
@@ -376,37 +382,38 @@
 					</g>
 					<g data-name="AI Engine">
 						<g fill="#f5f5f5" stroke="#111111" data-name="AI Engine">
-							<rect x="806.0" y="491.0" height="113.0" width="287.0" data-name="AI Engine"></rect>
-							<path d="M806.0 523.0 L1093.0 523.0" fill="none" data-name="AI Engine"></path>
+							<rect x="580.8" y="0.0" height="129.0" width="305.0" data-name="AI Engine"></rect>
+							<path d="M580.8 32.0 L885.8 32.0" fill="none" data-name="AI Engine"></path>
 						</g>
-						<g transform="translate(806, 491)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="AI Engine" data-compartment="0">
+						<g transform="translate(580.75, 0)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="AI Engine" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#111111" text-align="center" data-name="AI Engine" data-compartment="0">
-								<text x="135.5" y="14.1" stroke="none" text-anchor="middle" data-name="AI Engine" data-compartment="0">AI Engine</text>
+								<text x="144.5" y="14.1" stroke="none" text-anchor="middle" data-name="AI Engine" data-compartment="0">AI Engine</text>
 
 							</g>
 						</g>
-						<g transform="translate(806, 523)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="AI Engine" data-compartment="1">
+						<g transform="translate(580.75, 32)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="AI Engine" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#111111" text-align="left" data-name="AI Engine" data-compartment="1">
-								<text x="0.0" y="14.1" stroke="none" data-name="AI Engine" data-compartment="1">Gemini next-question boundary</text>
-								<text x="0.0" y="30.3" stroke="none" data-name="AI Engine" data-compartment="1">Gemini native TTS voice boundary</text>
-								<text x="0.0" y="46.5" stroke="none" data-name="AI Engine" data-compartment="1">SpatialReal session broker</text>
-								<text x="0.0" y="62.7" stroke="none" data-name="AI Engine" data-compartment="1">SpatialReal LiveKit egress attempt</text>
+								<text x="0.0" y="14.1" stroke="none" data-name="AI Engine" data-compartment="1">internal compatibility boundary only</text>
+								<text x="0.0" y="30.3" stroke="none" data-name="AI Engine" data-compartment="1">keyless route-smoke adapter</text>
+								<text x="0.0" y="46.5" stroke="none" data-name="AI Engine" data-compartment="1">API-called TTS/avatar adapters</text>
+								<text x="0.0" y="62.7" stroke="none" data-name="AI Engine" data-compartment="1">no Realtime broker/question fallback</text>
+								<text x="0.0" y="78.9" stroke="none" data-name="AI Engine" data-compartment="1">SpatialReal LiveKit egress attempt</text>
 
 							</g>
 						</g>
 					</g>
 					<g data-name="SpatialReal Cloud">
 						<g fill="#e0f2fe" stroke="#0369a1" data-name="SpatialReal Cloud">
-							<rect x="400.0" y="644.0" height="113.0" width="249.0" data-name="SpatialReal Cloud"></rect>
-							<path d="M400.0 676.0 L649.0 676.0" fill="none" data-name="SpatialReal Cloud"></path>
+							<rect x="58.8" y="169.0" height="113.0" width="249.0" data-name="SpatialReal Cloud"></rect>
+							<path d="M58.8 201.0 L307.8 201.0" fill="none" data-name="SpatialReal Cloud"></path>
 						</g>
-						<g transform="translate(400, 644)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="SpatialReal Cloud" data-compartment="0">
+						<g transform="translate(58.75, 169)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="SpatialReal Cloud" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#0369a1" text-align="center" data-name="SpatialReal Cloud" data-compartment="0">
 								<text x="116.5" y="14.1" stroke="none" text-anchor="middle" data-name="SpatialReal Cloud" data-compartment="0">SpatialReal Cloud</text>
 
 							</g>
 						</g>
-						<g transform="translate(400, 676)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="SpatialReal Cloud" data-compartment="1">
+						<g transform="translate(58.75, 201)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="SpatialReal Cloud" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#0369a1" text-align="left" data-name="SpatialReal Cloud" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="SpatialReal Cloud" data-compartment="1">session token API</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="SpatialReal Cloud" data-compartment="1">AvatarKit RTC assets/session</text>
@@ -418,16 +425,16 @@
 					</g>
 					<g data-name="Main LLM / Interview Controller">
 						<g fill="#fff7ed" stroke="#c2410c" stroke-dasharray="6 6" data-name="Main LLM / Interview Controller">
-							<rect x="1226.0" y="652.0" height="97.0" width="268.0" data-name="Main LLM / Interview Controller"></rect>
-							<path d="M1226.0 684.0 L1494.0 684.0" fill="none" data-name="Main LLM / Interview Controller"></path>
+							<rect x="1502.8" y="732.0" height="97.0" width="268.0" data-name="Main LLM / Interview Controller"></rect>
+							<path d="M1502.8 764.0 L1770.8 764.0" fill="none" data-name="Main LLM / Interview Controller"></path>
 						</g>
-						<g transform="translate(1226, 652)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Main LLM / Interview Controller" data-compartment="0">
+						<g transform="translate(1502.75, 732)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Main LLM / Interview Controller" data-compartment="0">
 							<g transform="translate(8, 8)" fill="#c2410c" text-align="center" data-name="Main LLM / Interview Controller" data-compartment="0">
 								<text x="126.0" y="14.1" stroke="none" text-anchor="middle" data-name="Main LLM / Interview Controller" data-compartment="0">Main LLM / Interview Controller</text>
 
 							</g>
 						</g>
-						<g transform="translate(1226, 684)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Main LLM / Interview Controller" data-compartment="1">
+						<g transform="translate(1502.75, 764)" font-family="Helvetica" font-size="12pt" font-weight="normal" font-style="normal" data-name="Main LLM / Interview Controller" data-compartment="1">
 							<g transform="translate(8, 8)" fill="#c2410c" text-align="left" data-name="Main LLM / Interview Controller" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="Main LLM / Interview Controller" data-compartment="1">질문 정책 orchestration 강화 예정</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="Main LLM / Interview Controller" data-compartment="1">후보자 답변 loop</text>

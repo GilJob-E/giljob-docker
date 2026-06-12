@@ -65,6 +65,7 @@ const REALTIME_VISION_EVENT_MAX_BYTES = 2048;
 const REALTIME_TRANSCRIPT_COMPLETED_EVENT = "conversation.item.input_audio_transcription.completed";
 const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
+const AVATAR_RTC_PREFLIGHT_TIMEOUT_MS = 2500;
 const REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS = [
   "당신은 한국어 라이브 면접관입니다.",
   "백엔드 분석 준비는 이미 완료된 뒤에만 응답이 요청됩니다.",
@@ -246,6 +247,20 @@ function realtimeVisionEventEndpoint(turnIndex = currentTurnIndex) {
   return `/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/vision-events`;
 }
 
+function realtimeCallEndpoint(session = activeSession) {
+  const config = realtimeConfig(session) || {};
+  return config.callEndpoint || config.endpoints?.call || `/api/interviews/${encodeURIComponent(activeInterviewId)}/realtime/call`;
+}
+
+function realtimeResponseEndpoint(turnIndex = currentTurnIndex, session = activeSession) {
+  const config = realtimeConfig(session) || {};
+  const template = config.responseCreateEndpoint || config.responseEndpoint || config.endpoints?.responseCreate || config.endpoints?.response;
+  if (template) {
+    return String(template).replace("{turnIndex}", encodeURIComponent(turnIndex));
+  }
+  return `/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/realtime/response`;
+}
+
 async function postClientSafeJson(endpoint, body = {}) {
   const response = await fetch(endpoint, {
     method: "POST",
@@ -362,45 +377,24 @@ async function requestRealtimeSessionBroker(session) {
     transport: "webrtc",
     turnDetection: "manual",
   });
-  appendLog(`Realtime session broker ready; client secret hidden; session ${payload.sessionId || "issued"}`);
+  appendLog(`Realtime session broker ready; provider secrets hidden; session ${payload.sessionId || payload.id || "issued"}`);
   return payload;
 }
 
-function realtimeClientSecretValue(brokerSession) {
-  const clientSecret = brokerSession?.client_secret || brokerSession?.clientSecret;
-  const value = typeof clientSecret === "string" ? clientSecret : clientSecret?.value;
-  if (!value) {
-    throw new Error("Realtime session broker did not return an ephemeral client secret");
-  }
-  return value;
-}
-
-function realtimeSdpEndpoint(session, brokerSession) {
-  const configured = brokerSession?.webrtc?.sdpEndpoint || brokerSession?.sdpEndpoint || realtimeConfig(session)?.sdpEndpoint;
-  if (configured) {
-    return configured;
-  }
-  return "https://api.openai.com/v1/realtime/calls";
-}
-
 async function requestRealtimeWebrtcAnswer(session, offer, brokerSession) {
-  const endpoint = realtimeSdpEndpoint(session, brokerSession);
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${realtimeClientSecretValue(brokerSession)}`,
-      "Content-Type": "application/sdp",
-    },
-    body: offer.sdp,
+  const endpoint = realtimeCallEndpoint(session);
+  const payload = await postClientSafeJson(endpoint, {
+    sdp: offer.sdp,
+    sessionId: brokerSession?.sessionId || brokerSession?.id || analysisSessionId(),
+    model: brokerSession?.model,
+    voice: brokerSession?.voice,
   });
-  const sdp = await response.text();
-  if (!response.ok) {
-    throw new Error(`Realtime WebRTC SDP attach failed: HTTP ${response.status}`);
+  const answer = payload?.sdpAnswer || payload?.answer || null;
+  const sdp = typeof answer === "string" ? answer : answer?.sdp;
+  if (!sdp || !String(sdp).trim()) {
+    throw new Error("Realtime API call broker did not return an SDP answer; browser direct provider attach is disabled");
   }
-  if (!sdp.trim()) {
-    throw new Error("Realtime WebRTC SDP attach returned an empty answer");
-  }
-  appendLog("Realtime WebRTC SDP attached with ephemeral client secret hidden; SDP hidden");
+  appendLog("Realtime WebRTC SDP attached through API call broker; standard key/SDP hidden from logs");
   return { type: "answer", sdp };
 }
 
@@ -467,6 +461,25 @@ async function waitForRealtimeTranscriptCompletion(timeoutMs = REALTIME_TRANSCRI
   return Boolean(realtimeTranscriptCompleted && realtimeAnswerTranscript.trim());
 }
 
+function safeRealtimeSessionUpdatePayload(brokerSession) {
+  const update = brokerSession?.webrtc?.postConnectSessionUpdate;
+  if (!update || update.type !== "session.update" || typeof update.session !== "object") {
+    return null;
+  }
+  return update;
+}
+
+function sendRealtimePostConnectSessionUpdate(brokerSession) {
+  const update = safeRealtimeSessionUpdatePayload(brokerSession);
+  const channel = activeRealtimeSession?.dataChannel;
+  if (!update || !channel || channel.readyState !== "open") {
+    appendLog("Realtime post-connect STT/VAD session.update skipped; safe config unavailable or data channel closed");
+    return;
+  }
+  channel.send(JSON.stringify(update));
+  appendLog("Realtime STT/VAD session.update sent after WebRTC attach; auto response remains disabled; secrets hidden");
+}
+
 async function waitForRealtimeDataChannelOpen(channel, timeoutMs = 5000) {
   if (channel?.readyState === "open") {
     return;
@@ -500,23 +513,35 @@ async function waitForRealtimeDataChannelOpen(channel, timeoutMs = 5000) {
   });
 }
 
-async function sendRealtimeResponseCreate(reason = "manual") {
+function relayApiApprovedRealtimeCommand(payload) {
+  const command = payload?.sideband?.command;
   const channel = activeRealtimeSession?.dataChannel;
-  if (!channel || channel.readyState !== "open") {
-    throw new Error("Realtime data channel is not open");
+  if (!command || command.type !== "response.create") {
+    throw new Error("API-approved Realtime response command unavailable");
   }
+  if (!channel || channel.readyState !== "open") {
+    throw new Error("Realtime data channel is not open for API-approved response command relay");
+  }
+  channel.send(JSON.stringify(command));
+  appendLog("API-approved Realtime response.create relayed over browser transport; browser did not author prompt; internal terms hidden");
+}
+
+async function requestApiRealtimeResponse(reason = "manual", turnIndex = currentTurnIndex) {
   realtimeFirstAudioMarked = false;
   realtimeResponseInFlight = true;
   realtimeInterviewerQuestionTranscript = "";
-  channel.send(JSON.stringify({
-    type: "response.create",
+  const payload = await postClientSafeJson(realtimeResponseEndpoint(turnIndex), {
+    reason,
+    sessionId: analysisSessionId(),
     response: {
-      output_modalities: ["audio"],
+      outputModalities: ["audio"],
       instructions: REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS,
     },
-  }));
-  await postRealtimeTurnEvent("realtime.response.create", { reason });
-  appendLog(`realtime.response.create sent after gate: ${reason}; internal analysis ready; internal terms hidden from prompt`);
+  });
+  relayApiApprovedRealtimeCommand(payload);
+  await postRealtimeTurnEvent("realtime.response.create", { reason, owner: "api", transport: "browser-data-channel-relay" }, turnIndex);
+  appendLog(`Realtime response requested through API control plane: ${reason}; response.create command was API-approved`);
+  return payload;
 }
 
 function extractRealtimeInputTranscript(event) {
@@ -617,7 +642,7 @@ function handleRealtimeServerEvent(event) {
 
 function bindRealtimeDataChannel(channel) {
   channel.addEventListener("open", () => {
-    appendLog("Realtime data channel open; browser tools disabled; backend sideband required");
+    appendLog("Realtime data channel open; browser-authored response.create disabled; API owns next-question command creation");
   });
   channel.addEventListener("message", (event) => {
     try {
@@ -666,7 +691,7 @@ async function requestRealtimeNextQuestion(reason = "manual") {
   if (currentTurnIndex > 1) {
     await waitForFullMmmReady(currentTurnIndex - 1);
   }
-  await sendRealtimeResponseCreate(reason);
+  await requestApiRealtimeResponse(reason, currentTurnIndex);
 }
 
 async function connectRealtimeRoom(session) {
@@ -683,7 +708,9 @@ async function connectRealtimeRoom(session) {
   });
   const localStream = await ensureRealtimeAudioStream();
   localStream.getAudioTracks().forEach((track) => peerConnection.addTrack(track, localStream));
-  peerConnection.addTransceiver("audio", { direction: "recvonly" });
+  // Keep the OpenAI Realtime offer to a single audio m-section.
+  // Adding an extra recvonly audio transceiver makes /v1/realtime/calls reject
+  // otherwise valid browser offers with a provider-side 400.
   activeRealtimeSession = { peerConnection, dataChannel, localStream, brokerSession };
   const offer = await peerConnection.createOffer();
   await peerConnection.setLocalDescription(offer);
@@ -698,8 +725,9 @@ async function connectRealtimeRoom(session) {
     joinButton.disabled = true;
   }
   startVisionEventLoop();
-  appendLog("Realtime WebRTC connected; OpenAI standard API key stays server-side");
+  appendLog("Realtime WebRTC connected through API-mediated call broker; OpenAI standard API key stays server-side");
   await waitForRealtimeDataChannelOpen(dataChannel);
+  sendRealtimePostConnectSessionUpdate(brokerSession);
   nextQuestionRequested = false;
   await requestRealtimeNextQuestion("realtime-connected");
 }
@@ -772,17 +800,17 @@ function renderAvatarRtcEgressStatus(avatarRtc) {
   const status = String(avatarRtc.status || "unknown");
   const reason = String(avatarRtc.reason || "");
   if (status === "sent") {
-    setAvatarPanelMessage(`SpatialReal egress가 LiveKit room(${avatarRtc.roomName || "room"})으로 avatar stream을 보냈습니다. token은 숨겨집니다.`);
+    setAvatarPanelMessage(`SpatialReal egress가 post-TTS WAV/PCM audio를 LiveKit room(${avatarRtc.roomName || "room"})의 avatar stream으로 보냈습니다. OpenAI Realtime remote audio는 SpatialReal에 주입하지 않으며 token은 숨겨집니다.`);
     appendLog(`avatar rtc egress sent; publisher ${avatarRtc.publisherId || "unknown"}; tokens hidden`);
     return;
   }
   if (status === "skipped") {
-    setAvatarPanelMessage(`Avatar RTC egress 대기: ${reason || "not ready"}. TTS 오디오는 계속 재생됩니다.`);
+    setAvatarPanelMessage(`Avatar RTC egress 대기: ${reason || "not ready"}. Realtime interviewer audio와 별개이며 TTS 오디오만 egress 후보입니다.`);
     appendLog(`avatar rtc egress skipped: ${reason || "unknown"}; tokens hidden`);
     return;
   }
   if (status === "failed") {
-    setAvatarPanelMessage(`Avatar RTC egress 실패: ${reason || "provider_request_failed"}. TTS 오디오는 계속 재생됩니다.`);
+    setAvatarPanelMessage(`Avatar RTC egress 실패: ${reason || "provider_request_failed"}. Realtime interviewer audio와 별개이며 TTS 오디오는 계속 재생됩니다.`);
     appendLog(`avatar rtc egress failed: ${reason || "unknown"}; tokens hidden`);
   }
 }
@@ -809,6 +837,52 @@ function muteAvatarRtcAudioElements() {
   });
 }
 
+function isBrowserReachableAvatarRtcUrl(url) {
+  if (!url) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url, window.location.href);
+    if (!["ws:", "wss:", "http:", "https:"].includes(parsed.protocol)) {
+      return false;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    if (["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname) && !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname.toLowerCase())) {
+      return false;
+    }
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function preflightAvatarRtc(livekitConfig) {
+  if (!livekitConfig || !isBrowserReachableAvatarRtcUrl(livekitConfig.url)) {
+    return { ok: false, reason: "avatar_rtc_unreachable_url" };
+  }
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), AVATAR_RTC_PREFLIGHT_TIMEOUT_MS);
+  try {
+    const probeUrl = new URL(livekitConfig.url, window.location.href);
+    probeUrl.protocol = probeUrl.protocol === "wss:" ? "https:" : probeUrl.protocol === "ws:" ? "http:" : probeUrl.protocol;
+    await fetch(probeUrl.toString(), { method: "HEAD", mode: "no-cors", cache: "no-store", signal: controller.signal });
+    return { ok: true };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      return { ok: false, reason: "avatar_rtc_preflight_timeout" };
+    }
+    return { ok: false, reason: "avatar_rtc_preflight_failed" };
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function renderAvatarRtcDegraded(reason) {
+  setAvatarRtcState("disabled", "Avatar RTC 비활성");
+  setAvatarPanelMessage(`Avatar RTC는 현재 브라우저에서 연결할 수 없어 비활성화되었습니다 (${reason}). OpenAI Realtime 음성 면접은 계속 진행되며, 검증된 오디오-to-avatar 브릿지가 생기기 전까지 lip-sync를 제공한다고 표시하지 않습니다.`);
+  appendLog(`avatar rtc degraded: ${reason}; Realtime voice unaffected; tokens hidden`);
+}
+
 async function initializeAvatarRtc(payload) {
   if (!payload?.ready || payload?.provider !== "spatialreal") {
     return;
@@ -823,8 +897,12 @@ async function initializeAvatarRtc(payload) {
     const sessionToken = client.sessionToken;
     const livekitConfig = avatarLiveKitConfig(payload);
     if (!appId || !avatarId || !sessionToken || !livekitConfig) {
-      setAvatarPanelMessage("SpatialReal session은 준비됐지만 AvatarKit RTC용 LiveKit viewer token이 아직 없습니다. token은 화면과 로그에 출력하지 않습니다.");
-      appendLog("avatar rtc waiting for app/avatar/session/livekit viewer config; tokens hidden");
+      renderAvatarRtcDegraded("missing_livekit_viewer_config");
+      return;
+    }
+    const preflight = await preflightAvatarRtc(livekitConfig);
+    if (!preflight.ok) {
+      renderAvatarRtcDegraded(preflight.reason || "avatar_rtc_preflight_failed");
       return;
     }
 
@@ -864,7 +942,7 @@ async function initializeAvatarRtc(payload) {
       const player = new AvatarPlayer(provider, view, { logLevel: "warning" });
       player.on("connected", () => {
         setAvatarRtcState("ready", "Avatar RTC 연결됨");
-        setAvatarPanelMessage("SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다.");
+        setAvatarPanelMessage("SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 post-TTS egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다; OpenAI Realtime remote audio는 주입하지 않습니다.");
         muteAvatarRtcAudioElements();
         appendLog("avatar rtc connected through LiveKit; tokens hidden; Avatar RTC media muted to avoid dual-audio drift with OpenAI Realtime output");
       });
@@ -909,7 +987,7 @@ function renderAvatarState(payload) {
       const audio = payload?.client?.audioFormat || {};
       const livekit = payload?.client?.livekit || {};
       const rtcStatus = livekit.tokenStatus === "issued" ? "AvatarKit RTC viewer token 준비됨" : "AvatarKit RTC viewer token 대기";
-      avatarPanelBody.textContent = `SpatialReal session이 발급되었습니다. session token은 화면에 표시하지 않습니다. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${rtcStatus}.`;
+      avatarPanelBody.textContent = `SpatialReal session이 발급되었습니다. session token은 화면에 표시하지 않습니다. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${rtcStatus}. Avatar RTC는 별도 preflight가 통과할 때만 연결하며 OpenAI Realtime 음성과 lip-sync된다고 표시하지 않습니다.`;
     } else if (payload?.reason) {
       avatarPanelBody.textContent = `상태: ${payload.reason}. 키가 구성되면 서버가 session token을 중개합니다.`;
     } else if (payload?.error) {
@@ -1135,7 +1213,7 @@ function renderQuestionLoading() {
   if (currentQuestionBody) {
     currentQuestionBody.textContent = isRealtimePrimary()
       ? "Realtime sideband가 full MMM 준비 이후 다음 질문을 발화합니다."
-      : "Gemini 기반 InterviewController가 다음 질문을 생성하고 있습니다.";
+      : "Keyless scaffold InterviewController가 다음 질문 route smoke를 처리합니다.";
   }
   if (interviewerQuestionText) {
     interviewerQuestionText.textContent = "면접관 질문을 준비하고 있습니다.";
@@ -1755,6 +1833,6 @@ setRoomMode("prejoin");
 setAnswerTurnAvailability(false);
 syncMediaUi();
 hydrateProductionRoutes();
-renderTranscriptStatus("GilJobE analysis-engine 연결 후 답변 종료 시 전사가 표시됩니다.");
+renderTranscriptStatus("OpenAI Realtime 전사와 bounded vision metadata를 analysis-engine에 전달한 뒤, API가 MMM 준비 후 다음 질문을 생성합니다.");
 appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);
 autoJoinRoomRoute();

@@ -63,7 +63,9 @@ running on the same host can complete ICE. For another laptop or public network,
 and open the listed ports. SpatialReal RTC egress has a stricter reachability requirement:
 `SPATIALREAL_RTC_LIVEKIT_URL` must be reachable from SpatialReal cloud, so loopback values
 such as `ws://127.0.0.1:7880` are not valid for cloud-side avatar publishing even when they
-work for same-host browser smoke.
+work for same-host browser smoke. This only proves SpatialReal can publish avatar media into
+LiveKit; it does not prove lip-sync to OpenAI Realtime remote audio because the current egress
+input is server-generated TTS audio, not the browser Realtime audio track.
 
 ## Local media smoke
 

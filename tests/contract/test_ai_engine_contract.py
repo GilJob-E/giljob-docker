@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from http.server import ThreadingHTTPServer
-import base64
 import io
 import importlib.util
 import json
@@ -26,16 +25,11 @@ spec.loader.exec_module(ai_engine)
 
 LLM_ENV_NAMES = (
     "LLM_PROVIDER",
-    "GEMINI_API_KEY",
-    "GEMINI_MODEL",
-    "GEMINI_TIMEOUT_SECONDS",
     "VOICE_PROVIDER",
     "ELEVENLABS_API_KEY",
     "ELEVENLABS_VOICE_ID",
     "ELEVENLABS_TTS_MODEL",
     "ELEVENLABS_OUTPUT_FORMAT",
-    "GEMINI_TTS_MODEL",
-    "GEMINI_TTS_VOICE",
     "TTS_PROVIDER_FAILURE_FALLBACK",
     "AVATAR_PROVIDER",
     "SPATIALREAL_API_KEY",
@@ -65,23 +59,6 @@ def restore_env(old_env: dict[str, str | None]) -> None:
             os.environ.pop(name, None)
         else:
             os.environ[name] = value
-
-
-class _FakeResponse:
-    status = 200
-
-    def __enter__(self) -> _FakeResponse:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        return None
-
-    def read(self) -> bytes:
-        return json.dumps({
-            "candidates": [
-                {"content": {"parts": [{"text": "지원한 직무와 가장 연결되는 프로젝트 하나를 설명해 주세요."}]}}
-            ]
-        }).encode("utf-8")
 
 
 class AIEngineContractTest(unittest.TestCase):
@@ -118,20 +95,12 @@ class AIEngineContractTest(unittest.TestCase):
             return exc.code, json.loads(body), body
 
     def test_health_reports_llm_contract_without_key_value(self) -> None:
-        os.environ["LLM_PROVIDER"] = "gemini"
-        os.environ["GEMINI_API_KEY"] = "test-key-should-not-leak"
-        os.environ["GEMINI_MODEL"] = "gemini-3.5-flash"
+        os.environ["LLM_PROVIDER"] = "fake"
         with urllib.request.urlopen(self.base_url + "/healthz", timeout=5) as res:
             body = res.read().decode("utf-8")
         payload = json.loads(body)
-        self.assertEqual(payload["llmProvider"], "gemini")
-        self.assertEqual(payload["geminiModel"], "gemini-3.5-flash")
-        self.assertEqual(payload["geminiKeyConfigured"], True)
-        self.assertNotIn("test-key-should-not-leak", body)
+        self.assertEqual(payload["llmProvider"], "fake")
         self.assertIn("voiceProvider", payload)
-        self.assertIn("geminiTtsKeyConfigured", payload)
-        self.assertIn("geminiTtsModel", payload)
-        self.assertIn("geminiTtsVoice", payload)
         self.assertIn("avatarProvider", payload)
         self.assertIn("spatialRealAudioFormat", payload)
         self.assertNotIn("ELEVENLABS_API_KEY", body)
@@ -161,79 +130,7 @@ class AIEngineContractTest(unittest.TestCase):
         self.assertNotIn("ELEVENLABS_API_KEY", body)
         self.assertNotIn("secret", body.lower())
 
-    def test_gemini_tts_call_uses_official_generate_content_audio_contract_without_key_leak(self) -> None:
-        os.environ["VOICE_PROVIDER"] = "gemini"
-        os.environ["GEMINI_API_KEY"] = "secret-gemini-key"
-        os.environ["GEMINI_TTS_MODEL"] = "gemini-3.1-flash-tts-preview"
-        os.environ["GEMINI_TTS_VOICE"] = "Kore"
-        pcm = b"\x00\x00" * 240
 
-        class _GeminiAudioResponse:
-            def __enter__(self):
-                return self
-            def __exit__(self, *args: object) -> None:
-                return None
-            def read(self) -> bytes:
-                return json.dumps({
-                    "candidates": [{
-                        "content": {
-                            "parts": [{
-                                "inlineData": {
-                                    "mimeType": "audio/L16;rate=24000",
-                                    "data": base64.b64encode(pcm).decode("ascii"),
-                                }
-                            }]
-                        }
-                    }]
-                }).encode("utf-8")
-
-        with patch.object(ai_engine.urllib.request, "urlopen", return_value=_GeminiAudioResponse()) as mocked:
-            status, payload = ai_engine.tts_response({"sessionId": "local-demo", "turnId": "q1", "text": "질문입니다."})
-        body = json.dumps(payload, ensure_ascii=False)
-        self.assertEqual(status, 200, body)
-        audio = payload["audio"]
-        self.assertIsInstance(audio, dict)
-        audio_payload = cast(dict[str, object], audio)
-        self.assertEqual(audio_payload["provider"], "gemini")
-        self.assertEqual(audio_payload["contentType"], "audio/wav")
-        self.assertEqual(audio_payload["codec"], "wav")
-        self.assertEqual(audio_payload["sampleRate"], 24000)
-        self.assertEqual(audio_payload["channels"], 1)
-        self.assertEqual(audio_payload["model"], "gemini-3.1-flash-tts-preview")
-        self.assertEqual(audio_payload["voiceName"], "Kore")
-        self.assertGreater(cast(int, audio_payload["byteLength"]), len(pcm))
-        request = mocked.call_args.args[0]
-        self.assertIn("models/gemini-3.1-flash-tts-preview:generateContent", request.full_url)
-        self.assertEqual(request.headers["X-goog-api-key"], "secret-gemini-key")
-        request_body = json.loads(request.data.decode("utf-8"))
-        self.assertEqual(request_body["generationConfig"]["responseModalities"], ["AUDIO"])
-        voice_config = request_body["generationConfig"]["speechConfig"]["voiceConfig"]
-        self.assertEqual(voice_config["prebuiltVoiceConfig"]["voiceName"], "Kore")
-        self.assertNotIn("secret-gemini-key", body)
-
-    def test_gemini_tts_provider_failure_can_fallback_to_fake_for_room_ux(self) -> None:
-        os.environ["VOICE_PROVIDER"] = "gemini"
-        os.environ["GEMINI_API_KEY"] = "secret-gemini-key"
-        os.environ["GEMINI_TTS_MODEL"] = "gemini-3.1-flash-tts-preview"
-        os.environ["GEMINI_TTS_VOICE"] = "Kore"
-        os.environ["TTS_PROVIDER_FAILURE_FALLBACK"] = "fake"
-        gemini_error = urllib.error.HTTPError(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent",
-            429,
-            "Too Many Requests",
-            {},
-            io.BytesIO(b'{"detail":"provider quota marker"}'),
-        )
-        with patch.object(ai_engine.urllib.request, "urlopen", side_effect=gemini_error):
-            status, payload = ai_engine.tts_response({"sessionId": "local-demo", "turnId": "q1", "text": "질문입니다."})
-        body = json.dumps(payload, ensure_ascii=False)
-        self.assertEqual(status, 200, body)
-        self.assertEqual(payload["providerStatus"], "fallback")
-        audio = cast(dict[str, object], payload["audio"])
-        self.assertEqual(audio["provider"], "fake")
-        self.assertEqual(audio["fallbackFrom"], "gemini")
-        self.assertNotIn("secret-gemini-key", body)
-        self.assertNotIn("provider quota marker", body)
 
     def test_elevenlabs_tts_fails_closed_without_key_or_voice(self) -> None:
         os.environ["VOICE_PROVIDER"] = "elevenlabs"
@@ -329,24 +226,6 @@ class AIEngineContractTest(unittest.TestCase):
 
     def test_provider_http_errors_do_not_expose_upstream_bodies(self) -> None:
         marker = "UPSTREAM_PROVIDER_DIAGNOSTIC_MARKER"
-
-        os.environ["LLM_PROVIDER"] = "gemini"
-        os.environ["GEMINI_API_KEY"] = "secret-gemini-key"
-        os.environ["GEMINI_MODEL"] = "gemini-3.5-flash"
-        gemini_error = urllib.error.HTTPError(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
-            429,
-            "Too Many Requests",
-            {},
-            io.BytesIO(f'{{"error":"{marker}","key":"secret-gemini-key"}}'.encode()),
-        )
-        with patch.object(ai_engine.urllib.request, "urlopen", side_effect=gemini_error):
-            status, payload = ai_engine.question_response({"interviewId": "local-demo", "turnIndex": 1})
-        body = json.dumps(payload, ensure_ascii=False)
-        self.assertEqual(status, 502, body)
-        self.assertEqual(payload["message"], "provider request failed")
-        self.assertNotIn(marker, body)
-        self.assertNotIn("secret-gemini-key", body)
 
         os.environ["VOICE_PROVIDER"] = "elevenlabs"
         os.environ["ELEVENLABS_API_KEY"] = "secret-elevenlabs-key"
@@ -478,31 +357,9 @@ class AIEngineContractTest(unittest.TestCase):
             "endLabel": "답변 종료",
         })
         self.assertIn("question", payload)
-        self.assertNotIn("GEMINI_API_KEY", body)
+        self.assertNotIn("ELEVENLABS_API_KEY", body)
 
-    def test_gemini_provider_calls_generate_content_without_leaking_key(self) -> None:
-        os.environ["LLM_PROVIDER"] = "gemini"
-        os.environ["GEMINI_API_KEY"] = "secret-gemini-key"
-        os.environ["GEMINI_MODEL"] = "gemini-3.5-flash"
-        with patch.object(ai_engine.urllib.request, "urlopen", return_value=_FakeResponse()) as mocked:
-            status, payload = ai_engine.question_response({"interviewId": "local-demo", "turnIndex": 1})
-        body = json.dumps(payload, ensure_ascii=False)
-        self.assertEqual(status, 200, body)
-        self.assertEqual(payload["provider"], "gemini")
-        self.assertEqual(payload["model"], "gemini-3.5-flash")
-        self.assertEqual(payload["question"], "지원한 직무와 가장 연결되는 프로젝트 하나를 설명해 주세요.")
-        request = mocked.call_args.args[0]
-        self.assertIn("models/gemini-3.5-flash:generateContent", request.full_url)
-        self.assertEqual(request.headers["X-goog-api-key"], "secret-gemini-key")
-        self.assertNotIn("secret-gemini-key", body)
 
-    def test_gemini_provider_fails_closed_without_key(self) -> None:
-        os.environ["LLM_PROVIDER"] = "gemini"
-        os.environ["GEMINI_MODEL"] = "gemini-3.5-flash"
-        status, payload, body = self._post("/interview/next-question", {"interviewId": "local-demo", "turnIndex": 1})
-        self.assertEqual(status, 502)
-        self.assertEqual(payload["error"], "llm_provider_failed")
-        self.assertNotIn("GEMINI_API_KEY=", body)
 
     def test_caddy_blocks_public_ai_prefix_after_api_broker_migration(self) -> None:
         caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text()
@@ -566,8 +423,6 @@ class AIEngineContractTest(unittest.TestCase):
             "ELEVENLABS_VOICE_ID",
             "ELEVENLABS_TTS_MODEL",
             "ELEVENLABS_OUTPUT_FORMAT",
-            "GEMINI_TTS_MODEL",
-            "GEMINI_TTS_VOICE",
             "TTS_PROVIDER_FAILURE_FALLBACK",
             "AVATAR_PROVIDER",
             "SPATIALREAL_API_KEY",

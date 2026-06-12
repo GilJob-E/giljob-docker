@@ -23,11 +23,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git ffmpeg ca-certificates curl libegl1 libgles2 \
     && rm -rf /var/lib/apt/lists/*
 
-# GilJobE owns the HTTP contract surface itself (server/http_app.py): /subscriber/start|stop,
-# /signals, /healthz, /readyz. We install the pinned package and run its module entrypoint
-# instead of a local scaffold wrapper, so the container runs the same code GilJobE smoke-tests.
+# GilJobE owns the STT/subscriber HTTP contract surface itself (server/http_app.py):
+# /subscriber/start|stop, /signals, /healthz, /readyz. The local entrypoint below builds
+# that same GilJobE app and adds GilJob v2's sanitized Realtime MMM ingress route
+# (/realtime/turn-events) so services/api can forward answer-state sideband metadata.
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY server.py /app/server.py
 
 # MediaPipe Face/Pose Landmarker models for GilJobE's objective vision grounding lane.
 # Baked at build time from version-pinned URLs so the runtime needs no network fetch.
@@ -43,4 +45,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/healthz', timeout=2).read()"
 
 USER nobody
-CMD ["python", "-m", "giljobe.server"]
+CMD ["python", "/app/server.py"]

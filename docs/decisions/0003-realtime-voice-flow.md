@@ -7,7 +7,7 @@
 
 ## Context
 
-GilJob v2 needs a browser-facing live interviewer voice path without exposing provider keys, raw tokens, raw media, or internal analysis prompts. The current room already has LiveKit candidate media, GilJobE/analysis-engine boundaries, Gemini question/TTS support, and SpatialReal avatar scaffolding. The new Realtime path must fit that scaffold rather than replacing all room state with a direct browser-to-provider integration.
+GilJob v2 needs a browser-facing live interviewer voice path without exposing provider keys, raw tokens, raw media, or internal analysis prompts. The current room already has LiveKit candidate media, GilJobE/analysis-engine boundaries, Realtime sideband/MMM readiness gates, and SpatialReal avatar scaffolding. The Realtime path must fit that scaffold rather than replacing all room state with a direct browser-to-provider integration.
 
 The preserved constraints are:
 
@@ -29,7 +29,7 @@ Cons:
 - Makes public browser code a trusted business-logic boundary.
 - Increases the blast radius of logs, screenshots, and browser devtools.
 
-### Option B — API broker issues an ephemeral Realtime client secret, browser attaches SDP to Realtime
+### Option B — API brokers Realtime session metadata, browser attaches SDP through the API
 
 Pros:
 - Keeps the standard OpenAI API key server-only.
@@ -38,7 +38,7 @@ Pros:
 - Allows the API to publish route metadata and readiness gates without proxying media.
 
 Cons:
-- The browser still talks to the provider SDP endpoint with an ephemeral secret, so the endpoint and secret-shape contract must be tested.
+- The browser does not talk to the provider SDP endpoint; the API call broker owns provider attach with the server key, so route and redaction contracts must be tested.
 - Provider failure must degrade cleanly without exposing upstream error bodies.
 
 ### Option C — Server proxies all Realtime media and datachannel traffic
@@ -53,22 +53,22 @@ Cons:
 
 ## Decision
 
-Choose **Option B: API-mediated ephemeral Realtime session plus browser WebRTC SDP attach**.
+Choose **Option B: API-mediated Realtime session plus API-brokered browser WebRTC SDP attach**.
 
-The API owns `/api/interviews/:id/realtime/session` and `/api/interviews/:id/realtime/call`. It uses the standard server-side provider key to request a short-lived Realtime client secret and returns only browser-safe metadata. The browser attaches SDP to `https://api.openai.com/v1/realtime/calls` with that ephemeral secret. The browser must not receive or log the standard provider key.
+The API owns `/api/interviews/:id/realtime/session` and `/api/interviews/:id/realtime/call`. It uses the standard server-side provider key for Realtime session checks and `/v1/realtime/calls` SDP attach, then returns only browser-safe route/session metadata and SDP answers. The browser must not call provider routes directly or receive/log the standard provider key, provider client-secret values, or raw SDP bodies.
 
-Ordinary next-question audio is gated. After the candidate answer ends, the browser forwards bounded transcript/prosody/vision sideband events to:
+The first interviewer question is a bootstrap Realtime response and does not require MMM because there is no prior candidate answer. Ordinary follow-up next-question audio is gated. After the candidate answer ends, the browser forwards bounded transcript/prosody/vision sideband events to:
 
 - `/api/interviews/:id/turns/:turnIndex/events`
 - `/api/interviews/:id/turns/:turnIndex/vision-events`
 - `/api/interviews/:id/turns/:turnIndex/mmm-ready`
 
-The next ordinary `realtime.response.create` is allowed only when the API reports `full_mmm_ready: true` for the prior turn. Degraded or incomplete readiness blocks ordinary next-question audio rather than silently bypassing the analysis contract.
+For turn `N >= 2`, the next ordinary `realtime.response.create` is allowed only when the API reports `full_mmm_ready: true` for prior answer turn `N-1` and resolves a candidate-safe MMM result. Degraded or incomplete readiness blocks ordinary next-question audio rather than silently bypassing the analysis contract. The browser may relay the API-approved command over the already-attached Realtime data channel, but it must not author the prompt or bypass the API decision.
 
 ## Public contract
 
-- `OPENAI_REALTIME_API_KEY` is server-only.
-- `OPENAI_REALTIME_PRIMARY=true` enables the Realtime primary browser path.
+- `OPENAI_API_KEY` is the only OpenAI server key and remains server-only; do not add `OPENAI_REALTIME_API_KEY`.
+- `OPENAI_REALTIME_PRIMARY=true` enables the Realtime primary browser path and is the default documented primary voice mode.
 - `/api/interviews/:id/realtime/session` returns provider status, route metadata, and an ephemeral client secret shape only.
 - The SDP attach endpoint is `/v1/realtime/calls`; no `?model=` fallback is part of the locked browser attach contract.
 - Browser logs may mention that a client secret or SDP exists, but must not print the secret value or SDP body.
@@ -78,8 +78,8 @@ The next ordinary `realtime.response.create` is allowed only when the API report
 
 - Caddy continues to expose only the public web/API broker surface for GilJob services.
 - Browser Realtime datachannel handling is allowed, but backend sideband routes remain the trusted business-logic boundary.
-- Gemini next-question/TTS remains available as a separate provider boundary and fallback path; it is not the primary Realtime WebRTC audio path when `OPENAI_REALTIME_PRIMARY=true`.
-- SpatialReal avatar rendering remains separate from interviewer audio; avatar RTC media is muted where needed to avoid dual-audio drift.
+- Gemini next-question/TTS fallback is intentionally removed from the accepted architecture. OpenAI Realtime is the only live interviewer voice path when `OPENAI_REALTIME_PRIMARY=true`; internal fake/ElevenLabs adapters are smoke/compatibility surfaces only and must not become ordinary fallback voice paths.
+- SpatialReal avatar rendering remains separate from interviewer audio; avatar RTC media is muted where needed to avoid dual-audio drift. The current SpatialReal RTC egress path accepts server-generated TTS WAV payloads, not OpenAI Realtime remote audio, so Realtime-avatar lip-sync is a known gap rather than a supported claim.
 - Provider smoke tests must distinguish session brokering readiness from provider/network attach failures.
 
 ## Verification
@@ -87,10 +87,10 @@ The next ordinary `realtime.response.create` is allowed only when the API report
 Minimum verification before claiming this contract is intact:
 
 - `node --check apps/web/static/app.js`
-- `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py`
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py`
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v`
 - targeted smoke evidence that `/api/interviews/:id/realtime/session` does not expose a standard provider key
-- targeted smoke evidence that the browser uses `/v1/realtime/calls` for SDP attach and gates ordinary `realtime.response.create` on `full_mmm_ready`
+- targeted smoke evidence that the browser uses `/api/interviews/:id/realtime/call` for SDP attach and gates ordinary `realtime.response.create` on `full_mmm_ready`
 
 Provider or external-network failures should be reported as runtime blockers with redacted evidence, not patched around by exposing direct provider secrets.
 
@@ -98,4 +98,5 @@ Provider or external-network failures should be reported as runtime blockers wit
 
 - Keep the Realtime smoke harness redacted and split provider-session, SDP attach, and MMM-readiness failures.
 - Add external-network WebRTC evidence before demo readiness.
-- Revisit server-proxying only if WebRTC provider/network constraints make the ephemeral browser attach path unsuitable.
+- Do not claim SpatialReal lip-sync with OpenAI Realtime audio until a tested bridge captures or routes Realtime output audio into SpatialReal without exposing secrets, raw media, or high-latency browser recording loops.
+- Revisit browser-direct provider attach only if the API call broker proves unworkable and the product explicitly accepts browser-held ephemeral provider secrets.

@@ -3,9 +3,10 @@
 This module owns the GilJobE-backed analysis boundary. Follow the root `AGENTS.md` plus these local rules.
 
 ## How it runs
-- The container installs the pinned `GilJobE` package (`requirements.txt`) and runs its own module
-  entrypoint `python -m giljobe.server`. There is no local wrapper to maintain here — GilJobE owns
-  the HTTP contract server (`server/http_app.py`).
+- The container installs the pinned `GilJobE` package (`requirements.txt`) and runs the local
+  `server.py` entrypoint. That entrypoint builds GilJobE's own HTTP contract app
+  (`server/http_app.py`) and adds only the GilJob-v2 Realtime MMM sideband ingress route
+  (`/realtime/turn-events`).
 - Keep the image thin: `python:3.12-slim` + `git` + `ffmpeg` + `curl` (livekit/av wheels need glibc,
   not alpine; curl fetches the pinned MediaPipe models at build time).
 - Bump behaviour by bumping the pinned ref in `requirements.txt` (and the informational
@@ -20,6 +21,8 @@ This module owns the GilJobE-backed analysis boundary. Follow the root `AGENTS.m
 - Treat `GilJobE` as the STT and multimodal input-analysis source of truth.
 - Serve the hidden LiveKit analyzer HTTP contract: `/subscriber/start`, `/subscriber/stop`,
   `/signals`, `/healthz`, `/readyz`. The subscriber joins `giljob-session-{sessionId}` per turn.
+- Accept sanitized API-forwarded Realtime MMM sideband records at `/realtime/turn-events`.
+  Reject raw media, raw transcripts, provider tokens, SDP, and browser secrets.
 - Report dependency/config readiness without exposing raw LiveKit tokens, JWTs, API secrets, media,
   or transcript payloads in logs. `/healthz` and `/readyz` are token-safe.
 
@@ -36,7 +39,7 @@ This module owns the GilJobE-backed analysis boundary. Follow the root `AGENTS.m
 ```bash
 # Doc-pair contract (this directory is part of DOC_PAIRS):
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -p 'test_agent_docs_contract.py' -v
-# Build smoke (installs the pinned GilJobE package and runs the module entrypoint):
+# Build smoke (installs the pinned GilJobE package and runs the wrapped entrypoint):
 docker build -t analysis-engine services/analysis-engine \
   && docker run --rm -p 8200:8200 analysis-engine &  # then GET /healthz
 ```
