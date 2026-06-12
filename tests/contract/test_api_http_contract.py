@@ -522,6 +522,37 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertNotIn("wrong turn fragment must not be used", body)
 
 
+    def test_realtime_response_create_rejects_wrong_turn_analysis_result(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 2,
+            "candidatePromptFragment": "wrong turn fragment must not be used",
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_not_usable")
+        self.assertEqual(payload["responseCreate"]["reason"], "candidate_safe_ready_result_required")
+        self.assertNotIn("wrong turn fragment must not be used", body)
+
+
 
     def test_realtime_response_create_rejects_wrong_turn_analysis_result(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
