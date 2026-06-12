@@ -74,6 +74,8 @@ const FULL_MMM_READY_MAX_ATTEMPTS = 30;
 const AVATAR_RTC_PREFLIGHT_TIMEOUT_MS = 2500;
 const REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED = "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED";
 const REALTIME_AVATAR_AUDIO_BRIDGE_MODE = "experimental-openai-realtime-audio-to-avatar";
+const SPATIALREAL_NON_LIVEKIT_SDK_MODE_ENABLED = "SPATIALREAL_NON_LIVEKIT_SDK_MODE_ENABLED";
+const SPATIALREAL_NON_LIVEKIT_SDK_MODE = "spatialreal-non-livekit-sdk-mode";
 const REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS = [
   "당신은 한국어 라이브 면접관입니다.",
   "백엔드 분석 준비는 이미 완료된 뒤에만 응답이 요청됩니다.",
@@ -199,6 +201,21 @@ function avatarLiveKitConfig(payload) {
     return null;
   }
   return { url, token, roomName };
+}
+
+function avatarSdkModeConfig(payload = activeAvatarSession) {
+  return payload?.sdkMode || payload?.client?.sdkMode || activeSession?.avatarSdkMode || {};
+}
+
+function isNonLiveKitAvatarSdkModeEnabled(payload = activeAvatarSession) {
+  const sdkMode = avatarSdkModeConfig(payload);
+  return sdkMode.enabled === true
+    && sdkMode.mode === SPATIALREAL_NON_LIVEKIT_SDK_MODE
+    && sdkMode.transport === "direct-sdk"
+    && sdkMode.requiresFeatureFlag === SPATIALREAL_NON_LIVEKIT_SDK_MODE_ENABLED
+    && sdkMode.livekitRequired === false
+    && sdkMode.providerSecretsExposed === false
+    && sdkMode.rawMediaExposed === false;
 }
 
 function setAvatarPanelMessage(message) {
@@ -1070,13 +1087,17 @@ async function preflightAvatarRtc(livekitConfig) {
 }
 
 function renderAvatarRtcDegraded(reason) {
-  setAvatarRtcState("disabled", "Avatar RTC 비활성");
-  setAvatarPanelMessage(`Avatar RTC는 현재 브라우저에서 연결할 수 없어 비활성화되었습니다 (${reason}). OpenAI Realtime 음성 면접은 계속 진행되며, 검증된 오디오-to-avatar 브릿지가 생기기 전까지 lip-sync를 제공한다고 표시하지 않습니다.`);
-  appendLog(`avatar rtc degraded: ${reason}; Realtime voice unaffected; tokens hidden`);
+  setAvatarRtcState("disabled", "Avatar deferred");
+  setAvatarPanelMessage(`Avatar는 현재 비활성/지연 상태입니다 (${reason}). OpenAI Realtime 음성 면접은 LiveKit/AvatarKit RTC 없이 계속 진행되며, 검증된 non-LiveKit SDK Mode 전까지 lip-sync를 제공한다고 표시하지 않습니다.`);
+  appendLog(`avatar deferred: ${reason}; Realtime voice unaffected; tokens hidden`);
 }
 
 async function initializeAvatarRtc(payload) {
   if (!payload?.ready || payload?.provider !== "spatialreal") {
+    return;
+  }
+  if (!isNonLiveKitAvatarSdkModeEnabled(payload)) {
+    renderAvatarRtcDegraded("non_livekit_sdk_mode_disabled");
     return;
   }
   if (avatarRtcInitializing) {
@@ -1089,7 +1110,7 @@ async function initializeAvatarRtc(payload) {
     const sessionToken = client.sessionToken;
     const livekitConfig = avatarLiveKitConfig(payload);
     if (!appId || !avatarId || !sessionToken || !livekitConfig) {
-      renderAvatarRtcDegraded("missing_livekit_viewer_config");
+      renderAvatarRtcDegraded("missing_non_livekit_sdk_viewer_config");
       return;
     }
     const preflight = await preflightAvatarRtc(livekitConfig);
@@ -1184,8 +1205,11 @@ function renderAvatarState(payload) {
     if (payload?.ready) {
       const audio = payload?.client?.audioFormat || {};
       const livekit = payload?.client?.livekit || {};
-      const rtcStatus = livekit.tokenStatus === "issued" ? "AvatarKit RTC viewer token 준비됨" : "AvatarKit RTC viewer token 대기";
-      avatarPanelBody.textContent = `SpatialReal session이 발급되었습니다. session token은 화면에 표시하지 않습니다. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${rtcStatus}. Avatar RTC는 별도 preflight가 통과할 때만 연결하며 OpenAI Realtime 음성과 lip-sync된다고 표시하지 않습니다.`;
+      const sdkMode = avatarSdkModeConfig(payload);
+      const sdkStatus = isNonLiveKitAvatarSdkModeEnabled(payload)
+        ? "non-LiveKit SDK Mode metadata enabled"
+        : `non-LiveKit SDK Mode deferred (${sdkMode.status || sdkMode.reason || "feature flag off"})`;
+      avatarPanelBody.textContent = `SpatialReal session이 발급되었습니다. session token은 화면에 표시하지 않습니다. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${sdkStatus}. Avatar는 Realtime 연결을 막지 않으며 검증 전 lip-sync를 제공한다고 표시하지 않습니다.`;
     } else if (payload?.reason) {
       avatarPanelBody.textContent = `상태: ${payload.reason}. 키가 구성되면 서버가 session token을 중개합니다.`;
     } else if (payload?.error) {
@@ -1212,8 +1236,8 @@ async function requestAvatarSession(reason = "room-join") {
       throw new Error(payload.message || payload.error || `avatar session failed: HTTP ${response.status}`);
     }
     renderAvatarState(payload);
-    appendLog(`avatar session state: ${payload.status || "unknown"}; provider ${payload.provider || "unknown"}; session token hidden`);
-    initializeAvatarRtc(payload);
+    appendLog(`avatar session state: ${payload.status || "unknown"}; provider ${payload.provider || "unknown"}; session token hidden; Realtime voice unaffected`);
+    initializeAvatarRtc(payload).catch((error) => appendLog(`avatar init deferred safely: ${errorMessage(error)}`));
     return payload;
   } catch (error) {
     const message = errorMessage(error);
@@ -1815,9 +1839,10 @@ async function createSession() {
 
   activeSession = payload;
   renderSessionSummary(activeSession);
-  setStatus(`session created: ${payload.roomName}`, "idle");
-  appendLog(`session created for room ${payload.roomName}; tokens hidden`);
-  await requestAvatarSession("session-created");
+  const sessionLabel = payload.roomName || payload.sessionId || activeInterviewId;
+  setStatus(`session created: ${sessionLabel}`, "idle");
+  appendLog(`session created for ${sessionLabel}; tokens hidden; avatar lookup deferred until after primary transport`);
+  renderAvatarRtcDegraded("avatar_session_deferred_until_after_realtime");
   return activeSession;
 }
 
@@ -1899,6 +1924,7 @@ async function joinRoom() {
   const session = activeSession ?? (await createSession());
   if (isRealtimePrimary(session)) {
     await connectRealtimeRoom(session);
+    requestAvatarSession("realtime-connected-deferred").catch((error) => appendLog(`avatar session deferred after Realtime: ${errorMessage(error)}`));
     return;
   }
   const { url, token } = sessionLiveKitConfig(session);
@@ -1914,6 +1940,7 @@ async function joinRoom() {
   await activeRoom.connect(url, token);
   try {
     await maybePublishLocalMedia(activeRoom);
+    requestAvatarSession("livekit-connected-deferred").catch((error) => appendLog(`avatar session deferred after LiveKit: ${errorMessage(error)}`));
   } catch (error) {
     await failClosedAfterJoinMediaError(activeRoom, error);
     throw error;
