@@ -207,9 +207,9 @@ class ApiHttpContractTest(unittest.TestCase):
         status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"local-demo"}')
         self.assertEqual(status, 201, body)
         payload = json.loads(body)
-        realtime = payload["realtime"]
-        self.assertIn("avatarBridge", realtime)
-        bridge = realtime["avatarBridge"]
+        self.assertIn("realtime", payload)
+        self.assertIn("realtimeAvatarBridge", payload)
+        bridge = payload["realtimeAvatarBridge"]
 
         self.assertEqual(bridge["mode"], "experimental-openai-realtime-audio-to-avatar")
         self.assertEqual(bridge["status"], "blocked")

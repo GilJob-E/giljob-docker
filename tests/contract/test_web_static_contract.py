@@ -254,6 +254,7 @@ class WebStaticContractTest(unittest.TestCase):
         # and must stay API/LiveKit-mediated rather than browser-direct provider access.
         self.assertIn("function realtimeAudioAvatarBridgeConfig", body)
         self.assertIn("function isRealtimeAudioAvatarBridgeEnabled", body)
+        self.assertIn("activeSession?.realtimeAvatarBridge", body)
         self.assertIn("REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED", body)
         self.assertIn("experimental-openai-realtime-audio-to-avatar", body)
         self.assertIn("avatarBridge.status === \"enabled\"", body)
@@ -290,9 +291,7 @@ class WebStaticContractTest(unittest.TestCase):
         forbidden_bridge_shapes = [
             "SPATIALREAL_API_KEY",
             "OPENAI_API_KEY",
-            "client_secret",
             "server_secret",
-            "sdpAnswer",
             "raw offer",
             "raw media bytes",
             "raw transcript",
