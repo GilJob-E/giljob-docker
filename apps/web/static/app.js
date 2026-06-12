@@ -1204,7 +1204,6 @@ function renderAvatarState(payload) {
   if (avatarPanelBody) {
     if (payload?.ready) {
       const audio = payload?.client?.audioFormat || {};
-      const livekit = payload?.client?.livekit || {};
       const sdkMode = avatarSdkModeConfig(payload);
       const sdkStatus = isNonLiveKitAvatarSdkModeEnabled(payload)
         ? "non-LiveKit SDK Mode metadata enabled"
