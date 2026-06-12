@@ -3,15 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "GilJob v2 Realtime-first interview room web shell with optional LiveKit/AvatarKit surfaces.",
+  "description": "GilJob v2 Realtime-first interview room web shell with deferred SpatialReal SDK Mode surfaces.",
   "scripts": {
     "check:js": "node --check static/app.js"
   },
   "dependencies": {
     "@spatialwalk/avatarkit": "1.0.0-beta.104",
-    "@spatialwalk/avatarkit-rtc": "1.0.0-beta.10",
     "@types/dom-mediacapture-record": "1.0.22",
-    "@webgpu/types": "0.1.70",
-    "livekit-client": "2.16.1"
+    "@webgpu/types": "0.1.70"
   }
 }

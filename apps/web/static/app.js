@@ -1,7 +1,3 @@
-import { Room, RoomEvent, setLogLevel } from "./vendor/livekit-client/dist/livekit-client.esm.mjs";
-
-setLogLevel("silent");
-
 const form = document.querySelector("#join-form");
 const createButton = document.querySelector("#create-session");
 const joinButton = document.querySelector("#join-room");
@@ -42,7 +38,6 @@ const transcriptBody = document.querySelector("#transcript-body");
 const mmmDebugSummary = document.querySelector("#mmm-debug-summary");
 
 let activeSession = null;
-let activeRoom = null;
 let localPreviewStream = null;
 let micEnabled = false;
 let cameraEnabled = false;
@@ -52,15 +47,10 @@ let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
 let lastAnalysisBlock = ""; // server-owned analysis summary only; browser never starts analysis workers or injects verbatim transcripts.
 let activeAvatarSession = null;
-let avatarRtcRuntime = { sdkInitialized: false, player: null, view: null, provider: null, avatarId: "" };
-let avatarRtcInitializing = null;
+let avatarSdkModeState = { initialized: false, outcome: "sdk_mode_deferred", reason: "not_started" };
 let activeRealtimeSession = null;
 let realtimeRemoteAudioTrack = null;
 let activeRealtimeResponseId = "";
-let avatarAudioBridgePublished = null;
-let realtimeAvatarBridgePublishedKeys = new Set();
-let realtimeAudioTrackObjectIds = new WeakMap();
-let realtimeAudioTrackObjectIdCounter = 0;
 let realtimeAnswerTranscript = "";
 let realtimeInterviewerQuestionTranscript = "";
 let realtimeFirstAudioMarked = false;
@@ -71,11 +61,12 @@ const REALTIME_VISION_EVENT_MAX_BYTES = 2048;
 const REALTIME_TRANSCRIPT_COMPLETED_EVENT = "conversation.item.input_audio_transcription.completed";
 const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
-const AVATAR_RTC_PREFLIGHT_TIMEOUT_MS = 2500;
-const REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED = "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED";
-const REALTIME_AVATAR_AUDIO_BRIDGE_MODE = "experimental-openai-realtime-audio-to-avatar";
-const SPATIALREAL_NON_LIVEKIT_SDK_MODE_ENABLED = "SPATIALREAL_NON_LIVEKIT_SDK_MODE_ENABLED";
-const SPATIALREAL_NON_LIVEKIT_SDK_MODE = "spatialreal-non-livekit-sdk-mode";
+const SPATIALREAL_SDK_MODE_WEB_ENABLED = "SPATIALREAL_SDK_MODE_WEB_ENABLED";
+const SPATIALREAL_SDK_MODE_OUTCOME = "sdk_mode_deferred";
+const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
+const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
+const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
+const SPATIALREAL_SDK_MODE_LABEL = "SpatialReal SDK Mode";
 const REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS = [
   "당신은 한국어 라이브 면접관입니다.",
   "백엔드 분석 준비는 이미 완료된 뒤에만 응답이 요청됩니다.",
@@ -192,31 +183,20 @@ function avatarStatusLabel(payload) {
   return "Avatar 대기";
 }
 
-function avatarLiveKitConfig(payload) {
-  const livekit = payload?.client?.livekit || {};
-  const url = livekit.publicUrl || livekit.url;
-  const token = livekit.avatarClientToken;
-  const roomName = livekit.roomName || activeSession?.livekit?.roomName || activeSession?.roomName;
-  if (!url || !token || !roomName || livekit.tokenStatus !== "issued") {
-    return null;
-  }
-  return { url, token, roomName };
-}
-
 function avatarSdkModeConfig(payload = activeAvatarSession) {
   return payload?.sdkMode || payload?.client?.sdkMode || activeSession?.avatarSdkMode || {};
 }
 
-function isNonLiveKitAvatarSdkModeEnabled(payload = activeAvatarSession) {
+function isSpatialRealSdkModeEnabled(payload = activeAvatarSession) {
   const sdkMode = avatarSdkModeConfig(payload);
   return sdkMode.enabled === true
-    && sdkMode.mode === SPATIALREAL_NON_LIVEKIT_SDK_MODE
-    && sdkMode.transport === "direct-sdk"
-    && sdkMode.requiresFeatureFlag === SPATIALREAL_NON_LIVEKIT_SDK_MODE_ENABLED
-    && sdkMode.livekitRequired === false
+    && sdkMode.mode === SPATIALREAL_SDK_MODE
+    && sdkMode.requiresFeatureFlag === SPATIALREAL_SDK_MODE_WEB_ENABLED
+    && sdkMode.outcome === SPATIALREAL_SDK_MODE_OUTCOME
     && sdkMode.providerSecretsExposed === false
     && sdkMode.rawMediaExposed === false;
 }
+
 
 function setAvatarPanelMessage(message) {
   if (avatarPanelBody) {
@@ -465,150 +445,13 @@ function attachRealtimeRemoteAudio(stream) {
   interviewerAudio.play().catch((error) => appendLog(`Realtime remote audio autoplay skipped: ${errorMessage(error)}`));
 }
 
-function realtimeAudioAvatarBridgeConfig() {
-  return activeAvatarSession?.bridge || activeSession?.realtimeAvatarBridge || activeSession?.bridge || {};
-}
-
-function isRealtimeAudioAvatarBridgeEnabled() {
-  const avatarBridge = realtimeAudioAvatarBridgeConfig();
-  return avatarBridge.browserAudioBridgeEnabled === true
-    && avatarBridge.enabled === true
-    && avatarBridge.mode === REALTIME_AVATAR_AUDIO_BRIDGE_MODE
-    && avatarBridge.status === "enabled"
-    && avatarBridge.directProviderRoutes === "blocked"
-    && avatarBridge.providerSecretsExposed === false
-    && avatarBridge.rawMediaExposed === false
-    && avatarBridge.rawTranscriptExposed === false
-    && avatarBridge.requiresFeatureFlag === REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED;
-}
-
-function avatarAudioBridgeMetadata() {
-  return realtimeAudioAvatarBridgeConfig();
-}
-
-function isAvatarAudioBridgeEnabled() {
-  return isRealtimeAudioAvatarBridgeEnabled();
-}
-
-function realtimeAudioTrackIdentity(track) {
-  if (!track) {
-    return "missing-track";
-  }
-  if (track.id) {
-    return track.id;
-  }
-  if (!realtimeAudioTrackObjectIds.has(track)) {
-    realtimeAudioTrackObjectIdCounter += 1;
-    realtimeAudioTrackObjectIds.set(track, `track-object-${realtimeAudioTrackObjectIdCounter}`);
-  }
-  return realtimeAudioTrackObjectIds.get(track);
-}
-
-function realtimeAudioBridgeDedupKey(track = realtimeRemoteAudioTrack) {
-  return `${activeRealtimeResponseId || currentTurnIndex}:${realtimeAudioTrackIdentity(track)}`;
-}
-
-function avatarBridgePublishKey(track = realtimeRemoteAudioTrack) {
-  return realtimeAudioBridgeDedupKey(track);
-}
-
-function safeAvatarAudioBridgeFailureReason(reason) {
-  return String(reason || "unknown").toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64) || "unknown";
-}
-
-function renderAvatarAudioBridgeStatus(status, detail = "") {
-  const safeStatus = status.startsWith("avatar_audio_bridge_failed:")
-    ? `avatar_audio_bridge_failed:${safeAvatarAudioBridgeFailureReason(status.split(":").slice(1).join(":"))}`
-    : status;
-  appendLog(`${safeStatus}${detail ? `; ${detail}` : ""}; raw media hidden`);
-  if (!avatarPanelBody) {
-    return;
-  }
-  if (safeStatus === "avatar_audio_bridge_disabled") {
-    avatarPanelBody.textContent = "Avatar RTC는 안정 기본값으로 동작합니다. Realtime-to-avatar browser bridge는 feature flag가 켜진 실험에서만 시도합니다.";
-    return;
-  }
-  if (safeStatus === "avatar_audio_bridge_waiting_avatar") {
-    avatarPanelBody.textContent = "Experimental Realtime audio bridge enabled; Avatar RTC 연결을 기다리는 중입니다.";
-    return;
-  }
-  if (safeStatus === "avatar_audio_bridge_waiting_realtime_track") {
-    avatarPanelBody.textContent = "Experimental Realtime audio bridge enabled; Realtime remote audio track을 기다리는 중입니다.";
-    return;
-  }
-  if (safeStatus === "avatar_audio_bridge_published") {
-    avatarPanelBody.textContent = "Experimental Realtime audio bridge active; avatar motion verification is still required. Realtime audio remains the audible source.";
-    return;
-  }
-  if (safeStatus === "avatar_audio_bridge_unpublished") {
-    avatarPanelBody.textContent = "Experimental Realtime audio bridge unpublished for this response lifecycle. Realtime voice/MMM flow remains active.";
-    return;
-  }
-  if (safeStatus.startsWith("avatar_audio_bridge_failed:")) {
-    avatarPanelBody.textContent = "Experimental Realtime audio bridge failed safely; Realtime interviewer audio and MMM flow continue.";
-  }
-}
-
-async function unpublishRealtimeAudioFromAvatar(reason = "lifecycle") {
-  const published = avatarAudioBridgePublished;
-  avatarAudioBridgePublished = null;
-  if (!published) {
-    return false;
-  }
-  const player = avatarRtcRuntime.player;
-  try {
-    if (typeof player?.unpublishAudio === "function") {
-      await player.unpublishAudio(published.track);
-    }
-    renderAvatarAudioBridgeStatus("avatar_audio_bridge_unpublished", `reason ${safeAvatarAudioBridgeFailureReason(reason)}`);
-    return true;
-  } catch (error) {
-    renderAvatarAudioBridgeStatus(`avatar_audio_bridge_failed:${safeAvatarAudioBridgeFailureReason(errorMessage(error))}`);
-    return false;
-  }
-}
-
-async function maybePublishRealtimeAudioToAvatar(track = realtimeRemoteAudioTrack) {
-  if (!isAvatarAudioBridgeEnabled()) {
-    renderAvatarAudioBridgeStatus("avatar_audio_bridge_disabled");
-    return false;
-  }
-  const player = avatarRtcRuntime.player;
-  if (!player) {
-    renderAvatarAudioBridgeStatus("avatar_audio_bridge_waiting_avatar");
-    return false;
-  }
-  if (!track || track.readyState === "ended") {
-    renderAvatarAudioBridgeStatus("avatar_audio_bridge_waiting_realtime_track");
-    return false;
-  }
-  const dedupKey = avatarBridgePublishKey(track);
-  if (avatarAudioBridgePublished?.dedupKey === dedupKey) {
-    return true;
-  }
-  if (realtimeAvatarBridgePublishedKeys.has(dedupKey)) {
-    return true;
-  }
-  if (avatarAudioBridgePublished) {
-    await unpublishRealtimeAudioFromAvatar("dedup-key-changed");
-  }
-  if (typeof player.publishAudio !== "function") {
-    renderAvatarAudioBridgeStatus("avatar_audio_bridge_failed:publish_audio_unavailable");
-    return false;
-  }
-  try {
-    muteAvatarRtcAudioElements();
-    await player.publishAudio(track);
-    avatarAudioBridgePublished = { dedupKey, track };
-    realtimeAvatarBridgePublishedKeys.add(dedupKey);
-    renderAvatarAudioBridgeStatus("avatar_audio_bridge_published", "dedup active");
-    muteAvatarRtcAudioElements();
-    return true;
-  } catch (error) {
-    avatarAudioBridgePublished = null;
-    renderAvatarAudioBridgeStatus(`avatar_audio_bridge_failed:${safeAvatarAudioBridgeFailureReason(errorMessage(error))}`);
-    return false;
-  }
+function renderAvatarSdkModeStatus(payload = activeAvatarSession) {
+  const sdkMode = avatarSdkModeConfig(payload);
+  const mode = sdkMode.mode || SPATIALREAL_SDK_MODE;
+  const outcome = sdkMode.outcome || sdkMode.status || SPATIALREAL_SDK_MODE_OUTCOME;
+  const safeMode = String(mode).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  const safeOutcome = String(outcome).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  appendLog(`${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}; ${AVATAR_DEFERRED_LABEL}; ${SPATIALREAL_SDK_MODE_LABEL} ${safeMode}:${safeOutcome}; tokens hidden; media hidden`);
 }
 
 function captureRealtimeRemoteAudioTrack(track) {
@@ -619,14 +462,18 @@ function captureRealtimeRemoteAudioTrack(track) {
   if (activeRealtimeSession) {
     activeRealtimeSession.remoteAudioTrack = track;
   }
-  appendLog("avatar audio bridge remote-track observed; raw media hidden");
+  renderAvatarSdkModeStatus();
+  appendLog("Realtime remote audio track observed for interviewer playback only; avatar SDK Mode output remains deferred; media hidden");
   if (typeof track.addEventListener === "function") {
     track.addEventListener("ended", () => {
-      unpublishRealtimeAudioFromAvatar("track-ended").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
+      if (realtimeRemoteAudioTrack === track) {
+        realtimeRemoteAudioTrack = null;
+      }
+      appendLog("Realtime remote audio track ended; avatar SDK Mode remains deferred; media hidden");
     }, { once: true });
   }
-  maybePublishRealtimeAudioToAvatar(track).catch((error) => appendLog(`avatar audio bridge publish skipped: ${errorMessage(error)}`));
 }
+
 
 function notifyRealtimeTranscriptCompleted() {
   const waiters = realtimeTranscriptCompletionWaiters;
@@ -754,7 +601,7 @@ function handleRealtimeServerEvent(event) {
   const type = String(event?.type || "unknown");
   if (type === "response.created") {
     activeRealtimeResponseId = event.response?.id || event.response_id || event.id || "";
-    maybePublishRealtimeAudioToAvatar().catch((error) => appendLog(`avatar audio bridge publish skipped: ${errorMessage(error)}`));
+    renderAvatarSdkModeStatus();
     return;
   }
   if (type === "conversation.item.input_audio_transcription.delta" && typeof event.delta === "string") {
@@ -822,7 +669,6 @@ function handleRealtimeServerEvent(event) {
   if (type === "response.done") {
     renderRealtimeQuestionDone(event);
     realtimeResponseInFlight = false;
-    unpublishRealtimeAudioFromAvatar("response-done").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
     markInterviewerQuestionEnded({ provider: "openai-realtime", turnIndex: currentTurnIndex });
     activeRealtimeResponseId = "";
   }
@@ -841,7 +687,6 @@ function bindRealtimeDataChannel(channel) {
   });
   channel.addEventListener("close", () => {
     appendLog("Realtime data channel closed");
-    unpublishRealtimeAudioFromAvatar("realtime-data-channel-closed").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
   });
 }
 
@@ -903,7 +748,7 @@ async function connectRealtimeRoom(session) {
   });
   peerConnection.addEventListener("connectionstatechange", () => {
     if (["closed", "disconnected", "failed"].includes(peerConnection.connectionState)) {
-      unpublishRealtimeAudioFromAvatar(`realtime-peer-${peerConnection.connectionState}`).catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
+      appendLog(`Realtime peer state ${peerConnection.connectionState}; avatar SDK Mode remains deferred`);
     }
   });
   const localStream = await ensureRealtimeAudioStream();
@@ -949,7 +794,6 @@ async function disconnectRealtimeRoom() {
   if (!session) {
     return;
   }
-  await unpublishRealtimeAudioFromAvatar("realtime-disconnect");
   session.dataChannel?.close();
   session.peerConnection?.close();
   session.localStream?.getTracks().forEach((track) => track.stop());
@@ -1008,190 +852,53 @@ function renderAvatarRtcEgressStatus(avatarRtc) {
   const status = String(avatarRtc.status || "unknown");
   const reason = String(avatarRtc.reason || "");
   if (status === "sent") {
-    setAvatarPanelMessage(`SpatialReal egress가 post-TTS WAV/PCM audio를 LiveKit room(${avatarRtc.roomName || "room"})의 avatar stream으로 보냈습니다. OpenAI Realtime remote audio는 SpatialReal에 주입하지 않으며 token은 숨겨집니다.`);
-    appendLog(`avatar rtc egress sent; publisher ${avatarRtc.publisherId || "unknown"}; tokens hidden`);
+    setAvatarPanelMessage("Optional avatar media egress completed outside the Realtime/MMM success path. OpenAI Realtime remains the interviewer audio owner; tokens hidden.");
+    appendLog(`optional avatar egress sent; publisher ${avatarRtc.publisherId || "unknown"}; tokens hidden`);
     return;
   }
   if (status === "skipped") {
-    setAvatarPanelMessage(`Avatar RTC egress 대기: ${reason || "not ready"}. Realtime interviewer audio와 별개이며 TTS 오디오만 egress 후보입니다.`);
-    appendLog(`avatar rtc egress skipped: ${reason || "unknown"}; tokens hidden`);
+    setAvatarPanelMessage(`${AVATAR_DEFERRED_LABEL}: optional avatar egress skipped (${reason || "not_ready"}). ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} continues.`);
+    appendLog(`optional avatar egress skipped: ${reason || "unknown"}; tokens hidden`);
     return;
   }
   if (status === "failed") {
-    setAvatarPanelMessage(`Avatar RTC egress 실패: ${reason || "provider_request_failed"}. Realtime interviewer audio와 별개이며 TTS 오디오는 계속 재생됩니다.`);
-    appendLog(`avatar rtc egress failed: ${reason || "unknown"}; tokens hidden`);
+    setAvatarPanelMessage(`${AVATAR_DEFERRED_LABEL}: optional avatar egress failed (${reason || "provider_request_failed"}). Realtime interviewer audio continues.`);
+    appendLog(`optional avatar egress failed: ${reason || "unknown"}; tokens hidden`);
   }
 }
 
 async function disconnectAvatarRtc() {
-  const { player, view } = avatarRtcRuntime;
-  await unpublishRealtimeAudioFromAvatar("avatar-rtc-disconnect");
-  avatarRtcRuntime = { sdkInitialized: avatarRtcRuntime.sdkInitialized, player: null, view: null, provider: null, avatarId: "" };
-  if (player) {
-    await player.disconnect().catch((error) => appendLog(`avatar rtc disconnect skipped: ${errorMessage(error)}`));
-  }
-  if (view) {
-    view.dispose();
-  }
+  avatarSdkModeState = { ...avatarSdkModeState, initialized: false, reason: "disconnected" };
   avatarRenderTarget?.classList.remove("is-rtc-active");
-}
-
-function muteAvatarRtcAudioElements() {
-  const scope = avatarRenderTarget || avatarSurface || document;
-  scope.querySelectorAll?.("audio, video").forEach((element) => {
-    if (element !== interviewerAudio) {
-      element.muted = true;
-      element.volume = 0;
-    }
-  });
-}
-
-function isBrowserReachableAvatarRtcUrl(url) {
-  if (!url) {
-    return false;
-  }
-  try {
-    const parsed = new URL(url, window.location.href);
-    if (!["ws:", "wss:", "http:", "https:"].includes(parsed.protocol)) {
-      return false;
-    }
-    const hostname = parsed.hostname.toLowerCase();
-    if (["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname) && !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname.toLowerCase())) {
-      return false;
-    }
-    return true;
-  } catch (_error) {
-    return false;
-  }
-}
-
-async function preflightAvatarRtc(livekitConfig) {
-  if (!livekitConfig || !isBrowserReachableAvatarRtcUrl(livekitConfig.url)) {
-    return { ok: false, reason: "avatar_rtc_unreachable_url" };
-  }
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), AVATAR_RTC_PREFLIGHT_TIMEOUT_MS);
-  try {
-    const probeUrl = new URL(livekitConfig.url, window.location.href);
-    probeUrl.protocol = probeUrl.protocol === "wss:" ? "https:" : probeUrl.protocol === "ws:" ? "http:" : probeUrl.protocol;
-    await fetch(probeUrl.toString(), { method: "HEAD", mode: "no-cors", cache: "no-store", signal: controller.signal });
-    return { ok: true };
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      return { ok: false, reason: "avatar_rtc_preflight_timeout" };
-    }
-    return { ok: false, reason: "avatar_rtc_preflight_failed" };
-  } finally {
-    window.clearTimeout(timer);
-  }
+  appendLog(`${AVATAR_DEFERRED_LABEL}: disconnected; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} unaffected`);
 }
 
 function renderAvatarRtcDegraded(reason) {
-  setAvatarRtcState("disabled", "Avatar deferred");
-  setAvatarPanelMessage(`Avatar는 현재 비활성/지연 상태입니다 (${reason}). OpenAI Realtime 음성 면접은 LiveKit/AvatarKit RTC 없이 계속 진행되며, 검증된 non-LiveKit SDK Mode 전까지 lip-sync를 제공한다고 표시하지 않습니다.`);
-  appendLog(`avatar deferred: ${reason}; Realtime voice unaffected; tokens hidden`);
+  avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_MODE_OUTCOME, reason: String(reason || "sdk_mode_deferred") };
+  setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
+  setAvatarPanelMessage(`${AVATAR_DEFERRED_LABEL}: ${reason}. OpenAI Realtime owns STT/VAD/interviewer audio. ${SPATIALREAL_SDK_MODE_LABEL} remains ${SPATIALREAL_SDK_MODE_OUTCOME}; no production lip-sync claim.`);
+  appendLog(`${AVATAR_DEFERRED_LABEL}: ${reason}; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}; tokens hidden; media hidden`);
 }
 
 async function initializeAvatarRtc(payload) {
   if (!payload?.ready || payload?.provider !== "spatialreal") {
+    renderAvatarRtcDegraded("spatialreal_session_not_ready");
     return;
   }
-  if (!isNonLiveKitAvatarSdkModeEnabled(payload)) {
-    renderAvatarRtcDegraded("non_livekit_sdk_mode_disabled");
+  if (!isSpatialRealSdkModeEnabled(payload)) {
+    renderAvatarRtcDegraded("sdk_mode_deferred");
     return;
   }
-  if (avatarRtcInitializing) {
-    return avatarRtcInitializing;
-  }
-  avatarRtcInitializing = (async () => {
-    const client = payload.client || {};
-    const appId = client.appId;
-    const avatarId = client.avatarId;
-    const sessionToken = client.sessionToken;
-    const livekitConfig = avatarLiveKitConfig(payload);
-    if (!appId || !avatarId || !sessionToken || !livekitConfig) {
-      renderAvatarRtcDegraded("missing_non_livekit_sdk_viewer_config");
-      return;
-    }
-    const preflight = await preflightAvatarRtc(livekitConfig);
-    if (!preflight.ok) {
-      renderAvatarRtcDegraded(preflight.reason || "avatar_rtc_preflight_failed");
-      return;
-    }
-
-    try {
-      setAvatarRtcState("ready", "Avatar RTC 준비 중");
-      const [{ AvatarSDK, AvatarManager, AvatarView, DrivingServiceMode, Environment, LogLevel }, { AvatarPlayer, LiveKitProvider }] = await Promise.all([
-        import("./vendor/@spatialwalk/avatarkit/dist/index.js"),
-        import("./vendor/@spatialwalk/avatarkit-rtc/dist/index.js"),
-      ]);
-
-      if (!AvatarSDK.isInitialized) {
-        await AvatarSDK.initialize(appId, {
-          environment: Environment.intl,
-          drivingServiceMode: DrivingServiceMode.host,
-          logLevel: LogLevel.warning,
-          audioFormat: {
-            channelCount: client.audioFormat?.channelCount || 1,
-            sampleRate: client.audioFormat?.sampleRate || 16000,
-          },
-        });
-        avatarRtcRuntime.sdkInitialized = true;
-      }
-      AvatarSDK.setSessionToken(sessionToken);
-
-      if (!avatarRenderTarget) {
-        throw new Error("avatar render target is missing");
-      }
-      await disconnectAvatarRtc();
-      setAvatarPanelMessage("AvatarKit RTC가 avatar asset을 불러오는 중입니다. token은 숨겨집니다.");
-      const avatar = await AvatarManager.shared.load(avatarId, (progress) => {
-        if (progress?.type === "downloading" && typeof progress.progress === "number") {
-          setAvatarPanelMessage(`Avatar asset 다운로드 중 ${Math.round(progress.progress * 100)}%. token은 숨겨집니다.`);
-        }
-      }, true);
-      const view = new AvatarView(avatar, avatarRenderTarget);
-      const provider = new LiveKitProvider();
-      const player = new AvatarPlayer(provider, view, { logLevel: "warning" });
-      player.on("connected", () => {
-        setAvatarRtcState("ready", "Avatar RTC 연결됨");
-        setAvatarPanelMessage(isAvatarAudioBridgeEnabled()
-          ? "SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. Experimental Realtime audio bridge는 feature flag가 켜진 경우에만 AvatarPlayer publishAudio(track) probe를 시도하며 검증 전 lip-sync를 보장하지 않습니다."
-          : "SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 post-TTS egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다; OpenAI Realtime remote audio bridge는 feature flag가 꺼져 있으면 시도하지 않습니다.");
-        muteAvatarRtcAudioElements();
-        maybePublishRealtimeAudioToAvatar().catch((error) => appendLog(`avatar audio bridge publish skipped: ${errorMessage(error)}`));
-        appendLog("avatar rtc connected through LiveKit; tokens hidden; Avatar RTC media muted to avoid dual-audio drift with OpenAI Realtime output");
-      });
-      player.on("disconnected", () => {
-        appendLog("avatar rtc disconnected");
-        unpublishRealtimeAudioFromAvatar("avatar-rtc-disconnected").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
-      });
-      player.on("stalled", () => appendLog("avatar rtc stalled; waiting for SpatialReal publisher frames"));
-      player.on("error", (error) => {
-        const message = errorMessage(error);
-        setAvatarRtcState("error", "Avatar RTC 오류");
-        setAvatarPanelMessage(`AvatarKit RTC 오류: ${message}`);
-        appendLog(`avatar rtc error: ${message}`);
-      });
-      await player.connect(livekitConfig);
-      avatarRenderTarget.classList.add("is-rtc-active");
-      avatarRtcRuntime = { sdkInitialized: true, player, view, provider, avatarId };
-    } catch (error) {
-      const message = errorMessage(error);
-      setAvatarRtcState("error", "Avatar RTC 연결 실패");
-      setAvatarPanelMessage(`AvatarKit RTC 연결 실패: ${message}`);
-      appendLog(`avatar rtc failed: ${message}`);
-    } finally {
-      avatarRtcInitializing = null;
-    }
-  })();
-  return avatarRtcInitializing;
+  avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_MODE_OUTCOME, reason: "web_sdk_mode_not_verified" };
+  setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
+  setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} metadata is browser-safe, but runtime rendering is deferred until a kiostation proof verifies the SDK Mode audio-feed lifecycle. ${AVATAR_DEFERRED_LABEL}.`);
+  renderAvatarSdkModeStatus(payload);
 }
 
 function renderAvatarState(payload) {
   activeAvatarSession = payload || null;
-  const state = payload?.ready ? "ready" : payload?.error ? "error" : payload?.status === "disabled" ? "disabled" : "pending";
-  const label = avatarStatusLabel(payload);
+  const state = payload?.error ? "error" : payload?.ready ? "disabled" : payload?.status === "disabled" ? "disabled" : "pending";
+  const label = payload?.error ? "Avatar error" : payload?.ready ? AVATAR_DEFERRED_LABEL : avatarStatusLabel(payload);
   if (avatarSurface) {
     avatarSurface.dataset.state = state;
   }
@@ -1205,22 +912,23 @@ function renderAvatarState(payload) {
     if (payload?.ready) {
       const audio = payload?.client?.audioFormat || {};
       const sdkMode = avatarSdkModeConfig(payload);
-      const sdkStatus = isNonLiveKitAvatarSdkModeEnabled(payload)
-        ? "non-LiveKit SDK Mode metadata enabled"
-        : `non-LiveKit SDK Mode deferred (${sdkMode.status || sdkMode.reason || "feature flag off"})`;
-      avatarPanelBody.textContent = `SpatialReal session이 발급되었습니다. session token은 화면에 표시하지 않습니다. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${sdkStatus}. Avatar는 Realtime 연결을 막지 않으며 검증 전 lip-sync를 제공한다고 표시하지 않습니다.`;
+      const sdkStatus = isSpatialRealSdkModeEnabled(payload)
+        ? `${SPATIALREAL_SDK_MODE_LABEL} metadata accepted; ${SPATIALREAL_SDK_MODE_OUTCOME}`
+        : `${SPATIALREAL_SDK_MODE_LABEL} ${SPATIALREAL_SDK_MODE_OUTCOME} (${sdkMode.status || sdkMode.reason || "feature flag off"})`;
+      avatarPanelBody.textContent = `SpatialReal session metadata is ready, but avatar rendering is disabled/deferred. Session token is not shown. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${sdkStatus}. ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} continues.`;
     } else if (payload?.reason) {
-      avatarPanelBody.textContent = `상태: ${payload.reason}. 키가 구성되면 서버가 session token을 중개합니다.`;
+      avatarPanelBody.textContent = `${AVATAR_DEFERRED_LABEL}: ${payload.reason}. Provider keys stay server-side.`;
     } else if (payload?.error) {
-      avatarPanelBody.textContent = `Avatar provider 오류: ${payload.message || payload.error}`;
+      avatarPanelBody.textContent = `Avatar provider error: ${payload.message || payload.error}`;
     } else {
-      avatarPanelBody.textContent = "Provider 상태를 확인하는 중입니다.";
+      avatarPanelBody.textContent = "Provider status pending; Realtime voice remains primary.";
     }
   }
   if (payload?.ready) {
-    maybePublishRealtimeAudioToAvatar().catch((error) => appendLog(`avatar audio bridge publish skipped: ${errorMessage(error)}`));
+    initializeAvatarRtc(payload).catch((error) => appendLog(`avatar SDK Mode deferred: ${errorMessage(error)}`));
   }
 }
+
 
 async function requestAvatarSession(reason = "room-join") {
   renderAvatarState({ status: "pending", provider: "spatialreal", ready: false });
@@ -1464,7 +1172,6 @@ function markInterviewerQuestionEnded(payload) {
   if (avatarSurface && activeAvatarSession?.ready) {
     avatarSurface.dataset.state = "ready";
   }
-  unpublishRealtimeAudioFromAvatar("interviewer-question-ended").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
   document.dispatchEvent(new CustomEvent("giljob:interviewer-question-ended", { detail: payload }));
 }
 
@@ -1694,7 +1401,7 @@ async function restartPreviewStream() {
     }
   }
   syncMediaUi();
-  setStatus("preview ready", activeRoom ? "connected" : "idle");
+  setStatus("preview ready", activeRealtimeSession ? "connected" : "idle");
   appendLog(`candidate answer turn ${micEnabled ? "started" : "idle"}; camera ${cameraEnabled ? "on" : "off"}; tokens hidden`);
 }
 
@@ -1710,13 +1417,9 @@ async function applyMediaStateToRoom() {
     await applyRealtimeMediaState();
     return;
   }
-  if (!activeRoom) {
-    return;
-  }
-  await activeRoom.localParticipant.setMicrophoneEnabled(micEnabled);
-  await activeRoom.localParticipant.setCameraEnabled(cameraEnabled);
-  appendLog(`room media updated: answer ${micEnabled ? "recording" : "ended"}, camera ${cameraEnabled ? "on" : "off"}`);
+  appendLog(`legacy setMicrophoneEnabled/setCameraEnabled room media disabled; Realtime primary applies browser media only after connect`);
 }
+
 
 async function startAnswerCapture() {
   if (activeRealtimeSession) {
@@ -1731,7 +1434,7 @@ async function startAnswerCapture() {
     appendLog("candidate answer turn started; Realtime event boundary active; verbatim transcript hidden");
     return;
   }
-  renderTranscriptStatus("답변 중입니다. 브라우저는 LiveKit media만 게시하고 전사/분석 제어를 시작하지 않습니다.");
+  renderTranscriptStatus("답변 중입니다. Realtime 연결 전에는 브라우저가 분석 제어를 시작하지 않습니다.");
   appendLog("candidate answer turn started; browser analysis control disabled");
 }
 
@@ -1809,16 +1512,6 @@ async function toggleCamera() {
   }
 }
 
-function sessionLiveKitConfig(session) {
-  const livekit = session?.livekit;
-  const url = livekit?.publicUrl ?? livekit?.url;
-  const token = livekit?.candidateToken;
-  if (!url || !token) {
-    const reason = livekit?.deferredReason ?? "missing LiveKit URL/token";
-    throw new Error(`LiveKit join is not available: ${reason}`);
-  }
-  return { url, token };
-}
 
 async function createSession() {
   const endpoint = apiEndpointInput?.value.trim() || "/api/sessions";
@@ -1845,113 +1538,21 @@ async function createSession() {
   return activeSession;
 }
 
-function bindRoomEvents(room) {
-  room
-    .on(RoomEvent.ConnectionStateChanged, (state) => {
-      const normalized = String(state).toLowerCase();
-      const uiState = normalized.includes("connected") ? "connected" : normalized.includes("connecting") ? "connecting" : "idle";
-      setStatus(`LiveKit ${state}`, uiState);
-      appendLog(`LiveKit state: ${state}`);
-    })
-    .on(RoomEvent.Connected, () => {
-      setRoomMode("connected");
-      setStatus("LiveKit connected", "connected");
-      if (leaveButton) {
-        leaveButton.disabled = false;
-      }
-      if (joinButton) {
-        joinButton.disabled = true;
-      }
-      appendLog("LiveKit connected");
-      requestNextQuestion("room-connected");
-    })
-    .on(RoomEvent.Disconnected, (reason) => {
-      setRoomMode("prejoin");
-      setStatus(`LiveKit disconnected${reason ? `: ${reason}` : ""}`, "idle");
-      if (leaveButton) {
-        leaveButton.disabled = true;
-      }
-      if (joinButton) {
-        joinButton.disabled = false;
-      }
-      appendLog(`LiveKit disconnected${reason ? `: ${reason}` : ""}`);
-    })
-    .on(RoomEvent.Reconnecting, () => appendLog("LiveKit reconnecting"))
-    .on(RoomEvent.Reconnected, () => appendLog("LiveKit reconnected"))
-    .on(RoomEvent.ParticipantConnected, (participant) => appendLog(`participant connected: ${participant.identity}`))
-    .on(RoomEvent.ParticipantDisconnected, (participant) => appendLog(`participant disconnected: ${participant.identity}`));
-}
-
-async function maybePublishLocalMedia(room) {
-  if (!micEnabled && !cameraEnabled) {
-    appendLog("media publish skipped (mic/camera off)");
-    return;
-  }
-  appendLog(`publishing local media: answer ${micEnabled ? "recording" : "idle"}, camera ${cameraEnabled ? "on" : "off"}`);
-  await room.localParticipant.setMicrophoneEnabled(micEnabled);
-  await room.localParticipant.setCameraEnabled(cameraEnabled);
-  appendLog("local microphone/camera publish state applied");
-}
-
-async function disableLocalMedia(room) {
-  if (!room?.localParticipant) {
-    return;
-  }
-  await Promise.allSettled([
-    room.localParticipant.setMicrophoneEnabled(false),
-    room.localParticipant.setCameraEnabled(false),
-  ]);
-}
-
-async function failClosedAfterJoinMediaError(room, error) {
-  appendLog(`media publish failed after join; disconnecting room fail-closed: ${errorMessage(error)}`);
-  await disableLocalMedia(room);
-  room.disconnect();
-  if (activeRoom === room) {
-    activeRoom = null;
-  }
-  if (leaveButton) {
-    leaveButton.disabled = true;
-  }
-  if (joinButton) {
-    joinButton.disabled = false;
-  }
-  setRoomMode("prejoin");
-}
-
-async function joinRoom() {
+async function connectPrimaryTransport() {
   const session = activeSession ?? (await createSession());
-  if (isRealtimePrimary(session)) {
-    await connectRealtimeRoom(session);
-    requestAvatarSession("realtime-connected-deferred").catch((error) => appendLog(`avatar session deferred after Realtime: ${errorMessage(error)}`));
-    return;
+  if (!isRealtimePrimary(session)) {
+    appendLog("Realtime primary metadata missing; attempting API-brokered Realtime path and failing closed if unavailable");
   }
-  const { url, token } = sessionLiveKitConfig(session);
-  if (activeRoom) {
-    activeRoom.disconnect();
-  }
-
-  setRoomMode("connecting");
-  setStatus("connecting to LiveKit...", "connecting");
-  activeRoom = new Room();
-  bindRoomEvents(activeRoom);
-  appendLog(`connecting to ${url} as ${session.livekit.participantIdentity}; token hidden`);
-  await activeRoom.connect(url, token);
-  try {
-    await maybePublishLocalMedia(activeRoom);
-    requestAvatarSession("livekit-connected-deferred").catch((error) => appendLog(`avatar session deferred after LiveKit: ${errorMessage(error)}`));
-  } catch (error) {
-    await failClosedAfterJoinMediaError(activeRoom, error);
-    throw error;
-  }
+  await connectRealtimeRoom(session);
+  requestAvatarSession("realtime-connected-deferred").catch((error) => appendLog(`avatar session deferred after Realtime: ${errorMessage(error)}`));
 }
 
-async function autoJoinRoomRoute() {
+async function connectProductionRoomRoute() {
   if (!shouldAutoJoinRoom) {
     return;
   }
   try {
-    await joinRoom();
+    await connectPrimaryTransport();
   } catch (error) {
     const message = errorMessage(error);
     setRoomMode("prejoin");
@@ -1960,30 +1561,26 @@ async function autoJoinRoomRoute() {
     if (leaveButton) {
       leaveButton.disabled = true;
     }
+    if (joinButton) {
+      joinButton.disabled = false;
+    }
   }
 }
 
 function leaveRoom() {
+  const cleanupTasks = [disconnectAvatarRtc()];
   if (activeRealtimeSession) {
-    disconnectAvatarRtc();
-    disconnectRealtimeRoom();
-    setRoomMode("prejoin");
-    setStatus("Realtime disconnected", "idle");
-    if (leaveButton) {
-      leaveButton.disabled = true;
-    }
-    if (joinButton) {
-      joinButton.disabled = false;
-    }
-    return;
+    cleanupTasks.push(disconnectRealtimeRoom());
   }
-  if (!activeRoom) {
-    return;
-  }
-  appendLog("leaving LiveKit room");
-  disconnectAvatarRtc();
-  activeRoom.disconnect();
-  activeRoom = null;
+  Promise.allSettled(cleanupTasks).then((results) => {
+    results.forEach((result) => {
+      if (result.status === "rejected") {
+        appendLog(`Realtime cleanup skipped: ${errorMessage(result.reason)}`);
+      }
+    });
+  });
+  setRoomMode("prejoin");
+  setStatus("Realtime disconnected", "idle");
   if (leaveButton) {
     leaveButton.disabled = true;
   }
@@ -1991,6 +1588,7 @@ function leaveRoom() {
     joinButton.disabled = false;
   }
 }
+
 
 createButton?.addEventListener("click", async () => {
   try {
@@ -2033,7 +1631,7 @@ document.addEventListener("giljob:interviewer-question-ended", () => {
 form?.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
-    await joinRoom();
+    await connectPrimaryTransport();
   } catch (error) {
     const message = errorMessage(error);
     setRoomMode("prejoin");
@@ -2059,4 +1657,4 @@ syncMediaUi();
 hydrateProductionRoutes();
 renderTranscriptStatus("OpenAI Realtime 전사와 bounded vision metadata를 analysis-engine에 전달한 뒤, API가 MMM 준비 후 다음 질문을 생성합니다.");
 appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);
-autoJoinRoomRoute();
+connectProductionRoomRoute();

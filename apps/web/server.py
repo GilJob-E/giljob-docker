@@ -2,9 +2,9 @@
 """Minimal GilJob v2 web service.
 
 Serves a small static browser UI that creates an interview session through the
-API and joins the returned self-hosted LiveKit room. The web layer intentionally
-keeps interview intelligence, avatar/TTS, CV parsing, multimodal analysis, and
-final reports as placeholders for later slices.
+API and then connects the primary room path through API-brokered OpenAI
+Realtime. The web layer intentionally keeps provider secrets, raw media, and
+analysis ownership server-side.
 """
 from __future__ import annotations
 
@@ -20,13 +20,8 @@ SERVICE_NAME = os.getenv("SERVICE_NAME", "web")
 PORT = int(os.getenv("SERVICE_PORT", "3000"))
 STATIC_ROOT = Path(os.getenv("STATIC_ROOT", Path(__file__).with_name("static"))).resolve()
 NODE_MODULES_ROOT = Path(os.getenv("NODE_MODULES_ROOT", Path(__file__).with_name("node_modules"))).resolve()
-LIVEKIT_CLIENT_DIST = Path(
-    os.getenv("LIVEKIT_CLIENT_DIST", NODE_MODULES_ROOT / "livekit-client" / "dist")
-).resolve()
-VENDOR_PREFIX = "vendor/livekit-client/dist/"
 ALLOWED_NODE_VENDOR_PREFIXES = (
     "vendor/@spatialwalk/avatarkit/dist/",
-    "vendor/@spatialwalk/avatarkit-rtc/dist/",
 )
 INTERVIEW_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 
@@ -48,7 +43,7 @@ def _route_alias(request_path: str) -> str | None:
     public URLs should already look like the future production app:
     /interviews/new -> setup page
     /interviews/{id}/lobby -> pre-join lobby
-    /interviews/{id}/room -> LiveKit room
+    /interviews/{id}/room -> Realtime interview room
     /interviews/{id}/report -> report placeholder
     """
     if request_path == "/interview-room.html":
@@ -114,9 +109,6 @@ class Handler(BaseHTTPRequestHandler):
         if static_file is not None:
             return static_file
 
-        if relative_path.startswith(VENDOR_PREFIX):
-            vendor_relative = relative_path.removeprefix(VENDOR_PREFIX)
-            return _safe_file(LIVEKIT_CLIENT_DIST, vendor_relative)
         for vendor_prefix in ALLOWED_NODE_VENDOR_PREFIXES:
             if relative_path.startswith(vendor_prefix):
                 vendor_relative = relative_path.removeprefix("vendor/")
