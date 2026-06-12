@@ -203,6 +203,41 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(public["roomName"], "giljob-session-local-demo")
         self.assertEqual(set(SESSION_HASH_STORE), {"local-demo"})
 
+    def test_create_session_realtime_metadata_includes_safe_experimental_avatar_bridge_sibling(self) -> None:
+        status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"local-demo"}')
+        self.assertEqual(status, 201, body)
+        payload = json.loads(body)
+        realtime = payload["realtime"]
+        self.assertIn("avatarBridge", realtime)
+        bridge = realtime["avatarBridge"]
+
+        self.assertEqual(bridge["mode"], "experimental-openai-realtime-audio-to-avatar")
+        self.assertEqual(bridge["status"], "blocked")
+        self.assertFalse(bridge["enabled"])
+        self.assertEqual(bridge["directProviderRoutes"], "blocked")
+        self.assertEqual(bridge["controlBoundary"], "api-metadata-and-browser-livekit-publication")
+        self.assertEqual(bridge["requiresFeatureFlag"], "REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED")
+        self.assertFalse(bridge["providerSecretsExposed"])
+        self.assertFalse(bridge["rawMediaExposed"])
+        self.assertFalse(bridge["rawTranscriptExposed"])
+        self.assertIn("experimental", bridge["description"].lower())
+        self.assertIn("blocked", bridge["blockedOutcome"].lower())
+
+        serialized = json.dumps(payload, ensure_ascii=False)
+        forbidden = [
+            "secret-openai-key",
+            "SPATIALREAL_API_KEY",
+            "OPENAI_API_KEY",
+            "client_secret",
+            "server_secret",
+            "raw media bytes",
+            "raw candidate",
+            "v=0",
+        ]
+        for marker in forbidden:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, serialized)
+
     def test_create_session_rejects_unsafe_interview_id(self) -> None:
         status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"../local-demo"}')
         self.assertEqual(status, 400)

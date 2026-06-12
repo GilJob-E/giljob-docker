@@ -245,6 +245,78 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("/ai/tts", body)
         self.assertNotIn("/tts/synthesize", body)
 
+    def test_app_js_gates_experimental_realtime_audio_to_avatar_bridge(self) -> None:
+        status, content_type, body = self._get("/app.js")
+        self.assertEqual(status, 200)
+        self.assertIn("text/javascript", content_type)
+
+        # The bridge is experimental, disabled unless API metadata explicitly enables it,
+        # and must stay API/LiveKit-mediated rather than browser-direct provider access.
+        self.assertIn("function realtimeAudioAvatarBridgeConfig", body)
+        self.assertIn("function isRealtimeAudioAvatarBridgeEnabled", body)
+        self.assertIn("REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED", body)
+        self.assertIn("experimental-openai-realtime-audio-to-avatar", body)
+        self.assertIn("avatarBridge.status === \"enabled\"", body)
+        self.assertIn("avatarBridge.directProviderRoutes === \"blocked\"", body)
+        self.assertIn("avatarBridge.providerSecretsExposed === false", body)
+        self.assertIn("avatarBridge.rawMediaExposed === false", body)
+
+        # Realtime output remains audible to the interviewer audio element while optional
+        # avatar publication is a separate, deduplicated media-track lifecycle.
+        self.assertIn("function attachRealtimeRemoteAudio", body)
+        self.assertIn("interviewerAudio.srcObject = stream", body)
+        self.assertIn("interviewerAudio.play", body)
+        self.assertIn("function maybePublishRealtimeAudioToAvatar", body)
+        self.assertIn("function unpublishRealtimeAudioFromAvatar", body)
+        self.assertIn("realtimeAvatarBridgePublishedKeys", body)
+        self.assertIn("avatarBridgePublishKey", body)
+        self.assertIn("publishTrack", body)
+        self.assertIn("unpublishTrack", body)
+        self.assertIn("track.addEventListener(\"ended\"", body)
+
+        lifecycle_reasons = [
+            "remote-track",
+            "response.done",
+            "interviewer-question-ended",
+            "leave",
+            "disconnect",
+            "track-ended",
+            "reconnect",
+        ]
+        for reason in lifecycle_reasons:
+            with self.subTest(reason=reason):
+                self.assertIn(reason, body)
+
+        forbidden_bridge_shapes = [
+            "SPATIALREAL_API_KEY",
+            "OPENAI_API_KEY",
+            "client_secret",
+            "server_secret",
+            "sdpAnswer",
+            "raw offer",
+            "raw media bytes",
+            "raw transcript",
+            "MediaRecorder",
+        ]
+        for forbidden in forbidden_bridge_shapes:
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, body)
+
+    def test_app_js_bridge_lifecycle_order_matrix_is_explicit(self) -> None:
+        body = (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        order_pairs = [
+            ("remoteStream.addTrack(event.track)", "maybePublishRealtimeAudioToAvatar"),
+            ("response.done", "unpublishRealtimeAudioFromAvatar"),
+            ("markInterviewerQuestionEnded", "unpublishRealtimeAudioFromAvatar"),
+            ("disconnectRealtimeRoom", "unpublishRealtimeAudioFromAvatar"),
+            ("track.addEventListener(\"ended\"", "unpublishRealtimeAudioFromAvatar"),
+        ]
+        for before, after in order_pairs:
+            with self.subTest(before=before, after=after):
+                self.assertIn(before, body)
+                self.assertIn(after, body)
+                self.assertLess(body.index(before), body.rindex(after))
+
     def test_styles_are_served_and_path_traversal_is_rejected(self) -> None:
         status, content_type, body = self._get("/styles.css")
         self.assertEqual(status, 200)
