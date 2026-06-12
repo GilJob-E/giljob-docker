@@ -14,7 +14,7 @@ This runbook defines the Phase 0B/1 contract for interviewer voice and avatar in
 - `SPATIALREAL_RTC_EGRESS_ENABLED=false` remains the safe default and belongs only to legacy AvatarKit RTC / SpatialReal-to-LiveKit publishing. Enabling it requires a LiveKit URL reachable from SpatialReal cloud, not only local Docker or `127.0.0.1`. It is not required for the default Realtime/MMM path.
 - SpatialReal RTC egress is a post-TTS publisher only: it sends mono PCM16/WAV audio bytes produced by `/tts/synthesize` into SpatialReal via `send_audio(end=True)`. It does not ingest OpenAI Realtime remote audio, Realtime datachannel events, or candidate LiveKit media.
 - `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` remains the stable default. Setting it true only enables an experimental browser `AvatarPlayer.publishAudio(track)` probe using the OpenAI Realtime remote audio track; it is not a production lip-sync claim until kiostation browser evidence marks `bridge_verified`.
-- Do not downgrade or upgrade `livekit-client` just to satisfy SpatialReal. This checkout declares `livekit-client` `2.16.1`; keep version changes out of the docs-only lane unless a separate dependency spike proves they are needed.
+- Do not downgrade `livekit-client` just to satisfy SpatialReal. Also do not upgrade it in this docs-only lane without a separate dependency spike. This checkout declares `livekit-client` `2.16.1`; keep version changes out of this lane unless proven needed.
 
 ## Environment variables
 
