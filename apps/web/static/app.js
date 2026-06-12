@@ -1100,28 +1100,19 @@ function renderMmmDebug(source, payload = {}) {
   if (!mmmDebugSummary) {
     return;
   }
-  const debug = payload?.mmmDebug && typeof payload.mmmDebug === "object" ? payload.mmmDebug : {};
-  const readiness = debug?.readiness && typeof debug.readiness === "object"
-    ? debug.readiness
-    : (payload?.readiness && typeof payload.readiness === "object" ? payload.readiness : payload);
-  const responseCreate = debug?.responseCreate && typeof debug.responseCreate === "object"
-    ? debug.responseCreate
-    : (payload?.responseCreate && typeof payload.responseCreate === "object" ? payload.responseCreate : {});
-  const analysisEngine = debug?.analysisEngine && typeof debug.analysisEngine === "object"
-    ? debug.analysisEngine
-    : ((payload?.analysisEngine && typeof payload.analysisEngine === "object")
-      ? payload.analysisEngine
-      : (readiness?.analysisEngine && typeof readiness.analysisEngine === "object" ? readiness.analysisEngine : {}));
-  const analysisResult = debug?.analysisResult && typeof debug.analysisResult === "object"
-    ? debug.analysisResult
-    : ((payload?.analysisResult && typeof payload.analysisResult === "object")
-      ? payload.analysisResult
-      : (readiness?.analysisResult && typeof readiness.analysisResult === "object" ? readiness.analysisResult : {}));
+  const readiness = payload?.readiness && typeof payload.readiness === "object" ? payload.readiness : payload;
+  const responseCreate = payload?.responseCreate && typeof payload.responseCreate === "object" ? payload.responseCreate : {};
+  const analysisEngine = (payload?.analysisEngine && typeof payload.analysisEngine === "object")
+    ? payload.analysisEngine
+    : (readiness?.analysisEngine && typeof readiness.analysisEngine === "object" ? readiness.analysisEngine : {});
+  const analysisResult = (payload?.analysisResult && typeof payload.analysisResult === "object")
+    ? payload.analysisResult
+    : (readiness?.analysisResult && typeof readiness.analysisResult === "object" ? readiness.analysisResult : {});
   const rows = [
     ["source", source],
-    ["interviewId", debug?.interviewId || payload?.interviewId || readiness?.interviewId],
-    ["turnIndex", debug?.turnIndex || payload?.turnIndex || readiness?.turnIndex],
-    ["analysisTurnIndex", debug?.analysisTurnIndex || payload?.analysisTurnIndex || readiness?.analysisTurnIndex],
+    ["interviewId", payload?.interviewId || readiness?.interviewId],
+    ["turnIndex", payload?.turnIndex || readiness?.turnIndex],
+    ["analysisTurnIndex", payload?.analysisTurnIndex || readiness?.analysisTurnIndex],
     ["readiness.full_mmm_ready", readiness?.full_mmm_ready],
     ["readiness.state", readiness?.state || readiness?.status],
     ["readiness.reasonCodes", safeDebugJson(readiness?.reasonCodes || (readiness?.reason ? [readiness.reason] : []))],
@@ -1130,7 +1121,7 @@ function renderMmmDebug(source, payload = {}) {
     ["responseCreate.reason", responseCreate.reason || responseCreate.commandType],
     ["analysisEngine.endpoint", analysisEngine.endpoint],
     ["analysisEngine.status", analysisEngine.status],
-    ["analysisEngine.error", analysisEngine.error || analysisEngine.reason],
+    ["analysisEngine.error", analysisEngine.error],
     ["analysisResult.status", analysisResult.status],
     ["analysisResult.summary", analysisResult.publicSummary || analysisResult.summary],
     ["analysisResult.guidance", analysisResult.publicGuidance || analysisResult.guidance],
@@ -1147,6 +1138,10 @@ function renderMmmDebug(source, payload = {}) {
     row.append(term, detail);
     return row;
   }));
+}
+
+function analysisSessionId() {
+  return activeSession?.sessionId || activeInterviewId;
 }
 
 function extractRealtimeOutputTranscript(event) {
