@@ -575,7 +575,6 @@ function handleRealtimeServerEvent(event) {
       } catch (error) {
         appendLog(`transcript completion forward failed: ${errorMessage(error)}`);
       }
-      appendLog("Realtime transcript completion kept on API sideband only; no browser conversation injection");
     })();
     renderTranscriptStatus(`Realtime 전사 완료 (${transcript.length} chars). Raw transcript is not written to logs.`);
     realtimeTranscriptCompletionForward.finally(() => notifyRealtimeTranscriptCompleted());
@@ -757,9 +756,13 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
       setAnswerTurnAvailability(true, "candidate answer ended without transcript; next question blocked for retry");
       throw new Error("Realtime transcript unavailable; next question blocked");
     }
-    await postRealtimeTurnEvent("turn.answer.end", { transcriptAvailable: transcriptReady }, completedTurnIndex);
     await sendBoundedVisionEvent("answer_end", completedTurnIndex);
     await sendRealtimeProsodyEvent("answer_end", completedTurnIndex);
+    await postRealtimeTurnEvent("turn.answer.end", { transcriptAvailable: transcriptReady }, completedTurnIndex);
+    const analysisPayload = await flushRealtimeAnalysisTurn(analysisSessionId());
+    if (!analysisPayload?.realtimeNativeAnalysisSession) {
+      appendLog("Realtime-native analysis finalization did not return a session marker; response.create remains gated by analysis result");
+    }
     lastAnswerTranscript = realtimeAnswerTranscript || "Realtime transcript unavailable.";
     realtimeAnswerTranscript = "";
     realtimeTranscriptCompleted = false;
@@ -1032,6 +1035,121 @@ function renderTranscriptStatus(message) {
 
 function analysisSessionId() {
   return activeSession?.sessionId || activeInterviewId;
+}
+
+async function postAnalysis(path, body = {}) {
+  const response = await fetch(`/analysis${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `analysis request failed: HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+async function fetchAnalysisSignals(sessionId) {
+  const response = await fetch(`/analysis/signals?sessionId=${encodeURIComponent(sessionId)}`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || `analysis signals failed: HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+function renderAnalysisTranscript(payload, sinceRecordCount = 0) {
+  const records = Array.isArray(payload?.records) ? payload.records.slice(sinceRecordCount) : [];
+  const latestTurnEnd = [...records].reverse().find((record) => record?.type === "turn_end");
+  const windowTranscripts = records
+    .filter((record) => record?.type === "window" && String(record?.transcript || "").trim())
+    .map((record) => String(record.transcript).trim());
+  const transcript = (latestTurnEnd?.transcript_full || windowTranscripts.join(" ") || "").trim();
+  if (transcript) {
+    renderTranscriptStatus(transcript);
+    return transcript;
+  }
+  const count = Number(payload?.recordCount || 0) - sinceRecordCount;
+  renderTranscriptStatus(count > 0 ? "전사 window는 수신됐지만 최종 turn transcript가 비어 있습니다." : "아직 수신된 전사 signal이 없습니다.");
+  return "";
+}
+
+async function restartAnalysisSubscriber(sessionId) {
+  try {
+    await postAnalysis("/subscriber/stop", {});
+  } catch (error) {
+    appendLog(`analysis subscriber stop skipped: ${errorMessage(error)}`);
+  }
+  const payload = await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
+  activeAnalysisSessionId = sessionId;
+  appendLog(`analysis subscriber ready for session ${sessionId}; state ${payload.status || payload.state || "starting"}`);
+  renderTranscriptStatus("GilJobE analysis-engine이 답변 오디오를 기다리고 있습니다.");
+  return payload;
+}
+
+async function startRealtimeAnalysisTurn(sessionId) {
+  activeAnalysisSessionId = sessionId;
+  answerTurnStartRecordCount = 0;
+  renderTranscriptStatus("Realtime sideband transcript/prosody/vision metadata를 analysis-engine RNAS로 전달합니다.");
+  appendLog(`Realtime-native analysis turn prepared for session ${sessionId}; LiveKit subscriber not used on Realtime main path`);
+  return { status: "running", sessionId, realtimeNativeAnalysisSession: true };
+}
+
+async function fetchSignalsAfterTurnFlush(sessionId, sinceRecordCount) {
+  let payload = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    payload = await fetchAnalysisSignals(sessionId);
+    const records = Array.isArray(payload.records) ? payload.records.slice(sinceRecordCount) : [];
+    const hasTurnEnd = records.some((record) => record?.type === "turn_end");
+    if (hasTurnEnd || (records.length > 0 && attempt >= 2)) {
+      return payload;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return payload || { records: [], recordCount: sinceRecordCount };
+}
+
+async function markAnalysisTurnStart(sessionId) {
+  try {
+    const payload = await fetchAnalysisSignals(sessionId);
+    answerTurnStartRecordCount = Number(payload.recordCount || 0);
+  } catch (error) {
+    answerTurnStartRecordCount = 0;
+    appendLog(`analysis turn baseline unavailable: ${errorMessage(error)}`);
+  }
+}
+
+async function flushRealtimeAnalysisTurn(sessionId) {
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  lastAnalysisBlock = "";
+  appendLog(`Realtime-native analysis finalized for session ${sessionId}; API mmm-ready/turn-results gate owns result readiness`);
+  return { status: "finalized", sessionId, realtimeNativeAnalysisSession: true };
+}
+
+async function flushAnalysisTurn(sessionId) {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  try {
+    await postAnalysis("/subscriber/stop", {});
+    const payload = await fetchSignalsAfterTurnFlush(sessionId, answerTurnStartRecordCount);
+    const transcript = renderAnalysisTranscript(payload, answerTurnStartRecordCount);
+    lastAnalysisBlock = Array.isArray(payload?.turnHandoff?.prompt_block)
+      ? payload.turnHandoff.prompt_block.join("\n")
+      : "";
+    appendLog(`analysis turn flushed for session ${sessionId}; records ${payload.recordCount || 0}`);
+    try {
+      await postAnalysis("/subscriber/start", { sessionId, criticMode: "window" });
+      activeAnalysisSessionId = sessionId;
+    } catch (restartError) {
+      appendLog(`analysis subscriber restart failed: ${errorMessage(restartError)}`);
+    }
+    return transcript;
+  } catch (error) {
+    const message = errorMessage(error);
+    renderTranscriptStatus(`전사 flush 실패: ${message}`);
+    appendLog(`analysis turn flush failed: ${message}`);
+    return "";
+  }
 }
 
 function extractRealtimeOutputTranscript(event) {
