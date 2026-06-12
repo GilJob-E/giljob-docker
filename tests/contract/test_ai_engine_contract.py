@@ -447,3 +447,23 @@ class AIEngineContractTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnalysisBlockInjectionContractTest(unittest.TestCase):
+    """analysisBlock — turn_handoff prompt_block이 next-question 프롬프트에 도달하는 계약."""
+
+    def test_question_prompt_includes_analysis_block_only_when_present(self) -> None:
+        base = {"interviewId": "iv-1", "lastAnswer": "답변 전사"}
+        without = ai_engine.build_question_prompt(base, 2)
+        self.assertNotIn("이전 답변 분석", without)
+        block = "[음성 전달 실측치]\n- 조음 6.18음절/초\n\n[판단 규칙]\n- 실측치가 정본"
+        with_block = ai_engine.build_question_prompt({**base, "analysisBlock": block}, 2)
+        self.assertIn("이전 답변 분석", with_block)
+        self.assertIn("- 조음 6.18음절/초", with_block)
+        # 섹션 줄 구조 보존 — _safe_str의 \s+ 압축이 블록을 한 줄로 뭉개면 안 된다
+        self.assertIn("[음성 전달 실측치]\n- 조음", with_block)
+
+    def test_analysis_block_clamped_and_newline_normalized(self) -> None:
+        ctx = ai_engine._candidate_context({"analysisBlock": "줄1\n\n\n\n줄2  끝" + "가" * 10_000})
+        self.assertLessEqual(len(ctx["analysisBlock"]), 4_000)
+        self.assertIn("줄1\n\n줄2 끝", ctx["analysisBlock"])

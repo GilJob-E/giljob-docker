@@ -122,6 +122,15 @@ def _safe_str(value: object, max_len: int = 4_000) -> str:
     return text[:max_len]
 
 
+def _safe_multiline(value: object, max_len: int = 4_000) -> str:
+    """_safe_str의 멀티라인 변형 — analysisBlock은 섹션 헤더/불릿이 줄 구조라 개행을 보존한다
+    (공백 압축·길이 클램프는 동일)."""
+    text = "" if value is None else str(value)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text[:max_len]
+
+
 def _safe_sdp(value: object, max_len: int = MAX_SDP_CHARS) -> str:
     """Sanitize SDP without destroying its line-oriented grammar."""
     text = "" if value is None else str(value)
@@ -984,6 +993,10 @@ def request_next_question(interview_id: str, turn_index: int, payload: dict[str,
         "candidateProfile": _safe_str(payload.get("candidateProfile") or "not provided in this slice", 2_000),
         "job": _safe_str(payload.get("job") or "not provided in this slice", 2_000),
         "lastAnswer": _safe_str(payload.get("lastAnswer") or "아직 이전 답변 전사가 없습니다.", 2_000),
+        # analysis-engine turn_handoff prompt_block(web이 /analysis/signals에서 join) —
+        # 실측+관찰+판단 규칙. 없으면 빈 문자열(ai-engine이 섹션 생략). 섹션 줄 구조가
+        # 의미라 개행 보존(_safe_str의 \s+ 압축은 블록을 한 줄로 뭉갠다).
+        "analysisBlock": _safe_multiline(payload.get("analysisBlock") or "", 4_000),
     }).encode("utf-8")
     request = urllib.request.Request(
         f"{AI_ENGINE_INTERNAL_URL}/interview/next-question",

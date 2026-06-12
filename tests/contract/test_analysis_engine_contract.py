@@ -8,7 +8,7 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
-PINNED_GILJOBE_REF = "dae5191"
+PINNED_GILJOBE_REF = "5ba7249"
 # Superseded pins must not resurface anywhere a stale copy could mislead operators.
 OLD_GILJOBE_REFS = ("b769120", "88a4df5", "e0671f5")
 
@@ -216,3 +216,25 @@ class AnalysisEngineContractTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TurnResultsContractTest(unittest.TestCase):
+    """GET /realtime/turn-results — API _fetch_analysis_result가 당겨가는 turn_handoff 운반 계약."""
+
+    def test_turn_results_route_serves_turn_handoff_fragment(self) -> None:
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        self.assertIn('web.get("/realtime/turn-results"', wrapper)
+        self.assertIn("from giljobe.emit.handoff import render_prompt_fragment", wrapper)
+        self.assertIn("candidatePromptFragment", wrapper)
+        # 구 핀 강등(ImportError → None) + 턴 미완결 pending — API 409 게이트와 정합
+        self.assertIn("render_prompt_fragment = None", wrapper)
+        self.assertIn('"status": "pending"', wrapper)
+        # 활성 세션 폴백 금지 — interviewId 정확 일치만(타 인터뷰 결과 누출 방지)
+        self.assertIn("service.signals(interview_id)", wrapper)
+        self.assertNotIn("service.signals(None)", wrapper)
+
+    def test_turn_results_loads_with_legacy_pin_mocks(self) -> None:
+        # giljobe.emit.handoff가 없는(구 핀) 모킹 환경에서도 래퍼 로드는 성공해야 한다
+        module = load_analysis_engine_wrapper()
+        self.assertTrue(hasattr(module, "_realtime_turn_results"))
+        self.assertIsNone(module.render_prompt_fragment)
