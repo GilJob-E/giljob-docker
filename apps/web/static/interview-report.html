@@ -72,6 +72,23 @@
           <p class="note" id="summary-coverage">시각 지표는 3개 답변 중 2개에서 측정되었습니다.</p>
         </article>
 
+        <!-- 턴별 추이: 꺾은선 그래프 -->
+        <article class="report-card span-full" aria-labelledby="trend-title">
+          <div class="report-card-head">
+            <div>
+              <p class="badge-pill muted-pill">턴별 추이</p>
+              <h2 id="trend-title">비언어 지표 변화</h2>
+            </div>
+            <span class="report-card-tag">정규화 추이</span>
+          </div>
+          <p class="report-card-intro">
+            각 지표가 답변(턴)에 따라 어떻게 변했는지 보여줍니다. 지표마다 단위가 달라
+            지표별로 0~100%로 정규화했습니다.
+          </p>
+          <div class="trend-chart" id="trend-chart"><!-- report.js가 SVG로 채웁니다 --></div>
+          <ul class="trend-legend" id="trend-legend"></ul>
+        </article>
+
         <!-- 면접 대화: 질문·답변 + 접이식 피드백 -->
         <article class="report-card span-full" aria-labelledby="dialog-title">
           <div class="report-card-head">
