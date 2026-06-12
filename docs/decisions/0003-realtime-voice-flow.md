@@ -7,7 +7,7 @@
 
 ## Context
 
-GilJob v2 needs a browser-facing live interviewer voice path without exposing provider keys, raw tokens, raw media, or internal analysis prompts. The current room already has LiveKit candidate media, GilJobE/analysis-engine boundaries, Gemini question/TTS support, and SpatialReal avatar scaffolding. The new Realtime path must fit that scaffold rather than replacing all room state with a direct browser-to-provider integration.
+GilJob v2 needs a browser-facing live interviewer voice path without exposing provider keys, raw tokens, raw media, or internal analysis prompts. The current room already has LiveKit candidate media, GilJobE/analysis-engine boundaries, Gemini question/TTS fallback support, and SpatialReal avatar scaffolding. The new Realtime path must fit that scaffold rather than replacing all room state with a direct browser-to-provider integration.
 
 The preserved constraints are:
 
@@ -67,8 +67,8 @@ The next ordinary `realtime.response.create` is allowed only when the API report
 
 ## Public contract
 
-- `OPENAI_REALTIME_API_KEY` is server-only.
-- `OPENAI_REALTIME_PRIMARY=true` enables the Realtime primary browser path.
+- `OPENAI_API_KEY` is the only OpenAI server key and remains server-only; do not add `OPENAI_REALTIME_API_KEY`.
+- `OPENAI_REALTIME_PRIMARY=true` enables the Realtime primary browser path and is the default documented primary voice mode.
 - `/api/interviews/:id/realtime/session` returns provider status, route metadata, and an ephemeral client secret shape only.
 - The SDP attach endpoint is `/v1/realtime/calls`; no `?model=` fallback is part of the locked browser attach contract.
 - Browser logs may mention that a client secret or SDP exists, but must not print the secret value or SDP body.
@@ -79,7 +79,7 @@ The next ordinary `realtime.response.create` is allowed only when the API report
 - Caddy continues to expose only the public web/API broker surface for GilJob services.
 - Browser Realtime datachannel handling is allowed, but backend sideband routes remain the trusted business-logic boundary.
 - Gemini next-question/TTS remains available as a separate provider boundary and fallback path; it is not the primary Realtime WebRTC audio path when `OPENAI_REALTIME_PRIMARY=true`.
-- SpatialReal avatar rendering remains separate from interviewer audio; avatar RTC media is muted where needed to avoid dual-audio drift.
+- SpatialReal avatar rendering remains separate from interviewer audio; avatar RTC media is muted where needed to avoid dual-audio drift. The current SpatialReal RTC egress path accepts server-generated TTS WAV payloads, not OpenAI Realtime remote audio, so Realtime-avatar lip-sync is a known gap rather than a supported claim.
 - Provider smoke tests must distinguish session brokering readiness from provider/network attach failures.
 
 ## Verification
@@ -98,4 +98,5 @@ Provider or external-network failures should be reported as runtime blockers wit
 
 - Keep the Realtime smoke harness redacted and split provider-session, SDP attach, and MMM-readiness failures.
 - Add external-network WebRTC evidence before demo readiness.
+- Do not claim SpatialReal lip-sync with OpenAI Realtime audio until a tested bridge captures or routes Realtime output audio into SpatialReal without exposing secrets, raw media, or high-latency browser recording loops.
 - Revisit server-proxying only if WebRTC provider/network constraints make the ephemeral browser attach path unsuitable.

@@ -78,9 +78,13 @@ class RealtimeSmokeReadinessContractTest(unittest.TestCase):
         self.assertIn('{\"session\": {...}} wrapper', readme)
         self.assertIn("omit session.metadata", readme)
         self.assertIn("full_mmm_ready must pass before realtime.response.create", readme)
+        self.assertIn("OpenAI Realtime is the primary interviewer voice path", readme)
+        self.assertIn("fallback or smoke paths only", readme)
         self.assertIn("latency evidence is redacted spans only", readme)
         self.assertIn("realtime.call broker 501/not implemented is acceptable", readme)
         self.assertIn("OPENAI_API_KEY=replace-me-openai-server-key", env_example)
+        self.assertIn("OPENAI_REALTIME_PRIMARY=true", env_example)
+        self.assertIn("legacy/non-primary TTS fallback flows", env_example)
         self.assertNotIn("OPENAI_REALTIME_API_KEY", env_example)
 
 

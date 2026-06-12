@@ -56,6 +56,9 @@ RUNBOOK_SPECIFIC_TERMS = {
         "TTS_PROVIDER_FAILURE_FALLBACK=fake",
         "AVATAR_PROVIDER=disabled",
         "AVATAR_PROVIDER_FAILURE_FALLBACK=disabled",
+        "post-TTS publisher only",
+        "does not ingest OpenAI Realtime remote audio",
+        "No OpenAI Realtime remote-audio injection into SpatialReal",
         "Do not downgrade `livekit-client`",
     ],
     "docs/source-manifest.md": [
@@ -127,6 +130,15 @@ class AgentDocsContractTest(unittest.TestCase):
         for command in REMOTE_VERIFICATION_COMMANDS:
             with self.subTest(command=command):
                 self.assertIn(command, body)
+
+
+    def test_env_example_keeps_openai_realtime_primary_and_gemini_fallback(self) -> None:
+        body = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertIn("OPENAI_REALTIME_PRIMARY=true", body)
+        self.assertIn("LLM_PROVIDER=fake", body)
+        self.assertIn("Legacy/non-primary Gemini next-question fallback", body)
+        self.assertNotIn("GEMINI_API_KEY=replace-me-gemini-api-key", body)
+        self.assertIsNone(re.search(r"(?m)^OPENAI_REALTIME_PRIMARY=false$", body))
 
     def test_agent_docs_do_not_include_raw_secret_shapes(self) -> None:
         for path in self.agent_doc_paths():

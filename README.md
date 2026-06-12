@@ -1,6 +1,6 @@
 # GilJob v2
 
-GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 LiveKit 기반 면접룸, GilJobE STT/분석, Gemini 질문/TTS, SpatialReal RTC 아바타를 단계적으로 붙이는 것입니다.
+GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 LiveKit 기반 면접룸, GilJobE STT/분석, OpenAI Realtime primary voice, Gemini fallback 질문/TTS, SpatialReal RTC 아바타를 단계적으로 붙이는 것입니다.
 
 ![GilJob v2 아키텍처](docs/assets/architecture.svg)
 
@@ -31,12 +31,12 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   - 면접관 질문/TTS 종료 후 `답변 시작` 활성화
   - 후보자가 버튼을 눌러 답변 시작
   - 다시 버튼을 눌러 답변 종료 및 다음 질문 요청
-- Gemini next-question provider
-- Gemini native TTS provider (`gemini-3.1-flash-tts-preview`)
 - OpenAI Realtime WebRTC broker route for primary live interviewer audio
+  - `OPENAI_REALTIME_PRIMARY=true` is the intended realtime branch mode when provider credentials/runtime are ready
   - browser obtains only an ephemeral Realtime client secret through `/api/interviews/:id/realtime/session`
   - browser attaches SDP to `https://api.openai.com/v1/realtime/calls`
-  - standard OpenAI API key remains server-only
+  - `OPENAI_API_KEY` stays server-side; do not introduce a browser-visible OpenAI key
+- Gemini next-question provider and Gemini native TTS (`gemini-3.1-flash-tts-preview`) kept as legacy/non-primary fallback boundaries, not the primary live voice path
 - API-mediated Realtime turn/vision/MMM readiness routes
   - `/api/interviews/:id/turns/:turnIndex/events`
   - `/api/interviews/:id/turns/:turnIndex/vision-events`
@@ -45,6 +45,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 - SpatialReal session-token broker
 - SpatialReal RTC/LiveKit client renderer shell
 - SpatialReal Python SDK LiveKit egress 시도 경로
+  - current egress sends server-generated TTS WAV payloads, not OpenAI Realtime remote audio; avatar lip-sync to Realtime audio is a known limitation
 - 로컬 Whisper/STT service 제거 완료; STT는 `GilJobE` 기반 `services/analysis-engine` 경계
 - token redaction 및 raw token 비노출 contract test
 
@@ -81,9 +82,9 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 5. 후보자 답변 STT/분석은 `GilJobE`를 `services/analysis-engine`로 붙여 LiveKit audio/video track을 구독하는 구조입니다.
 6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 ephemeral client secret을 발급하고, 브라우저는 그 secret으로만 Realtime WebRTC SDP attach를 수행합니다. 표준 OpenAI API key는 브라우저에 노출하지 않습니다.
 7. Realtime turn loop는 브라우저의 transcript/prosody/vision sideband event를 API에 기록하고, `full_mmm_ready`가 true가 된 뒤에만 다음 ordinary `realtime.response.create`를 허용합니다.
-8. `ai-engine`은 Gemini 질문 생성과 Gemini TTS fallback/보조 provider 경계를 담당합니다.
+8. `ai-engine`은 legacy/non-primary Gemini 질문 생성과 Gemini TTS fallback/보조 provider 경계를 담당합니다; OpenAI Realtime이 primary live voice 경로입니다.
 9. SpatialReal 아바타는 서버가 session token을 중개하고, 브라우저는 AvatarKit RTC renderer로 LiveKit room에 subscribe합니다.
-10. SpatialReal 서버 SDK egress는 TTS audio를 SpatialReal에 보내고, SpatialReal이 LiveKit room에 avatar stream을 publish하는 구조입니다. 이때 `SPATIALREAL_RTC_LIVEKIT_URL`은 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다.
+10. SpatialReal 서버 SDK egress는 post-TTS WAV/PCM audio를 SpatialReal에 보내고, SpatialReal이 LiveKit room에 avatar stream을 publish하는 구조입니다. OpenAI Realtime remote audio를 SpatialReal에 주입하는 bridge가 아니며, `SPATIALREAL_RTC_LIVEKIT_URL`은 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다.
 
 위 다이어그램의 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
 
@@ -266,19 +267,21 @@ LIVEKIT_PUBLIC_URL=ws://127.0.0.1:7880
 LIVEKIT_NODE_IP=127.0.0.1
 ```
 
-실제 provider를 사용할 때 추가:
+Primary OpenAI Realtime provider를 사용할 때 추가:
 
 ```env
+OPENAI_REALTIME_PRIMARY=true
+OPENAI_REALTIME_MODEL=gpt-realtime-2
+OPENAI_REALTIME_VOICE=marin
+OPENAI_API_KEY=replace-me-openai-server-key
+
+# Legacy/non-primary Gemini fallback only when explicitly selected.
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-3.5-flash
 VOICE_PROVIDER=gemini
 GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
 GEMINI_TTS_VOICE=Kore
-OPENAI_REALTIME_PRIMARY=false
-OPENAI_REALTIME_MODEL=gpt-realtime-2
-OPENAI_REALTIME_VOICE=marin
-OPENAI_API_KEY=replace-me-openai-server-key
 AVATAR_PROVIDER=spatialreal
 SPATIALREAL_API_KEY=...
 SPATIALREAL_APP_ID=...
@@ -316,7 +319,7 @@ npm run check:js
 cd ../..
 ```
 
-`@spatialwalk/avatarkit-rtc`는 현재 `livekit-client@2.16.1` 호환을 요구하므로 lockfile을 임의로 올리지 않습니다.
+`@spatialwalk/avatarkit-rtc` 호환성은 lockfile과 contract tests를 기준으로 유지합니다. Realtime branch setup 중 avatar 문제를 해결하려고 `livekit-client`를 임의로 downgrade/upgrade하지 않습니다.
 
 ### 5. Compose config 확인
 
@@ -366,6 +369,13 @@ KEEP_STACK=1 ./scripts/smoke.sh media-up
 ./scripts/smoke.sh realtime-ready
 ```
 
+OMX/team verification lanes must run these checks on `hoddukzoa@kiostation` from the leader-approved checkout, not from a local Mac worktree. Use the same command shape through SSH, for example:
+
+```bash
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && ./scripts/smoke.sh config'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && ./scripts/smoke.sh realtime-ready'
+```
+
 `KEEP_STACK=1`을 빼면 smoke 종료 후 stack을 내립니다.
 
 Realtime primary/live smoke는 redacted readiness check로 분리해서 실행합니다.
@@ -378,6 +388,7 @@ REQUIRE_REALTIME_LIVE=1 ./scripts/smoke.sh realtime-ready
 Operator contract:
 
 - OPENAI_API_KEY is the only OpenAI server key; do not add OPENAI_REALTIME_API_KEY.
+- OpenAI Realtime is the primary interviewer voice path when `OPENAI_REALTIME_PRIMARY=true`; Gemini/ElevenLabs/fake TTS are fallback or smoke paths only.
 - The browser receives only a browser-safe ephemeral client_secret from `/api/interviews/:id/realtime/session`.
 - Realtime client-secret requests keep the provider `{"session": {...}} wrapper`, omit session.metadata, and never return the server key.
 - `full_mmm_ready must pass before realtime.response.create`; latency evidence is redacted spans only.
@@ -386,7 +397,7 @@ Operator contract:
 
 ## Cloudflare Tunnel / public LiveKit 메모
 
-SpatialReal avatar egress는 SpatialReal cloud가 LiveKit에 직접 접속해야 합니다. 따라서 `SPATIALREAL_RTC_LIVEKIT_URL`은 `127.0.0.1`이 아니라 외부에서 접근 가능한 `wss://...`여야 합니다.
+SpatialReal avatar egress는 SpatialReal cloud가 LiveKit에 직접 접속해야 합니다. 따라서 `SPATIALREAL_RTC_LIVEKIT_URL`은 `127.0.0.1`이 아니라 외부에서 접근 가능한 `wss://...`여야 합니다. 현재 egress 입력은 ai-engine이 생성한 TTS WAV입니다. OpenAI Realtime WebRTC remote audio를 SpatialReal로 주입하는 bridge는 아직 구현/검증되지 않았으므로, Realtime 음성과 avatar lip-sync가 일치한다고 문서화하거나 demo claim으로 사용하지 않습니다.
 
 임시 개발용 quick tunnel 예시:
 
@@ -453,7 +464,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -p 'tes
 npx --yes pyright
 ```
 
-원격 single-server에서 확인할 때는 `/home/hoddukzoa/GilJob_v2` 기준으로 실행합니다. 기존 `/home/hoddukzoa/GilJob`는 건드리지 않습니다.
+원격 single-server에서 확인할 때는 `/home/hoddukzoa/GilJob_v2` 기준으로 실행합니다. OMX/team lanes에서 실제 검증 명령은 `ssh hoddukzoa@kiostation`으로만 실행합니다. 기존 `/home/hoddukzoa/GilJob`는 건드리지 않습니다.
 
 ## 관련 문서
 

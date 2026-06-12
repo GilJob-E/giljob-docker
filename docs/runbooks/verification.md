@@ -46,7 +46,7 @@ The same command strings are part of the docs contract so worker lanes and leade
 - `AVATAR_PROVIDER=disabled` must return a safe disabled response without a provider `sessionToken`.
 - `AVATAR_PROVIDER=spatialreal` must require server-side `SPATIALREAL_API_KEY`, `SPATIALREAL_APP_ID`, and `SPATIALREAL_AVATAR_ID`; browser responses may include only short-lived client session metadata.
 - `AVATAR_PROVIDER_FAILURE_FALLBACK=disabled` is allowed only as an explicit local-demo fail-open setting.
-- `SPATIALREAL_RTC_EGRESS_ENABLED=false` is the default; enabling it requires a public LiveKit URL reachable from SpatialReal cloud, not a loopback or Docker-only URL.
+- `SPATIALREAL_RTC_EGRESS_ENABLED=false` is the default; enabling it requires a public LiveKit URL reachable from SpatialReal cloud, not a loopback or Docker-only URL. Passing this egress check does not prove OpenAI Realtime audio lip-sync; that requires separate bridge evidence.
 - Public ingress must not expose direct `/tts/*`, `/avatar/*`, `/ai/tts/*`, `/ai/avatar/*`, or broad `/ai/*` provider routes. Browser traffic must use the `/api/interviews/.../tts` and `/api/interviews/.../avatar/session` broker routes.
 
 Remote verification command shape from a synced checkout on `kiostation`:
@@ -66,3 +66,4 @@ ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECOD
 - `./scripts/smoke.sh media-up` must start `postgres`, `api`, `web`, `livekit`, and `coturn`; verify API/web health; verify `/sessions` returns an issued LiveKit token; and verify LiveKit `7880` responds.
 
 - `./scripts/smoke.sh browser-join` should pass on kiostation when Chrome is available; it proves the browser UI creates a session, connects to LiveKit, leaves the room, and does not expose raw tokens in visible text.
+- `./scripts/smoke.sh realtime-ready` should pass before claiming Realtime branch readiness; with `REQUIRE_REALTIME_LIVE=1`, provider/network failures are runtime blockers with redacted evidence, not a reason to expose direct provider secrets.

@@ -27,7 +27,15 @@ pip install -r requirements.txt
 
 ## Main LLM env contract
 
-Gemini is the bounded next-question provider and non-primary/fallback path for the current scaffold. OpenAI Realtime browser-session brokering is owned by `services/api`. Copy `.env.example` to `.env`, then set provider values there. Do not commit `.env` or real API keys.
+OpenAI Realtime is the primary live interviewer voice path and is brokered by `services/api`. This service keeps Gemini only as a bounded legacy/non-primary next-question fallback. Copy `.env.example` to `.env`, then set provider values there. Do not commit `.env` or real API keys.
+
+Default local/non-primary scaffold:
+
+```env
+LLM_PROVIDER=fake
+```
+
+Enable Gemini only when explicitly testing the legacy next-question fallback:
 
 ```env
 LLM_PROVIDER=gemini
@@ -36,7 +44,7 @@ GEMINI_MODEL=gemini-3.5-flash
 GEMINI_TIMEOUT_SECONDS=30
 ```
 
-The Gemini key is read only from `GEMINI_API_KEY`. Provider failures fail closed and are redacted at the API boundary.
+The Gemini key is read only from `GEMINI_API_KEY`. When `LLM_PROVIDER=gemini`, provider failures fail closed and are redacted at the API boundary.
 
 ## Realtime boundary
 
@@ -64,7 +72,7 @@ Current provider options:
 # Keyless smoke provider
 VOICE_PROVIDER=fake
 
-# Gemini native TTS provider
+# Legacy/non-primary Gemini native TTS fallback
 VOICE_PROVIDER=gemini
 GEMINI_API_KEY=your-google-ai-studio-key
 GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
@@ -78,7 +86,7 @@ ELEVENLABS_TTS_MODEL=eleven_flash_v2_5
 ELEVENLABS_OUTPUT_FORMAT=mp3_22050_32
 ```
 
-`VOICE_PROVIDER=fake` returns deterministic keyless WAV bytes plus metadata for smoke tests. `VOICE_PROVIDER=gemini` requires `GEMINI_API_KEY`. `VOICE_PROVIDER=elevenlabs` requires both `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Missing values fail closed with a provider-unavailable response and never print the secret value.
+OpenAI Realtime remains the primary live interviewer voice path. `VOICE_PROVIDER=fake` returns deterministic keyless WAV bytes plus metadata for smoke tests. `VOICE_PROVIDER=gemini` is a legacy/non-primary fallback and requires `GEMINI_API_KEY`. `VOICE_PROVIDER=elevenlabs` requires both `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`. Missing values fail closed with a provider-unavailable response and never print the secret value.
 
 ## Avatar session and RTC egress contract
 
@@ -103,7 +111,7 @@ SPATIALREAL_RTC_IDLE_TIMEOUT_SECONDS=30
 SPATIALREAL_RTC_SETTLE_SECONDS=1.0
 ```
 
-`AVATAR_PROVIDER=disabled` returns a safe disabled response without a `sessionToken`. `AVATAR_PROVIDER=spatialreal` requires the server-side API key, app id, and avatar id. Successful responses may include short-lived client session metadata, but raw provider keys are never returned. RTC egress also requires a public LiveKit signaling/media path; a local-only `ws://127.0.0.1:7880` URL is not enough for cloud-side avatar publishing.
+`AVATAR_PROVIDER=disabled` returns a safe disabled response without a `sessionToken`. `AVATAR_PROVIDER=spatialreal` requires the server-side API key, app id, and avatar id. Successful responses may include short-lived client session metadata, but raw provider keys are never returned. RTC egress is a post-TTS publisher only: it sends mono PCM16/WAV audio bytes produced by `/tts/synthesize` into SpatialReal and does not ingest OpenAI Realtime remote audio or datachannel events. RTC egress also requires a public LiveKit signaling/media path; a local-only `ws://127.0.0.1:7880` URL is not enough for cloud-side avatar publishing.
 
 ## Security contract
 

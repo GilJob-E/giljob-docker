@@ -772,17 +772,17 @@ function renderAvatarRtcEgressStatus(avatarRtc) {
   const status = String(avatarRtc.status || "unknown");
   const reason = String(avatarRtc.reason || "");
   if (status === "sent") {
-    setAvatarPanelMessage(`SpatialReal egress가 LiveKit room(${avatarRtc.roomName || "room"})으로 avatar stream을 보냈습니다. token은 숨겨집니다.`);
+    setAvatarPanelMessage(`SpatialReal egress가 post-TTS WAV/PCM audio를 LiveKit room(${avatarRtc.roomName || "room"})의 avatar stream으로 보냈습니다. OpenAI Realtime remote audio는 SpatialReal에 주입하지 않으며 token은 숨겨집니다.`);
     appendLog(`avatar rtc egress sent; publisher ${avatarRtc.publisherId || "unknown"}; tokens hidden`);
     return;
   }
   if (status === "skipped") {
-    setAvatarPanelMessage(`Avatar RTC egress 대기: ${reason || "not ready"}. TTS 오디오는 계속 재생됩니다.`);
+    setAvatarPanelMessage(`Avatar RTC egress 대기: ${reason || "not ready"}. Realtime interviewer audio와 별개이며 TTS 오디오만 egress 후보입니다.`);
     appendLog(`avatar rtc egress skipped: ${reason || "unknown"}; tokens hidden`);
     return;
   }
   if (status === "failed") {
-    setAvatarPanelMessage(`Avatar RTC egress 실패: ${reason || "provider_request_failed"}. TTS 오디오는 계속 재생됩니다.`);
+    setAvatarPanelMessage(`Avatar RTC egress 실패: ${reason || "provider_request_failed"}. Realtime interviewer audio와 별개이며 TTS 오디오는 계속 재생됩니다.`);
     appendLog(`avatar rtc egress failed: ${reason || "unknown"}; tokens hidden`);
   }
 }
@@ -864,7 +864,7 @@ async function initializeAvatarRtc(payload) {
       const player = new AvatarPlayer(provider, view, { logLevel: "warning" });
       player.on("connected", () => {
         setAvatarRtcState("ready", "Avatar RTC 연결됨");
-        setAvatarPanelMessage("SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다.");
+        setAvatarPanelMessage("SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 post-TTS egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다; OpenAI Realtime remote audio는 주입하지 않습니다.");
         muteAvatarRtcAudioElements();
         appendLog("avatar rtc connected through LiveKit; tokens hidden; Avatar RTC media muted to avoid dual-audio drift with OpenAI Realtime output");
       });
