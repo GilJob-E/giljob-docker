@@ -1,6 +1,6 @@
 # TTS and Avatar Provider Contract
 
-This runbook defines the Phase 0B/1 contract for interviewer voice and avatar integration. It does not implement ElevenLabs STT, OpenAI Realtime remote-audio injection into SpatialReal, or default LiveKit interviewer/avatar audio publication. Candidate STT remains owned by the GilJobE-backed `services/analysis-engine` boundary.
+This runbook defines the Phase 0B/1 contract for interviewer voice and avatar integration. The default interview path is OpenAI Realtime + MMM without LiveKit. This runbook does not implement ElevenLabs STT, OpenAI Realtime remote-audio injection into SpatialReal, or default LiveKit interviewer/avatar audio publication. Candidate STT remains owned by the GilJobE-backed `services/analysis-engine` boundary.
 
 ## Current phase
 
@@ -9,12 +9,12 @@ This runbook defines the Phase 0B/1 contract for interviewer voice and avatar in
 - Gemini TTS fallback is removed; do not configure or document it as a supported route.
 - `VOICE_PROVIDER=elevenlabs` remains supported only as an internal compatibility adapter when `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are supplied in the runtime `.env`.
 - `TTS_PROVIDER_FAILURE_FALLBACK=fake` may be enabled for local demos so provider quota/payment failures do not block the interview room.
-- `AVATAR_PROVIDER=disabled` remains the default. SpatialReal session brokering is backend-only until the browser avatar rendering gate is resolved.
+- `AVATAR_PROVIDER=disabled` remains the default. SpatialReal session brokering is backend-only until the browser avatar rendering gate is resolved. Avatar UI must be disabled/deferred unless a non-LiveKit SDK Mode proof or explicitly legacy RTC proof is verified.
 - `AVATAR_PROVIDER_FAILURE_FALLBACK=disabled` may be enabled for local demos so SpatialReal provider failures do not block the interview room.
-- `SPATIALREAL_RTC_EGRESS_ENABLED=false` remains the safe default. Enabling SpatialReal-to-LiveKit avatar publishing requires a LiveKit URL reachable from SpatialReal cloud, not only local Docker or `127.0.0.1`.
+- `SPATIALREAL_RTC_EGRESS_ENABLED=false` remains the safe default and belongs only to legacy AvatarKit RTC / SpatialReal-to-LiveKit publishing. Enabling it requires a LiveKit URL reachable from SpatialReal cloud, not only local Docker or `127.0.0.1`. It is not required for the default Realtime/MMM path.
 - SpatialReal RTC egress is a post-TTS publisher only: it sends mono PCM16/WAV audio bytes produced by `/tts/synthesize` into SpatialReal via `send_audio(end=True)`. It does not ingest OpenAI Realtime remote audio, Realtime datachannel events, or candidate LiveKit media.
 - `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` remains the stable default. Setting it true only enables an experimental browser `AvatarPlayer.publishAudio(track)` probe using the OpenAI Realtime remote audio track; it is not a production lip-sync claim until kiostation browser evidence marks `bridge_verified`.
-- Do not downgrade `livekit-client` from the current `2.19.1` just to satisfy SpatialReal.
+- Do not downgrade or upgrade `livekit-client` just to satisfy SpatialReal. This checkout declares `livekit-client` `2.16.1`; keep version changes out of the docs-only lane unless a separate dependency spike proves they are needed.
 
 ## Environment variables
 
@@ -43,6 +43,10 @@ This runbook defines the Phase 0B/1 contract for interviewer voice and avatar in
 | `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED` | Enables sibling API metadata (`realtimeAvatarBridge` on `/api/sessions`, `bridge.browserAudioBridgeEnabled` on avatar sessions) for the experimental browser `AvatarPlayer.publishAudio(track)` probe. | no | `false` |
 
 SpatialReal console/ingress endpoint overrides are intentionally not part of the default `.env.example` surface. Use `SPATIALREAL_REGION` first; add provider-specific endpoint overrides only in a compatibility-gated deployment change. RTC egress variables are present because the backend may broker post-TTS avatar publishing, but they do not make the browser render an avatar tile by themselves and do not bridge OpenAI Realtime remote audio into SpatialReal.
+
+## SpatialReal SDK Mode Web spike status
+
+Current outcome: `sdk_mode_deferred`. The approved research says SpatialReal SDK Mode can be non-LiveKit, but this worker checkout has no installed `apps/web/node_modules/@spatialwalk/avatarkit` package files to verify current SDK Mode Web exports, method names, or audio-feed lifecycle. The next spike should install/inspect the current package or official docs, prove a muted PCM16 mono audio feed without LiveKit, and then record one of `sdk_mode_verified`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred`. Until then, do not claim production Realtime avatar lip-sync.
 
 ## Experimental Realtime audio bridge probe
 

@@ -22,7 +22,7 @@
 - Public `/api/internal/*` must be blocked at ingress before API proxying.
 
 - Test `docker-compose.media.yml` fails without LiveKit URL/API/TURN secret env vars and passes once placeholders are explicitly set.
-- With LiveKit env configured on the API service, `POST /api/sessions` must return `livekit.tokenStatus=issued`, `livekit.url`, and a JWT-shaped `livekit.candidateToken` while server-side session records remain hash-only.
+- With LiveKit env absent/blank, default `/api/sessions` must still support the Realtime/MMM path and must not require or return LiveKit token metadata as a prerequisite. With optional media env configured on the API service, `POST /api/sessions` may return `livekit.tokenStatus=issued`, `livekit.url`, and a JWT-shaped `livekit.candidateToken` while server-side session records remain hash-only.
 
 ## Remote-only final checks
 
@@ -56,6 +56,10 @@ Record only redacted summary fields from `scripts/realtime-smoke-readiness.py`:
 
 Do not claim live Realtime readiness from a local Mac/worktree. If `REQUIRE_REALTIME_LIVE=1` fails because provider credentials, DNS, TLS, or network reachability are missing, report it as a kiostation runtime blocker with the redacted category above.
 
+## SpatialReal non-LiveKit spike evidence
+
+Current docs/infra outcome: `sdk_mode_deferred`. The worker checkout declares `@spatialwalk/avatarkit` but lacks installed package files, so SDK Mode Web exports/method names and audio-feed lifecycle were not locally verifiable. Future SDK Mode verification must prove package/API availability and a muted PCM16 mono audio feed without LiveKit before changing avatar status from disabled/deferred. Valid outcomes are `sdk_mode_verified`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred`.
+
 ## Interviewer voice and avatar provider contract
 
 - `VOICE_PROVIDER=fake` must remain the keyless smoke path.
@@ -65,7 +69,7 @@ Do not claim live Realtime readiness from a local Mac/worktree. If `REQUIRE_REAL
 - `AVATAR_PROVIDER=disabled` must return a safe disabled response without a provider `sessionToken`.
 - `AVATAR_PROVIDER=spatialreal` must require server-side `SPATIALREAL_API_KEY`, `SPATIALREAL_APP_ID`, and `SPATIALREAL_AVATAR_ID`; browser responses may include only short-lived client session metadata.
 - `AVATAR_PROVIDER_FAILURE_FALLBACK=disabled` is allowed only as an explicit local-demo fail-open setting.
-- `SPATIALREAL_RTC_EGRESS_ENABLED=false` is the default; enabling it requires a public LiveKit URL reachable from SpatialReal cloud, not a loopback or Docker-only URL. Passing this egress check does not prove OpenAI Realtime audio lip-sync; that requires separate bridge evidence.
+- `SPATIALREAL_RTC_EGRESS_ENABLED=false` is the default and is legacy/avatar-RTC-only. Enabling it requires a public LiveKit URL reachable from SpatialReal cloud, not a loopback or Docker-only URL. Passing this egress check does not prove OpenAI Realtime audio lip-sync; SDK Mode Web / Host Mode proof remains separate.
 - Public ingress must not expose direct `/tts/*`, `/avatar/*`, `/ai/tts/*`, `/ai/avatar/*`, or broad `/ai/*` provider routes. Browser traffic must use the `/api/interviews/.../tts` and `/api/interviews/.../avatar/session` broker routes.
 
 Remote verification command shape from a synced checkout on `kiostation`:
@@ -75,9 +79,9 @@ ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECOD
 ```
 
 
-## Local self-hosted media room
+## Default Realtime/MMM and optional local media room
 
-- LiveKit is a direct browser media room, not a frontend-backend API proxy.
+- The default OpenAI Realtime + MMM path must not require LiveKit config or a LiveKit join. LiveKit is a direct browser media room only when the optional/legacy media overlay is enabled, not a frontend-backend API proxy.
 - API/container address must use `LIVEKIT_INTERNAL_URL` (for example `ws://livekit:7880`).
 - Browser address must use `LIVEKIT_PUBLIC_URL` (for example `ws://127.0.0.1:7880`) and is returned as both `livekit.publicUrl` and backward-compatible `livekit.url`.
 - Direct local media ports to verify: `7880/tcp`, `7881/tcp`, `50000-50100/udp`, plus coturn `3478`/`5349` when relay is used. Same-host browser smoke uses `LIVEKIT_NODE_IP=127.0.0.1`; external browser smoke must set it to the reachable host address.
