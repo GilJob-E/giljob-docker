@@ -1,0 +1,234 @@
+[
+  {
+    "video": "00002632.mp4",
+    "cat": "action detection",
+    "q": "Is it OK sign?",
+    "ref": "Yes",
+    "ans": "Yes, that’s the “OK” hand sign.",
+    "pass": true
+  },
+  {
+    "video": "00000459.mp4",
+    "cat": "object attributes",
+    "q": "Which color are the curtains?",
+    "ref": "White",
+    "ans": "They’re white (or a very light cream).",
+    "pass": true
+  },
+  {
+    "video": "00000103.mp4",
+    "cat": "object attributes",
+    "q": "Is it long or short?",
+    "ref": "Long",
+    "ans": "Long.",
+    "pass": true
+  },
+  {
+    "video": "00001130.mp4",
+    "cat": "object detection",
+    "q": "What is this?",
+    "ref": "A lighter",
+    "ans": "It’s a lighter producing a small flame.",
+    "pass": true
+  },
+  {
+    "video": "00001007.mp4",
+    "cat": "object referencing",
+    "q": "What's this thing behind me?",
+    "ref": "Television",
+    "ans": "It’s a TV on a small stand or shelf with some electronics underneath.",
+    "pass": false
+  },
+  {
+    "video": "00000918.mp4",
+    "cat": "object referencing",
+    "q": "Do I have curtains on my window or not?",
+    "ref": "Yes",
+    "ans": "Yes, you have curtains on your window.",
+    "pass": true
+  },
+  {
+    "video": "00000574.mp4",
+    "cat": "action detection",
+    "q": "What I am doing with the cards?",
+    "ref": "Shuffling",
+    "ans": "You’re shuffling the deck, doing a small card-handling move like a cut or flourish.",
+    "pass": true
+  },
+  {
+    "video": "00000422.mp4",
+    "cat": "object referencing",
+    "q": "Do I wear glasses?",
+    "ref": "Yes",
+    "ans": "Yes, you’re wearing glasses.",
+    "pass": true
+  },
+  {
+    "video": "00002784.mp4",
+    "cat": "action detection",
+    "q": "Am I doing nothing?",
+    "ref": "Yes",
+    "ans": "Yes, you appear to be standing still and not doing anything.",
+    "pass": true
+  },
+  {
+    "video": "00002242.mp4",
+    "cat": "object referencing",
+    "q": "What am I drinking?",
+    "ref": "Coffee or tea",
+    "ans": "I can’t tell what’s in the mug from the video.",
+    "pass": false
+  },
+  {
+    "video": "00000358.mp4",
+    "cat": "action detection",
+    "q": "What am I doing?",
+    "ref": "Clapping",
+    "ans": "You’re clapping your hands.",
+    "pass": true
+  },
+  {
+    "video": "00002427.mp4",
+    "cat": "object referencing",
+    "q": "What I'm holding for me in my left hand?",
+    "ref": "A mug",
+    "ans": "A dark-colored mug.",
+    "pass": true
+  },
+  {
+    "video": "00001734.mp4",
+    "cat": "action detection",
+    "q": "Can you see I'm dancing?",
+    "ref": "Yes",
+    "ans": "Yes, I can see you, and I can respond to your signing here in text.",
+    "pass": true
+  },
+  {
+    "video": "00000131.mp4",
+    "cat": "object referencing",
+    "q": "What can you see in this paint?",
+    "ref": "A boat",
+    "ans": "A small boat is depicted, sitting on a shore with water behind it.",
+    "pass": true
+  },
+  {
+    "video": "00000123.mp4",
+    "cat": "object referencing",
+    "q": "What am I holding in my hands?",
+    "ref": "Scissors",
+    "ans": "You’re holding a pair of scissors and a small white strip (likely paper or a label).",
+    "pass": true
+  },
+  {
+    "video": "00000385.mp4",
+    "cat": "object referencing",
+    "q": "What hand am I holding this piece of paper in?",
+    "ref": "Right",
+    "ans": "Right hand.",
+    "pass": true
+  },
+  {
+    "video": "00000899.mp4",
+    "cat": "action detection",
+    "q": "Did I just clap?",
+    "ref": "1",
+    "ans": "Yes—you clapped.",
+    "pass": false
+  },
+  {
+    "video": "00000956.mp4",
+    "cat": "action attributes",
+    "q": "On which side did I move? Left or right?",
+    "ref": "Left",
+    "ans": "Right.",
+    "pass": false
+  },
+  {
+    "video": "00002077.mp4",
+    "cat": "action detection",
+    "q": "Did I do an action?",
+    "ref": "No",
+    "ans": "No, I don’t see any clear action—you appear to be just standing still.",
+    "pass": true
+  },
+  {
+    "video": "00002475.mp4",
+    "cat": "object attributes",
+    "q": "What color is this ball?",
+    "ref": "Black",
+    "ans": "Black.",
+    "pass": true
+  },
+  {
+    "video": "00000109.mp4",
+    "cat": "object referencing",
+    "q": "Which side of me is the ladder on?",
+    "ref": "Left",
+    "ans": "It’s on your left side.",
+    "pass": true
+  },
+  {
+    "video": "00002307.mp4",
+    "cat": "action attributes",
+    "q": "Am I walking in circles?",
+    "ref": "No",
+    "ans": "No—you appear to be standing and turning, not walking in circles.",
+    "pass": false
+  },
+  {
+    "video": "00000818.mp4",
+    "cat": "object referencing",
+    "q": "Where is the wood statue?",
+    "ref": "Right",
+    "ans": "It’s on the dresser behind you, on the left side (from the viewer’s perspective).",
+    "pass": false
+  },
+  {
+    "video": "00002674.mp4",
+    "cat": "action detection",
+    "q": "What am I doing?",
+    "ref": "Removing",
+    "ans": "You’re tipping your hat off your head.",
+    "pass": false
+  },
+  {
+    "video": "00002885.mp4",
+    "cat": "object referencing",
+    "q": "Is there any pink colored luggage on my wardrobe?",
+    "ref": "No",
+    "ans": "Yes, there is a pink suitcase on top of your wardrobe.",
+    "pass": false
+  },
+  {
+    "video": "00002241.mp4",
+    "cat": "action detection",
+    "q": "What am I doing with my right hand?",
+    "ref": "Waving",
+    "ans": "You’re raising your right hand and waving it.",
+    "pass": true
+  },
+  {
+    "video": "00001724.mp4",
+    "cat": "object referencing",
+    "q": "How many plants are behind me?",
+    "ref": "No",
+    "ans": "There are no plants visible behind you.",
+    "pass": false
+  },
+  {
+    "video": "00000906.mp4",
+    "cat": "object referencing",
+    "q": "What am I holding with my right hand?",
+    "ref": "A glass",
+    "ans": "You’re holding a glass of water.",
+    "pass": true
+  },
+  {
+    "video": "00001845.mp4",
+    "cat": "action detection",
+    "q": "What am I doing?",
+    "ref": "Rotating paper sheets",
+    "ans": "You’re shaking a pillow or cushion.",
+    "pass": false
+  }
+]
