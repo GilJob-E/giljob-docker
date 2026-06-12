@@ -10,11 +10,43 @@
 
 const REPORT_API_BASE = "/api/interviews";
 
+// API를 못 받았을 때(개발 중·권한 없음 등) 차트·애니메이션을 보여주기 위한 예시 데이터.
+const PLACEHOLDER_REPORT = {
+  generatedAt: "2026-06-11T00:00:00Z",
+  turnCount: 3,
+  complete: true,
+  turns: [
+    {
+      turnId: 1,
+      question: "간단한 자기소개와 지원 동기를 말씀해 주세요.",
+      answer: "안녕하세요. 4년 차 백엔드 엔지니어 김지원입니다. 결제 시스템의 정합성 문제를 다루며 분산 트랜잭션에 관심을 갖게 됐고, 이 팀의 도메인이 그 경험과 맞닿아 지원했습니다.",
+      feedback: { keyObservations: ["지원 동기와 경험의 연결이 명확합니다."], critique: ["도입부 긴장 신호는 낮은 편입니다."] },
+      metrics: { vocal: { speechRateSylPerSec: 5.7, pitchMeanHz: 237, pauseCount: 0 }, visual: { smileMean: 0.19, gazeOffMean: 0.26, blinkCount: 0 }, coverage: { visualMeasurable: true } },
+    },
+    {
+      turnId: 2,
+      question: "최근 해결한 가장 어려운 기술 문제는 무엇이었나요?",
+      answer: "대량 정산 배치에서 중복 지급이 간헐적으로 발생했습니다. 멱등 키와 상태 머신을 도입해 재처리 안전성을 확보했고, 사고율을 0으로 떨어뜨렸습니다.",
+      feedback: { keyObservations: ["문제–원인–해결 흐름이 분명합니다."], critique: ["정량 성과(사고율 0)를 제시했습니다."] },
+      metrics: { vocal: { speechRateSylPerSec: 5.9, pitchMeanHz: 250, pauseCount: 0 }, visual: { smileMean: 0.20, gazeOffMean: 0.37, blinkCount: 1 }, coverage: { visualMeasurable: true } },
+    },
+    {
+      turnId: 3,
+      question: "의견이 다른 동료와 협업한 경험을 말씀해 주세요.",
+      answer: "스키마 설계에서 이견이 있었는데, 양쪽 안의 트레이드오프를 표로 정리해 함께 검토했습니다. 결국 상대 안을 일부 수용하는 절충안으로 합의했습니다.",
+      feedback: { keyObservations: ["상대 관점을 반영한 협업 태도가 드러납니다."], critique: ["갈등 해소 과정이 구체적입니다."] },
+      metrics: { vocal: { speechRateSylPerSec: 4.2, pitchMeanHz: 192, pauseCount: 1 }, coverage: { visualMeasurable: false } },
+    },
+  ],
+};
+
 // 1) 지금 보고 있는 페이지 주소에서 interviewId 를 뽑아냅니다.
 //    예: /interviews/local-demo/report  →  "local-demo"
 function interviewIdFromPath() {
   const match = window.location.pathname.match(/\/interviews\/([^/]+)\/report/);
-  return match ? decodeURIComponent(match[1]) : null;
+  // Fall back to a default id so static preview paths (e.g. /interview-report.html)
+  // still trigger a fetch; if the API is absent the page shows placeholder data.
+  return match ? decodeURIComponent(match[1]) : "local-demo";
 }
 
 // 2) 리포트 토큰(열람 권한). 보안상 주소(URL)에 넣지 않으므로,
@@ -64,6 +96,191 @@ function metricTile(label, value, unit) {
   }
   wrap.appendChild(dd);
   return wrap;
+}
+
+// ── 애니메이션 · 차트 도우미 ─────────────────────────────────────────
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function prefersReducedMotion() {
+  return Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+function easeOutCubic(p) {
+  return 1 - Math.pow(1 - p, 3);
+}
+function svgEl(tag, attrs) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attrs || {})) {
+    node.setAttribute(name, String(value));
+  }
+  return node;
+}
+
+// 종합 카드 숫자 칸을 0에서 목표값까지 '차오르게' 갱신.
+function animateMetric(id, target, { decimals = 0, suffix = "" } = {}) {
+  const dd = document.getElementById(id);
+  if (!dd) {
+    return;
+  }
+  if (target == null) {
+    dd.textContent = "—";
+    return;
+  }
+  const apply = (num) => {
+    dd.textContent = decimals > 0 ? num.toFixed(decimals) : String(Math.round(num));
+    if (suffix) {
+      dd.appendChild(el("span", null, suffix));
+    }
+  };
+  if (prefersReducedMotion()) {
+    apply(target);
+    return;
+  }
+  const duration = 900;
+  const start = performance.now();
+  function frame(now) {
+    const progress = Math.min(1, (now - start) / duration);
+    apply(target * easeOutCubic(progress));
+    if (progress < 1) {
+      requestAnimationFrame(frame);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+// 차트에 그릴 지표들. 단위가 제각각이라 지표별로 0~1 정규화해 그립니다.
+function trendVisual(metrics, key) {
+  const measurable = metrics.coverage ? metrics.coverage.visualMeasurable !== false : true;
+  return measurable && metrics.visual ? metrics.visual[key] : undefined;
+}
+const TREND_FEATURES = [
+  { key: "rate", label: "말 속도", color: "#3b82f6", get: (m) => (m.vocal || {}).speechRateSylPerSec },
+  { key: "pitch", label: "음높이", color: "#8b5cf6", get: (m) => (m.vocal || {}).pitchMeanHz },
+  { key: "pause", label: "긴 휴지", color: "#10b981", get: (m) => (m.vocal || {}).pauseCount },
+  { key: "smile", label: "미소", color: "#f59e0b", get: (m) => trendVisual(m, "smileMean") },
+  { key: "gaze", label: "시선 이탈", color: "#ef4444", get: (m) => trendVisual(m, "gazeOffMean") },
+  { key: "blink", label: "눈 깜빡임", color: "#64748b", get: (m) => trendVisual(m, "blinkCount") },
+];
+
+// 범례 클릭 시 해당 지표의 선·점 표시/숨김 (기본 전부 켜짐).
+function setFeatureVisible(svg, key, visible) {
+  svg.querySelectorAll(`[data-feature="${key}"]`).forEach((node) => {
+    node.style.display = visible ? "" : "none";
+  });
+}
+
+// 선이 X축을 따라 그려지는 애니메이션 (stroke-dashoffset).
+function animateDraw(poly, order) {
+  let length = 0;
+  try {
+    length = poly.getTotalLength();
+  } catch (error) {
+    length = 0;
+  }
+  if (!length || prefersReducedMotion()) {
+    return;
+  }
+  poly.style.strokeDasharray = String(length);
+  poly.style.strokeDashoffset = String(length);
+  poly.getBoundingClientRect(); // 강제 리플로우 후 트랜지션 시작
+  poly.style.transition = `stroke-dashoffset 900ms ease ${order * 150}ms`;
+  requestAnimationFrame(() => {
+    poly.style.strokeDashoffset = "0";
+  });
+}
+
+// 턴(X축)별 각 지표(Y축) 꺾은선 그래프를 그립니다.
+function renderTrendChart(turns) {
+  const chart = document.getElementById("trend-chart");
+  const legend = document.getElementById("trend-legend");
+  if (!chart) {
+    return;
+  }
+  chart.replaceChildren();
+  if (legend) {
+    legend.replaceChildren();
+  }
+  const n = turns.length;
+  if (n < 1) {
+    return;
+  }
+
+  const W = 640, H = 240, padL = 12, padR = 12, padT = 16, padB = 28;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const xFor = (i) => (n === 1 ? W / 2 : padL + (i / (n - 1)) * plotW);
+  const yFor = (norm) => padT + (1 - norm) * plotH;
+
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${W} ${H}`, class: "trend-svg", role: "img",
+    "aria-label": "턴별 비언어 지표 추이",
+  });
+  for (const gridY of [0, 0.5, 1]) {
+    svg.appendChild(svgEl("line", { x1: padL, y1: yFor(gridY), x2: W - padR, y2: yFor(gridY), class: "trend-grid" }));
+  }
+  for (let i = 0; i < n; i += 1) {
+    const label = svgEl("text", { x: xFor(i), y: H - 8, class: "trend-xlabel", "text-anchor": "middle" });
+    label.textContent = `Q${turns[i].turnId ?? i + 1}`;
+    svg.appendChild(label);
+  }
+
+  let drawn = 0;
+  for (const feature of TREND_FEATURES) {
+    const points = [];
+    for (let i = 0; i < n; i += 1) {
+      const value = feature.get(turns[i].metrics || {});
+      if (typeof value === "number" && !Number.isNaN(value)) {
+        points.push({ i, value });
+      }
+    }
+    if (points.length < 1) {
+      continue;
+    }
+    const values = points.map((p) => p.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const norm = (v) => (max === min ? 0.5 : (v - min) / (max - min));
+    const coords = points.map((p) => [xFor(p.i), yFor(norm(p.value))]);
+
+    if (coords.length >= 2) {
+      svg.appendChild(svgEl("polyline", {
+        points: coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" "),
+        class: "trend-line", fill: "none", stroke: feature.color, "data-feature": feature.key,
+      }));
+    }
+    for (const [x, y] of coords) {
+      svg.appendChild(svgEl("circle", {
+        cx: x.toFixed(1), cy: y.toFixed(1), r: 2.6, class: "trend-dot", fill: feature.color, "data-feature": feature.key,
+      }));
+    }
+    if (legend) {
+      const item = el("li", "trend-legend-item");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "trend-legend-toggle";
+      button.setAttribute("aria-pressed", "true"); // 기본 켜짐
+      const swatch = el("span", "trend-swatch");
+      swatch.style.background = feature.color;
+      button.appendChild(swatch);
+      button.appendChild(document.createTextNode(feature.label));
+      button.addEventListener("click", () => {
+        const next = button.getAttribute("aria-pressed") !== "true";
+        button.setAttribute("aria-pressed", String(next));
+        button.classList.toggle("is-off", !next);
+        setFeatureVisible(svg, feature.key, next);
+      });
+      item.appendChild(button);
+      legend.appendChild(item);
+    }
+    drawn += 1;
+  }
+
+  chart.appendChild(svg);
+  if (drawn === 0) {
+    chart.appendChild(el("p", "trend-empty", "표시할 비언어 지표 데이터가 아직 없습니다."));
+    return;
+  }
+  // SVG가 DOM에 올라온 뒤 선 draw-on 애니메이션 실행.
+  svg.querySelectorAll(".trend-line").forEach((poly, order) => animateDraw(poly, order));
 }
 
 // 5) 한 턴(질문 + 답변 + 접이식 분석)을 통째로 만듭니다.
@@ -156,22 +373,6 @@ function total(nums) {
   return nums.length ? nums.reduce((a, b) => a + b, 0) : null;
 }
 
-// 종합 카드의 숫자 칸 하나를 갱신: <dd>값<span>단위</span></dd>
-function setMetric(id, value, unit) {
-  const dd = document.getElementById(id);
-  if (!dd) {
-    return;
-  }
-  if (value == null) {
-    dd.textContent = "—"; // 측정값이 없으면 대시
-    return;
-  }
-  dd.textContent = String(value);
-  if (unit) {
-    dd.appendChild(el("span", null, unit));
-  }
-}
-
 // 7) 종합(평균 비언어 지표) 카드 채우기 — 모든 턴의 metrics 를 모아 평균/합계 계산
 function renderSummary(turns) {
   const vocal = turns.map((t) => (t.metrics || {}).vocal || {});
@@ -189,12 +390,12 @@ function renderSummary(turns) {
   const gaze = mean(collect(visual, (v) => v.gazeOffMean));
   const blink = total(collect(visual, (v) => v.blinkCount));
 
-  setMetric("avg-rate", rate == null ? null : Math.round(rate * 10) / 10, "음절/초");
-  setMetric("avg-pitch", pitch == null ? null : Math.round(pitch), "Hz");
-  setMetric("sum-pause", pause, "회");
-  setMetric("avg-smile", smile == null ? null : Math.round(smile * 100), "%");
-  setMetric("avg-gaze", gaze == null ? null : Math.round(gaze * 100), "%");
-  setMetric("sum-blink", blink, "회");
+  animateMetric("avg-rate", rate, { decimals: 1, suffix: "음절/초" });
+  animateMetric("avg-pitch", pitch, { decimals: 0, suffix: "Hz" });
+  animateMetric("sum-pause", pause, { decimals: 0, suffix: "회" });
+  animateMetric("avg-smile", smile == null ? null : smile * 100, { decimals: 0, suffix: "%" });
+  animateMetric("avg-gaze", gaze == null ? null : gaze * 100, { decimals: 0, suffix: "%" });
+  animateMetric("sum-blink", blink, { decimals: 0, suffix: "회" });
 
   const coverageEl = document.getElementById("summary-coverage");
   if (coverageEl) {
@@ -216,8 +417,11 @@ function renderReport(report) {
   }
 
   if (Array.isArray(report.turns)) {
-    // 종합(평균 비언어 지표) 카드
+    // 종합(평균 비언어 지표) 카드 — 값이 차오르는 애니메이션
     renderSummary(report.turns);
+
+    // 턴별 추이 꺾은선 그래프 — 선이 X축을 따라 그려지는 애니메이션
+    renderTrendChart(report.turns);
 
     // 다이얼로그: 예시 턴들을 지우고, 실제 턴으로 다시 그립니다.
     const list = document.querySelector(".turn-list");
@@ -243,17 +447,27 @@ async function loadReportWithRetry(interviewId, attempts = 4, delayMs = 800) {
 }
 
 // 10) 진입점: 페이지가 열리면 이 함수가 실행됩니다.
+// 진입 시 '평균 비언어 지표' 카드 위치로 자동 이동.
+function scrollToSummary() {
+  const target = document.getElementById("summary-title");
+  if (target) {
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
 async function init() {
   const interviewId = interviewIdFromPath();
   if (!interviewId) {
     return; // 리포트 라우트가 아니면 아무것도 하지 않음
   }
+  scrollToSummary();
   try {
     const report = await loadReportWithRetry(interviewId);
     renderReport(report); // 성공(또는 마지막 시도) → 받은 데이터로 교체
   } catch (error) {
-    // 실패(API 미구현 / 네트워크 / 권한 없음) → 예시 화면을 그대로 유지
-    console.info(`리포트 데이터를 불러오지 못해 예시 화면을 유지합니다: ${error.message}`);
+    // 실패(API 미구현 / 네트워크 / 권한 없음) → 예시 데이터로 차트·애니메이션 표시
+    console.info(`리포트 데이터를 불러오지 못해 예시 데이터로 표시합니다: ${error.message}`);
+    renderReport(PLACEHOLDER_REPORT);
   }
 }
 

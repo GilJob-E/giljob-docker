@@ -12,11 +12,11 @@
         <span class="brand-mark" aria-hidden="true">G</span>
         <span>GilJob</span>
       </a>
-      <nav class="nav-pill-group" aria-label="Interview production flow">
-        <a href="/interviews/new">New</a>
-        <a data-interview-route="lobby" href="/interviews/local-demo/lobby">Lobby</a>
-        <a class="active" data-interview-route="room" href="/interviews/local-demo/room">Room</a>
-        <a data-interview-route="report" href="/interviews/local-demo/report">Report</a>
+      <nav class="nav-pill-group" aria-label="Interview flow steps">
+        <a>New</a>
+        <a>Lobby</a>
+        <a class="active">Room</a>
+        <a data-interview-route="report">Report</a>
       </nav>
       <div class="nav-actions">
         <span id="status" class="status room-live-status" role="status">connecting</span>
@@ -40,6 +40,7 @@
                 <strong>후보자</strong>
                 <small>Camera를 켜면 후보자 영상이 표시됩니다.</small>
               </div>
+              <div id="candidate-captions" class="tile-captions" role="status" aria-live="polite" hidden></div>
             </article>
 
             <article class="video-tile interviewer-tile placeholder-tile active-speaker">

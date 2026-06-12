@@ -53,7 +53,7 @@ class WebStaticContractTest(unittest.TestCase):
     def test_production_interview_routes_serve_static_shells(self) -> None:
         route_expectations = {
             "/interviews/new": ["Production flow · Step 1", "local-demo", "CV upload"],
-            "/interviews/prod-demo_01/lobby": ["Production flow · Step 2", "Pre-join lobby", "Device check"],
+            "/interviews/prod-demo_01/lobby": ["Pre-join lobby", "Device check"],
             "/interviews/prod-demo_01/room": ["production-room-shell", "light-media-room-shell", "room-context-drawer", "avatar-surface", 'src="/app.js"'],
             "/interviews/prod-demo_01/report": ["Production flow · Step 4", "면접 리포트", "질문과 답변", "답변 분석 보기", "비언어 지표"],
         }

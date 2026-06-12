@@ -23,6 +23,7 @@ const candidateRoomVideo = document.querySelector("#candidate-room-video");
 const previewPlaceholder = document.querySelector("#preview-placeholder");
 const candidatePlaceholder = document.querySelector("#candidate-placeholder");
 const candidateMediaState = document.querySelector("#candidate-media-state");
+const candidateCaptions = document.querySelector("#candidate-captions");
 const permissionNote = document.querySelector("#permission-note");
 const interviewRouteLabel = document.querySelector("#interview-route-label");
 const contextDrawer = document.querySelector("#room-context-drawer");
@@ -59,6 +60,8 @@ let nextQuestionRequested = false;
 let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
 let currentQuestionText = "";
+let captionPollTimer = null;
+let captionPollInFlight = false;
 let activeAnalysisSessionId = "";
 let activeAvatarSession = null;
 let avatarRtcRuntime = { sdkInitialized: false, player: null, view: null, provider: null, avatarId: "" };
@@ -392,6 +395,58 @@ function renderTranscriptStatus(message) {
   if (transcriptBody) {
     transcriptBody.textContent = message;
   }
+}
+
+// Live STT captions over the candidate tile. The analysis-engine writes ~3s
+// finalized transcript windows to the signal snapshot; while the candidate is
+// answering we poll and show the most recent windows as a rolling subtitle.
+// Text is redaction-guarded and rendered via textContent only.
+function setCaptions(text) {
+  if (!candidateCaptions) {
+    return;
+  }
+  const value = String(text || "").trim();
+  candidateCaptions.textContent = redactSensitiveText(value);
+  candidateCaptions.hidden = value.length === 0;
+}
+
+async function pollCaptions(sessionId) {
+  if (captionPollInFlight) {
+    return;
+  }
+  captionPollInFlight = true;
+  try {
+    const payload = await fetchAnalysisSignals(sessionId);
+    const records = Array.isArray(payload?.records)
+      ? payload.records.slice(answerTurnStartRecordCount)
+      : [];
+    const windows = records
+      .filter((record) => record?.type === "window" && String(record?.transcript || "").trim())
+      .map((record) => String(record.transcript).trim());
+    if (windows.length) {
+      // rolling subtitle: last ~2 finalized windows (~6s of speech)
+      setCaptions(windows.slice(-2).join(" "));
+    }
+  } catch {
+    // transient poll failure: keep the last caption, do not spam the log
+  } finally {
+    captionPollInFlight = false;
+  }
+}
+
+function startCaptionPolling(sessionId) {
+  stopCaptionPolling();
+  setCaptions("듣고 있습니다…");
+  pollCaptions(sessionId);
+  captionPollTimer = window.setInterval(() => pollCaptions(sessionId), 1200);
+}
+
+function stopCaptionPolling() {
+  if (captionPollTimer) {
+    window.clearInterval(captionPollTimer);
+    captionPollTimer = null;
+  }
+  setCaptions("");
 }
 
 // Accumulating Q&A dialogue: one entry per completed turn, with the question,
@@ -928,6 +983,7 @@ async function applyMediaStateToRoom() {
 
 async function startAnswerCapture() {
   await markAnalysisTurnStart(analysisSessionId());
+  startCaptionPolling(analysisSessionId());
   renderTranscriptStatus("답변 중입니다. GilJobE analysis-engine이 LiveKit 오디오를 수집하고 있습니다.");
   appendLog("candidate answer turn started; GilJobE analysis-engine recording boundary active");
 }
@@ -967,6 +1023,7 @@ async function finalizeInterview() {
 
 async function finishAnswerAndRequestNextQuestion() {
   micEnabled = false;
+  stopCaptionPolling();
   await restartPreviewStream();
   await applyMediaStateToRoom();
   const sessionId = analysisSessionId();
@@ -997,6 +1054,7 @@ async function toggleMic() {
   } catch (error) {
     const message = errorMessage(error);
     micEnabled = false;
+    stopCaptionPolling();
     stopPreviewStream();
     syncMediaUi();
     setStatus(`answer turn failed: ${message}`, "error");
@@ -1182,6 +1240,7 @@ function leaveRoom() {
     return;
   }
   appendLog("leaving LiveKit room");
+  stopCaptionPolling();
   finalizeInterview();
   disconnectAvatarRtc();
   activeRoom.disconnect();
@@ -1261,6 +1320,7 @@ form?.addEventListener("submit", async (event) => {
 });
 
 leaveButton?.addEventListener("click", leaveRoom);
+window.addEventListener("pagehide", stopCaptionPolling);
 
 renderSessionSummary(null);
 renderAvatarState({ status: "pending", provider: "spatialreal", ready: false });
