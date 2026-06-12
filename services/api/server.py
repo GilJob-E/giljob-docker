@@ -615,6 +615,23 @@ def _analysis_result_matches_turn(result: dict[str, Any], expected_turn_index: i
     return not turn_id or turn_id == str(expected_turn_index)
 
 
+def _extract_turn_index(value: object) -> int | None:
+    if isinstance(value, int) and value >= 0:
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _analysis_result_matches_turn(result: dict[str, Any], expected_turn_index: int) -> bool:
+    for key in ("turnIndex", "turn_index", "answerTurnIndex", "analysisTurnIndex"):
+        observed = _extract_turn_index(result.get(key))
+        if observed is not None:
+            return observed == expected_turn_index
+    turn_id = _safe_str(result.get("turnId") or result.get("turn_id"), 32)
+    return not turn_id or turn_id == str(expected_turn_index)
+
+
 def _fetch_analysis_result(interview_id: str, turn_index: int) -> tuple[dict[str, Any] | None, dict[str, object]]:
     endpoint = f"{ANALYSIS_ENGINE_INTERNAL_URL}/realtime/turn-results?{_analysis_result_query(interview_id, turn_index)}"
     request = urllib.request.Request(endpoint, method="GET", headers={"Accept": "application/json"})
@@ -752,6 +769,17 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
                 response_create=response_create,
                 analysis_result=result,
             ),
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
+    if not _analysis_result_matches_turn(result, analysis_turn_index):
+        return _return_with_latency(409, {
+            "error": "analysis_result_stale_or_wrong_turn",
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
+            "analysisResult": _analysis_result_public_summary(result),
+            "analysisEngine": source,
+            "responseCreate": {"owner": "api", "created": False, "reason": "exact_turn_analysis_required"},
             "delivery": _realtime_delivery("api-sideband-response-create"),
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
