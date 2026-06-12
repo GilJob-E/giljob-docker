@@ -1,6 +1,6 @@
 # GilJob v2
 
-GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 OpenAI Realtime-only voice, GilJobE 기반 MMM/RNAS 분석, 그리고 선택적 SpatialReal avatar spike를 단계적으로 붙이는 것입니다. LiveKit은 기본 Realtime/MMM 경로가 아니라 legacy/media-overlay 및 AvatarKit RTC 실험 경로입니다.
+GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 OpenAI Realtime-only voice, GilJobE 기반 MMM/RNAS 분석, 그리고 선택적 SpatialReal avatar spike를 단계적으로 붙이는 것입니다. LiveKit은 기본 Realtime/MMM 경로가 아니라 legacy/media-overlay 및 AvatarKit RTC 실험 경로입니다. LiveKit is not required for the main Realtime/MMM path; OpenAI Realtime owns STT/VAD/interviewer audio; Avatar disabled/deferred is the default avatar state.
 
 ![GilJob v2 아키텍처](docs/assets/architecture.svg)
 
@@ -17,9 +17,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 - Postgres service 및 token hash 저장 계약
 - OpenAI Realtime + MMM 기본 경로에서는 필요 없는 optional self-hosted LiveKit/coturn media overlay
 - `POST /api/sessions` 후보자 session 생성
-- LiveKit is not required for the main Realtime/MMM path
-- OpenAI Realtime owns STT/VAD/interviewer audio
-- optional/legacy media overlay 사용 시에만 candidate media overlay token 발급
+- optional/legacy media overlay 사용 시에만 LiveKit browser media token metadata 발급
 - SpatialReal AvatarKit RTC용 별도 subscribe-only avatar viewer token 발급은 legacy/deferred avatar path
 - production 형태의 interview routes
   - `/interviews/new`
@@ -57,7 +55,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 - final report generator
 - production domain/TLS/hardening
 - Redis/event bus 전환
-- SpatialReal avatar/lip-sync production claim. Current outcome is `sdk_mode_deferred`; the next proof should evaluate SpatialReal SDK Mode Web first, with Host Mode fallback. Avatar disabled/deferred remains the default until kiostation evidence exists.
+- SpatialReal avatar/lip-sync production claim. Current outcome is `sdk_mode_deferred`; the next non-LiveKit proof should evaluate SpatialReal SDK Mode Web first, with Host Mode as fallback. Legacy AvatarKit RTC still needs public LiveKit reachability and remains outside the default success claim.
 
 ## Production UX 기준
 
@@ -78,7 +76,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 
 1. 브라우저는 GilJob Web/API HTTP 요청을 Caddy로 보냅니다.
 2. API는 session/report token을 발급하되, 서버 쪽에는 purpose-separated hash만 저장합니다.
-3. API는 default Realtime/MMM 경로에서 LiveKit token을 요구하지도 발급하지도 않습니다. Optional/legacy media overlay를 `LIVEKIT_MEDIA_OVERLAY_ENABLED=true`로 켠 경우에만 LiveKit candidate token과 SpatialReal AvatarKit RTC viewer token을 분리해 발급합니다.
+3. API는 default Realtime/MMM 경로에서 LiveKit token을 요구하지 않습니다. Optional/legacy media overlay를 켠 경우에만 LiveKit candidate token과 SpatialReal AvatarKit RTC viewer token을 분리해 발급합니다.
 4. LiveKit을 사용하는 legacy/media overlay에서만 브라우저는 Caddy를 통해 media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다. 기본 Realtime/MMM 경로는 LiveKit 없이 동작해야 합니다.
 5. 후보자 답변 분석의 priority-1 Realtime 경로는 **answer → analysis-engine MMM/RNAS → API `response.create` → OpenAI Realtime output**입니다. 브라우저는 transcript/prosody/vision sideband metadata만 API로 보내고, analysis-engine이 exact `(interviewId, turnIndex)` RNAS result/readiness의 단일 owner입니다.
 6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 Realtime session metadata를 중개하고, 브라우저의 WebRTC SDP attach도 `/api/interviews/:id/realtime/call`을 통해 서버가 수행합니다. 표준 OpenAI API key와 provider route는 브라우저에 노출하지 않습니다.
@@ -87,7 +85,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 9. SpatialReal/AvatarKit은 이 RNAS priority-1 phase의 범위 밖입니다. 기존 avatar session/viewer/egress scaffolding은 유지하지만, answer→MMM/RNAS→API `response.create`→Realtime output 검증이나 success claim에 포함하지 않습니다.
 10. SpatialReal의 current non-LiveKit outcome은 `sdk_mode_deferred`입니다. SDK Mode Web을 먼저 검증하고, 불가능하면 Host Mode를 검토합니다. SpatialReal 서버 SDK egress는 post-TTS WAV/PCM audio를 SpatialReal에 보내고 LiveKit room에 avatar stream을 publish하는 별도 legacy 구조입니다.
 11. `SPATIALREAL_RTC_LIVEKIT_URL`은 legacy RTC egress를 켤 때만 필요하며 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다. OpenAI Realtime remote audio를 SpatialReal에 주입하는 production bridge가 아니므로 Realtime avatar lip-sync claim에 쓰지 않습니다.
-12. SpatialReal SDK Mode is the preferred future avatar path, but the current browser state is `Avatar disabled/deferred` with outcome `sdk_mode_deferred`. If SDK Mode cannot prove a safe browser audio-feed lifecycle, use Host Mode fallback as the next evaluation path. Neither path changes the default Realtime/MMM success criteria.
+12. `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` is the stable default. When explicitly enabled, the API exposes safe sibling metadata (`realtimeAvatarBridge` on `/api/sessions`, `bridge` on `/api/interviews/:id/avatar/session`) so the browser may try the experimental `AvatarPlayer.publishAudio(track)` probe with OpenAI Realtime remote audio. This is a kiostation-only proof path until `bridge_verified`; do not document it as production lip-sync.
 
 위 다이어그램의 NOML 원본 파일: [`docs/architecture.noml`](docs/architecture.noml)
 
@@ -283,7 +281,6 @@ Optional legacy/media overlay 또는 SpatialReal RTC 실험을 켤 때만 추가
 ```env
 LIVEKIT_API_KEY=replace-me-local-only
 LIVEKIT_API_SECRET=replace-me-local-only-minimum-32-bytes
-LIVEKIT_MEDIA_OVERLAY_ENABLED=true
 TURN_REALM=turn.example.com
 TURN_STATIC_AUTH_SECRET=replace-me-local-only-minimum-32-bytes
 LIVEKIT_INTERNAL_URL=ws://livekit:7880
@@ -329,7 +326,7 @@ npm run check:js
 cd ../..
 ```
 
-Default Realtime/MMM 개발은 SpatialReal/LiveKit package 설치나 `LIVEKIT_PUBLIC_URL`에 의존하지 않습니다. Default web bundle은 `livekit-client` / `@spatialwalk/avatarkit-rtc`를 설치·vendor하지 않습니다. SpatialReal SDK Mode Web spike는 별도 증거가 생기기 전까지 `sdk_mode_deferred`이고, Host Mode fallback은 후속 검증 후보입니다.
+Default Realtime/MMM 개발은 SpatialReal/LiveKit package 설치나 `LIVEKIT_PUBLIC_URL`에 의존하지 않습니다. `@spatialwalk/avatarkit-rtc` / `livekit-client` 호환성은 legacy avatar RTC path에서만 lockfile과 contract tests 기준으로 유지합니다. SDK Mode Web spike는 별도 증거가 생기기 전까지 `sdk_mode_deferred`입니다.
 
 ### 5. Compose config 확인
 
