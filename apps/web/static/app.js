@@ -55,6 +55,11 @@ let activeAvatarSession = null;
 let avatarRtcRuntime = { sdkInitialized: false, player: null, view: null, provider: null, avatarId: "" };
 let avatarRtcInitializing = null;
 let activeRealtimeSession = null;
+let realtimeRemoteAudioTrack = null;
+let activeRealtimeResponseId = "";
+let avatarAudioBridgePublished = null;
+let realtimeAudioTrackObjectIds = new WeakMap();
+let realtimeAudioTrackObjectIdCounter = 0;
 let realtimeAnswerTranscript = "";
 let realtimeInterviewerQuestionTranscript = "";
 let realtimeFirstAudioMarked = false;
@@ -434,8 +439,145 @@ function attachRealtimeRemoteAudio(stream) {
   }
   interviewerAudio.srcObject = stream;
   interviewerAudio.hidden = true;
+  interviewerAudio.muted = false;
+  interviewerAudio.volume = 1;
   interviewerAudio.addEventListener("playing", markRealtimeFirstAudio, { once: true });
   interviewerAudio.play().catch((error) => appendLog(`Realtime remote audio autoplay skipped: ${errorMessage(error)}`));
+}
+
+function avatarAudioBridgeMetadata() {
+  return activeAvatarSession?.bridge || activeSession?.bridge || {};
+}
+
+function isAvatarAudioBridgeEnabled() {
+  return avatarAudioBridgeMetadata()?.browserAudioBridgeEnabled === true;
+}
+
+function realtimeAudioTrackIdentity(track) {
+  if (!track) {
+    return "missing-track";
+  }
+  if (track.id) {
+    return track.id;
+  }
+  if (!realtimeAudioTrackObjectIds.has(track)) {
+    realtimeAudioTrackObjectIdCounter += 1;
+    realtimeAudioTrackObjectIds.set(track, `track-object-${realtimeAudioTrackObjectIdCounter}`);
+  }
+  return realtimeAudioTrackObjectIds.get(track);
+}
+
+function realtimeAudioBridgeDedupKey(track = realtimeRemoteAudioTrack) {
+  return `${activeRealtimeResponseId || currentTurnIndex}:${realtimeAudioTrackIdentity(track)}`;
+}
+
+function safeAvatarAudioBridgeFailureReason(reason) {
+  return String(reason || "unknown").toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64) || "unknown";
+}
+
+function renderAvatarAudioBridgeStatus(status, detail = "") {
+  const safeStatus = status.startsWith("avatar_audio_bridge_failed:")
+    ? `avatar_audio_bridge_failed:${safeAvatarAudioBridgeFailureReason(status.split(":").slice(1).join(":"))}`
+    : status;
+  appendLog(`${safeStatus}${detail ? `; ${detail}` : ""}; raw media hidden`);
+  if (!avatarPanelBody) {
+    return;
+  }
+  if (safeStatus === "avatar_audio_bridge_disabled") {
+    avatarPanelBody.textContent = "Avatar RTC는 안정 기본값으로 동작합니다. Realtime-to-avatar browser bridge는 feature flag가 켜진 실험에서만 시도합니다.";
+    return;
+  }
+  if (safeStatus === "avatar_audio_bridge_waiting_avatar") {
+    avatarPanelBody.textContent = "Experimental Realtime audio bridge enabled; Avatar RTC 연결을 기다리는 중입니다.";
+    return;
+  }
+  if (safeStatus === "avatar_audio_bridge_waiting_realtime_track") {
+    avatarPanelBody.textContent = "Experimental Realtime audio bridge enabled; Realtime remote audio track을 기다리는 중입니다.";
+    return;
+  }
+  if (safeStatus === "avatar_audio_bridge_published") {
+    avatarPanelBody.textContent = "Experimental Realtime audio bridge active; avatar motion verification is still required. Realtime audio remains the audible source.";
+    return;
+  }
+  if (safeStatus === "avatar_audio_bridge_unpublished") {
+    avatarPanelBody.textContent = "Experimental Realtime audio bridge unpublished for this response lifecycle. Realtime voice/MMM flow remains active.";
+    return;
+  }
+  if (safeStatus.startsWith("avatar_audio_bridge_failed:")) {
+    avatarPanelBody.textContent = "Experimental Realtime audio bridge failed safely; Realtime interviewer audio and MMM flow continue.";
+  }
+}
+
+async function unpublishRealtimeAudioFromAvatar(reason = "lifecycle") {
+  const published = avatarAudioBridgePublished;
+  avatarAudioBridgePublished = null;
+  if (!published) {
+    return false;
+  }
+  const player = avatarRtcRuntime.player;
+  try {
+    if (typeof player?.unpublishAudio === "function") {
+      await player.unpublishAudio(published.track);
+    }
+    renderAvatarAudioBridgeStatus("avatar_audio_bridge_unpublished", `reason ${safeAvatarAudioBridgeFailureReason(reason)}`);
+    return true;
+  } catch (error) {
+    renderAvatarAudioBridgeStatus(`avatar_audio_bridge_failed:${safeAvatarAudioBridgeFailureReason(errorMessage(error))}`);
+    return false;
+  }
+}
+
+async function maybePublishRealtimeAudioToAvatar(track = realtimeRemoteAudioTrack) {
+  if (!isAvatarAudioBridgeEnabled()) {
+    renderAvatarAudioBridgeStatus("avatar_audio_bridge_disabled");
+    return false;
+  }
+  const player = avatarRtcRuntime.player;
+  if (!player) {
+    renderAvatarAudioBridgeStatus("avatar_audio_bridge_waiting_avatar");
+    return false;
+  }
+  if (!track || track.readyState === "ended") {
+    renderAvatarAudioBridgeStatus("avatar_audio_bridge_waiting_realtime_track");
+    return false;
+  }
+  const dedupKey = realtimeAudioBridgeDedupKey(track);
+  if (avatarAudioBridgePublished?.dedupKey === dedupKey) {
+    return true;
+  }
+  if (avatarAudioBridgePublished) {
+    await unpublishRealtimeAudioFromAvatar("dedup-key-changed");
+  }
+  if (typeof player.publishAudio !== "function") {
+    renderAvatarAudioBridgeStatus("avatar_audio_bridge_failed:publish_audio_unavailable");
+    return false;
+  }
+  try {
+    muteAvatarRtcAudioElements();
+    await player.publishAudio(track);
+    avatarAudioBridgePublished = { dedupKey, track };
+    renderAvatarAudioBridgeStatus("avatar_audio_bridge_published", "dedup active");
+    muteAvatarRtcAudioElements();
+    return true;
+  } catch (error) {
+    avatarAudioBridgePublished = null;
+    renderAvatarAudioBridgeStatus(`avatar_audio_bridge_failed:${safeAvatarAudioBridgeFailureReason(errorMessage(error))}`);
+    return false;
+  }
+}
+
+function captureRealtimeRemoteAudioTrack(track) {
+  if (!track || track.kind !== "audio") {
+    return;
+  }
+  realtimeRemoteAudioTrack = track;
+  if (activeRealtimeSession) {
+    activeRealtimeSession.remoteAudioTrack = track;
+  }
+  track.addEventListener?.("ended", () => {
+    unpublishRealtimeAudioFromAvatar("realtime-track-ended").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
+  }, { once: true });
+  maybePublishRealtimeAudioToAvatar(track).catch((error) => appendLog(`avatar audio bridge publish skipped: ${errorMessage(error)}`));
 }
 
 function notifyRealtimeTranscriptCompleted() {
@@ -562,6 +704,11 @@ function extractRealtimeInputTranscript(event) {
 
 function handleRealtimeServerEvent(event) {
   const type = String(event?.type || "unknown");
+  if (type === "response.created") {
+    activeRealtimeResponseId = event.response?.id || event.response_id || event.id || "";
+    maybePublishRealtimeAudioToAvatar().catch((error) => appendLog(`avatar audio bridge publish skipped: ${errorMessage(error)}`));
+    return;
+  }
   if (type === "conversation.item.input_audio_transcription.delta" && typeof event.delta === "string") {
     realtimeAnswerTranscript = `${realtimeAnswerTranscript}${event.delta}`.trim();
     postRealtimeTurnEvent("analysis.transcript.delta", { transcript: event.delta, itemId: event.item_id || "unknown" }).catch((error) => appendLog(`transcript event forward failed: ${errorMessage(error)}`));
@@ -627,7 +774,9 @@ function handleRealtimeServerEvent(event) {
   if (type === "response.done") {
     renderRealtimeQuestionDone(event);
     realtimeResponseInFlight = false;
+    unpublishRealtimeAudioFromAvatar("response-done").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
     markInterviewerQuestionEnded({ provider: "openai-realtime", turnIndex: currentTurnIndex });
+    activeRealtimeResponseId = "";
   }
 }
 
@@ -642,7 +791,10 @@ function bindRealtimeDataChannel(channel) {
       appendLog(`Realtime event ignored: ${errorMessage(error)}`);
     }
   });
-  channel.addEventListener("close", () => appendLog("Realtime data channel closed"));
+  channel.addEventListener("close", () => {
+    appendLog("Realtime data channel closed");
+    unpublishRealtimeAudioFromAvatar("realtime-data-channel-closed").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
+  });
 }
 
 async function sendRealtimeProsodyEvent(reason = "window", turnIndex = currentTurnIndex) {
@@ -695,15 +847,23 @@ async function connectRealtimeRoom(session) {
   bindRealtimeDataChannel(dataChannel);
   const remoteStream = new MediaStream();
   peerConnection.addEventListener("track", (event) => {
-    remoteStream.addTrack(event.track);
+    if (!remoteStream.getTracks().includes(event.track)) {
+      remoteStream.addTrack(event.track);
+    }
+    captureRealtimeRemoteAudioTrack(event.track);
     attachRealtimeRemoteAudio(remoteStream);
+  });
+  peerConnection.addEventListener("connectionstatechange", () => {
+    if (["closed", "disconnected", "failed"].includes(peerConnection.connectionState)) {
+      unpublishRealtimeAudioFromAvatar(`realtime-peer-${peerConnection.connectionState}`).catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
+    }
   });
   const localStream = await ensureRealtimeAudioStream();
   localStream.getAudioTracks().forEach((track) => peerConnection.addTrack(track, localStream));
   // Keep the OpenAI Realtime offer to a single audio m-section.
   // Adding an extra recvonly audio transceiver makes /v1/realtime/calls reject
   // otherwise valid browser offers with a provider-side 400.
-  activeRealtimeSession = { peerConnection, dataChannel, localStream, brokerSession };
+  activeRealtimeSession = { peerConnection, dataChannel, localStream, brokerSession, remoteAudioTrack: realtimeRemoteAudioTrack };
   const offer = await peerConnection.createOffer();
   await peerConnection.setLocalDescription(offer);
   const answer = await requestRealtimeWebrtcAnswer(session, offer, brokerSession);
@@ -741,9 +901,12 @@ async function disconnectRealtimeRoom() {
   if (!session) {
     return;
   }
+  await unpublishRealtimeAudioFromAvatar("realtime-disconnect");
   session.dataChannel?.close();
   session.peerConnection?.close();
   session.localStream?.getTracks().forEach((track) => track.stop());
+  realtimeRemoteAudioTrack = null;
+  activeRealtimeResponseId = "";
   if (interviewerAudio) {
     interviewerAudio.srcObject = null;
   }
@@ -814,6 +977,7 @@ function renderAvatarRtcEgressStatus(avatarRtc) {
 
 async function disconnectAvatarRtc() {
   const { player, view } = avatarRtcRuntime;
+  await unpublishRealtimeAudioFromAvatar("avatar-rtc-disconnect");
   avatarRtcRuntime = { sdkInitialized: avatarRtcRuntime.sdkInitialized, player: null, view: null, provider: null, avatarId: "" };
   if (player) {
     await player.disconnect().catch((error) => appendLog(`avatar rtc disconnect skipped: ${errorMessage(error)}`));
@@ -939,11 +1103,17 @@ async function initializeAvatarRtc(payload) {
       const player = new AvatarPlayer(provider, view, { logLevel: "warning" });
       player.on("connected", () => {
         setAvatarRtcState("ready", "Avatar RTC 연결됨");
-        setAvatarPanelMessage("SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 post-TTS egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다; OpenAI Realtime remote audio는 주입하지 않습니다.");
+        setAvatarPanelMessage(isAvatarAudioBridgeEnabled()
+          ? "SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. Experimental Realtime audio bridge는 feature flag가 켜진 경우에만 AvatarPlayer publishAudio(track) probe를 시도하며 검증 전 lip-sync를 보장하지 않습니다."
+          : "SpatialReal RTC renderer가 LiveKit room에 연결됐습니다. 서버 post-TTS egress/publisher가 avatar stream을 보내면 이 타일에 렌더링됩니다; OpenAI Realtime remote audio bridge는 feature flag가 꺼져 있으면 시도하지 않습니다.");
         muteAvatarRtcAudioElements();
+        maybePublishRealtimeAudioToAvatar().catch((error) => appendLog(`avatar audio bridge publish skipped: ${errorMessage(error)}`));
         appendLog("avatar rtc connected through LiveKit; tokens hidden; Avatar RTC media muted to avoid dual-audio drift with OpenAI Realtime output");
       });
-      player.on("disconnected", () => appendLog("avatar rtc disconnected"));
+      player.on("disconnected", () => {
+        appendLog("avatar rtc disconnected");
+        unpublishRealtimeAudioFromAvatar("avatar-rtc-disconnected").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
+      });
       player.on("stalled", () => appendLog("avatar rtc stalled; waiting for SpatialReal publisher frames"));
       player.on("error", (error) => {
         const message = errorMessage(error);
@@ -992,6 +1162,9 @@ function renderAvatarState(payload) {
     } else {
       avatarPanelBody.textContent = "Provider 상태를 확인하는 중입니다.";
     }
+  }
+  if (payload?.ready) {
+    maybePublishRealtimeAudioToAvatar().catch((error) => appendLog(`avatar audio bridge publish skipped: ${errorMessage(error)}`));
   }
 }
 
@@ -1237,6 +1410,7 @@ function markInterviewerQuestionEnded(payload) {
   if (avatarSurface && activeAvatarSession?.ready) {
     avatarSurface.dataset.state = "ready";
   }
+  unpublishRealtimeAudioFromAvatar("interviewer-question-ended").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
   document.dispatchEvent(new CustomEvent("giljob:interviewer-question-ended", { detail: payload }));
 }
 
