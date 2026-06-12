@@ -37,6 +37,25 @@ ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && git diff --check'
 
 The same command strings are part of the docs contract so worker lanes and leader integration use one verification vocabulary.
 
+### Realtime smoke and latency evidence
+
+Collect Realtime readiness and latency evidence only from the leader-approved `kiostation` checkout after the code slice is synced and the runtime has been restarted with that checkout. Local worker worktrees may run static checks, but they must not be used as final runtime evidence.
+
+Minimum remote command shape:
+
+```bash
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && ./scripts/smoke.sh realtime-ready'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && REQUIRE_REALTIME_LIVE=1 ./scripts/smoke.sh realtime-ready'
+```
+
+Record only redacted summary fields from `scripts/realtime-smoke-readiness.py`:
+
+- `primaryOk`, `liveReady`, `staticReadiness`, `sessionRoutes`, `realtimeSessionBroker`, `realtimeCallBoundary`, and `fullMmmGate` status.
+- latency/span labels such as `realtime.first_audio`, session broker duration, SDP attach duration, and MMM gate duration when the harness/runtime emits them. Durations are allowed; raw SDP, client secrets, JWTs, transcript text, audio, video frames, and provider error bodies are not.
+- runtime blockers exactly as categories, for example `realtime_not_configured`, `request_failed`, `realtime.call broker disabled/prepared`, `roomBlocker`, or `appBlocker`. These are evidence categories, not permission to add a non-Realtime fallback.
+
+Do not claim live Realtime readiness from a local Mac/worktree. If `REQUIRE_REALTIME_LIVE=1` fails because provider credentials, DNS, TLS, or network reachability are missing, report it as a kiostation runtime blocker with the redacted category above.
+
 ## Interviewer voice and avatar provider contract
 
 - `VOICE_PROVIDER=fake` must remain the keyless smoke path.

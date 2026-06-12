@@ -67,15 +67,16 @@
 
 [<service> OpenAI Realtime API|
   /v1/realtime/client_secrets
-  /v1/realtime/calls SDP attach
-  ephemeral browser WebRTC secret only
+  /v1/realtime/calls server-side SDP attach
+  browser-facing API call broker only
   interviewer audio + transcript events
 ]
 
 [<service> AI Engine|
+  internal compatibility boundary only
   keyless route-smoke adapter
-  optional ElevenLabs compatibility
-  SpatialReal session broker
+  API-called TTS/avatar adapters
+  no Realtime broker/question fallback
   SpatialReal LiveKit egress attempt
 ]
 

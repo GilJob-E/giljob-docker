@@ -29,12 +29,79 @@ logger = logging.getLogger(__name__)
 
 MAX_REALTIME_MMM_RECORD_BYTES = int(os.getenv("MAX_REALTIME_MMM_RECORD_BYTES", "16384"))
 MAX_REALTIME_MMM_RECORDS = int(os.getenv("MAX_REALTIME_MMM_RECORDS", "500"))
-RAW_FIELD_MARKERS = {"rawMedia", "frame", "audio", "video", "sdp", "client_secret", "token", "apiKey"}
+RAW_FIELD_MARKERS = {"rawMedia", "frame", "audio", "video", "sdp", "client_secret", "token", "apiKey", "transcript", "text"}
+SAFE_LANE_KEYS = ("transcript", "prosody", "vision")
 
 
 def _safe_str(value: object, max_len: int = 240) -> str:
     text = "" if value is None else str(value)
     return " ".join(text.split())[:max_len]
+
+
+def _safe_list(value: object, max_items: int = 8, max_len: int = 80) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [_safe_str(item, max_len) for item in value[:max_items] if _safe_str(item, max_len)]
+
+
+def _safe_lanes(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    lanes: dict[str, object] = {}
+    for key in SAFE_LANE_KEYS:
+        lane = value.get(key)
+        if isinstance(lane, dict):
+            lanes[key] = {
+                "ready": bool(lane.get("ready")),
+                "observed": bool(lane.get("observed")),
+                "status": _safe_str(lane.get("status") or lane.get("state"), 80),
+            }
+        elif isinstance(lane, bool):
+            lanes[key] = {"ready": lane, "observed": lane, "status": "ready" if lane else "missing"}
+    return lanes
+
+
+def _per_turn_mmm_result(payload: dict[str, Any], readiness: dict[str, Any]) -> dict[str, object]:
+    lanes = _safe_lanes(readiness.get("lanes"))
+    reason_codes = _safe_list(readiness.get("reasonCodes"))
+    return {
+        "schemaVersion": "2026-06-12.per-turn-mmm-result.v1",
+        "sessionId": _safe_str(payload.get("sessionId") or payload.get("interviewId"), 96),
+        "turnId": _safe_str(payload.get("turnId"), 32),
+        "turnIndex": payload.get("turnIndex") if isinstance(payload.get("turnIndex"), int) else None,
+        "eventKind": _safe_str(payload.get("eventKind"), 120),
+        "ready": bool(readiness.get("full_mmm_ready")),
+        "state": _safe_str(readiness.get("state"), 80),
+        "reasonCodes": reason_codes,
+        "lanes": lanes,
+        "rawTranscriptLogged": False,
+        "rawMediaAccepted": False,
+    }
+
+
+def _candidate_safe_prompt_fragment(result: dict[str, object]) -> dict[str, object]:
+    ready = bool(result.get("ready"))
+    reason_codes = result.get("reasonCodes") if isinstance(result.get("reasonCodes"), list) else []
+    lanes = result.get("lanes") if isinstance(result.get("lanes"), dict) else {}
+    lane_states = []
+    for key in SAFE_LANE_KEYS:
+        lane = lanes.get(key)
+        if isinstance(lane, dict):
+            status = _safe_str(lane.get("status"), 40) or ("ready" if lane.get("ready") else "missing")
+        else:
+            status = "missing"
+        lane_states.append(f"{key}:{status}")
+    state = _safe_str(result.get("state"), 80) or ("full_mmm_ready" if ready else "degraded_not_ready")
+    guidance = "Proceed with one natural next interview question." if ready else "Do not invent unseen evidence; ask a brief clarification or wait for complete analysis."
+    text = f"MMM readiness for this turn: {state}; lanes {', '.join(lane_states)}; reasons {', '.join(reason_codes) if reason_codes else 'none'}. {guidance}"
+    return {
+        "schemaVersion": "2026-06-12.candidate-safe-prompt-fragment.v1",
+        "kind": "candidate_safe_mmm_context",
+        "text": _safe_str(text, 600),
+        "containsRawTranscript": False,
+        "containsRawMedia": False,
+        "containsSecrets": False,
+    }
 
 
 def _json(payload: dict[str, object], status: int = 200) -> web.Response:
@@ -55,24 +122,28 @@ def _contains_forbidden_raw_field(value: Any) -> bool:
 
 def _public_record(payload: dict[str, Any]) -> dict[str, object]:
     readiness = payload.get("readiness") if isinstance(payload.get("readiness"), dict) else {}
+    result = _per_turn_mmm_result(payload, readiness)
+    prompt_fragment = _candidate_safe_prompt_fragment(result)
     return {
         "schema_version": _safe_str(payload.get("schema_version") or payload.get("schemaVersion"), 80),
         "source": "api-sideband",
-        "sessionId": _safe_str(payload.get("sessionId") or payload.get("interviewId"), 96),
-        "turnId": _safe_str(payload.get("turnId"), 32),
-        "turnIndex": payload.get("turnIndex") if isinstance(payload.get("turnIndex"), int) else None,
-        "eventKind": _safe_str(payload.get("eventKind"), 120),
+        "sessionId": result["sessionId"],
+        "turnId": result["turnId"],
+        "turnIndex": result["turnIndex"],
+        "eventKind": result["eventKind"],
         "sourceRoute": _safe_str(payload.get("sourceRoute"), 120),
         "receivedAt": _safe_str(payload.get("receivedAt"), 80),
         "analysisEngineReceivedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "rawTranscriptLogged": False,
         "rawMediaAccepted": False,
         "readiness": {
-            "full_mmm_ready": bool(readiness.get("full_mmm_ready")),
-            "state": _safe_str(readiness.get("state"), 80),
-            "reasonCodes": readiness.get("reasonCodes") if isinstance(readiness.get("reasonCodes"), list) else [],
-            "lanes": readiness.get("lanes") if isinstance(readiness.get("lanes"), dict) else {},
+            "full_mmm_ready": result["ready"],
+            "state": result["state"],
+            "reasonCodes": result["reasonCodes"],
+            "lanes": result["lanes"],
         },
+        "perTurnMmmResult": result,
+        "candidateSafePromptFragment": prompt_fragment,
     }
 
 

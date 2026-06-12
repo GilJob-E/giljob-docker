@@ -7,6 +7,7 @@ import pathlib
 import sys
 import threading
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 
@@ -27,8 +28,13 @@ LIVEKIT_ENV_NAMES = (
     "LIVEKIT_API_KEY",
     "LIVEKIT_API_SECRET",
     "AI_ENGINE_INTERNAL_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_REALTIME_API_BASE",
+    "OPENAI_REALTIME_CALL_BROKER_ENABLED",
+    "OPENAI_REALTIME_SAFETY_SALT",
     "REALTIME_MMM_EVENT_LOG_PATH",
     "REALTIME_MMM_FORWARD_ENABLED",
+    "REALTIME_MMM_RESULT_TIMEOUT_SECONDS",
     "GILJOBE_VISION",
     "GILJOBE_PROSODY",
     "ELEVENLABS_API_KEY",
@@ -39,6 +45,8 @@ LIVEKIT_ENV_NAMES = (
 class ApiHttpContractTest(unittest.TestCase):
     def setUp(self) -> None:
         SESSION_HASH_STORE.clear()
+        api_server.REALTIME_TURN_STATE.clear()
+        api_server.REALTIME_RESPONSE_COMMANDS.clear()
         api_server.AI_ENGINE_INTERNAL_URL = DEFAULT_AI_ENGINE_INTERNAL_URL
         api_server.ANALYSIS_ENGINE_INTERNAL_URL = DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL
         self._old_livekit_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
@@ -56,6 +64,8 @@ class ApiHttpContractTest(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=2)
         SESSION_HASH_STORE.clear()
+        api_server.REALTIME_TURN_STATE.clear()
+        api_server.REALTIME_RESPONSE_COMMANDS.clear()
         api_server.AI_ENGINE_INTERNAL_URL = DEFAULT_AI_ENGINE_INTERNAL_URL
         api_server.ANALYSIS_ENGINE_INTERNAL_URL = DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL
         for name, value in self._old_livekit_env.items():
@@ -112,7 +122,7 @@ class ApiHttpContractTest(unittest.TestCase):
         api_server.AI_ENGINE_INTERNAL_URL = f"http://{host}:{port}"
         return captured
 
-    def _start_fake_analysis_engine(self, *, status: int = 202) -> list[dict[str, object]]:
+    def _start_fake_analysis_engine(self, *, status: int = 202, result_payload: dict[str, object] | None = None, result_status: int = 200) -> list[dict[str, object]]:
         captured: list[dict[str, object]] = []
 
         class FakeAnalysisEngineHandler(BaseHTTPRequestHandler):
@@ -120,11 +130,25 @@ class ApiHttpContractTest(unittest.TestCase):
                 length = int(inner_self.headers.get("Content-Length", "0") or "0")
                 raw = inner_self.rfile.read(length) if length else b""
                 captured.append({
+                    "method": "POST",
                     "path": inner_self.path,
                     "body": raw.decode("utf-8"),
                 })
                 body = b'{"accepted":true}'
                 inner_self.send_response(status)
+                inner_self.send_header("Content-Type", "application/json")
+                inner_self.send_header("Content-Length", str(len(body)))
+                inner_self.end_headers()
+                inner_self.wfile.write(body)
+
+            def do_GET(inner_self) -> None:  # noqa: N802 - stdlib callback name
+                captured.append({
+                    "method": "GET",
+                    "path": inner_self.path,
+                    "body": "",
+                })
+                body = json.dumps(result_payload if result_payload is not None else {"status": "pending"}).encode("utf-8")
+                inner_self.send_response(result_status)
                 inner_self.send_header("Content-Type", "application/json")
                 inner_self.send_header("Content-Length", str(len(body)))
                 inner_self.end_headers()
@@ -257,6 +281,189 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertFalse(forwarded["rawTranscriptLogged"])
         self.assertFalse(forwarded["rawMediaAccepted"])
         self.assertNotIn("bounded candidate answer", captured[0]["body"])
+
+
+    def test_realtime_response_create_blocks_until_structured_analysis_ready(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/1/realtime/response",
+            json.dumps({"analysisResult": {"status": "ready", "candidatePromptFragment": "경험의 구체성을 자연스럽게 확인하세요."}}).encode("utf-8"),
+        )
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_not_ready")
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "full_mmm_required"})
+
+    def test_realtime_response_create_uses_candidate_safe_analysis_fragment_only(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        analysis = self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "candidatePromptFragment": "이전 답변의 협업 경험을 바탕으로 갈등 해결 과정을 한 가지 더 물어보세요.",
+            "confidence": 0.82,
+            "latencyMs": 740,
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+            "transcriptSummary": "raw text must not be returned",
+        })
+
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+        status, body = self._post("/api/interviews/local-demo/turns/1/realtime/response", b"{}")
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["status"], "response_create_queued")
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": True, "commandType": "response.create"})
+        self.assertEqual(payload["sideband"]["singleResponseCreateOwner"], "api")
+        self.assertEqual(payload["sideband"]["command"]["type"], "response.create")
+        self.assertIn("갈등 해결 과정", payload["sideband"]["command"]["response"]["instructions"])
+        self.assertEqual(payload["analysisResult"]["schemaVersion"], "2026-06-12.mmm-result.v1")
+        self.assertEqual(analysis[-1]["method"], "GET")
+        self.assertIn("/realtime/turn-results", analysis[-1]["path"])
+        self.assertNotIn("raw text must not be returned", body)
+        for forbidden in ("MMM", "analysis-engine", "backend", "readiness gate"):
+            self.assertNotIn(forbidden, payload["sideband"]["command"]["response"]["instructions"])
+
+    def test_realtime_response_create_rejects_unsafe_analysis_fragment(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/1/realtime/response",
+            json.dumps({"analysisResult": {"status": "ready", "candidatePromptFragment": "Use MMM backend readiness gate details."}}).encode("utf-8"),
+        )
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_not_usable")
+        self.assertEqual(payload["responseCreate"]["created"], False)
+        self.assertNotIn("Use MMM backend readiness gate details", body)
+
+
+    def test_realtime_session_broker_uses_server_key_and_disables_auto_response(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "secret-openai-key"
+        captured: list[urllib.request.Request] = []
+
+        class FakeResponse:
+            status = 200
+            headers: dict[str, str] = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({
+                    "id": "sess_123",
+                    "client_secret": {"type": "ephemeral", "value": "browser-ephemeral-secret", "expires_at": 12345},
+                    "server_secret": "must-not-return",
+                    "session": {"model": "gpt-realtime-2"},
+                }).encode("utf-8")
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> FakeResponse:
+            captured.append(request)
+            return FakeResponse()
+
+        with patch("server.urllib.request.urlopen", side_effect=fake_urlopen):
+            status, payload = api_server.create_realtime_session("local-demo", {})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(captured[0].full_url, "https://api.openai.com/v1/realtime/client_secrets")
+        self.assertEqual(captured[0].headers.get("Authorization"), "Bearer secret-openai-key")
+        upstream = json.loads(captured[0].data.decode("utf-8"))
+        self.assertFalse(upstream["session"]["audio"]["input"]["turn_detection"]["create_response"])
+        body = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("browser-ephemeral-secret", body)
+        self.assertNotIn("client_secret", body)
+        self.assertNotIn("secret-openai-key", body)
+        self.assertNotIn("must-not-return", body)
+        self.assertEqual(payload["clientSecretPolicy"], "server-only-api-call-broker")
+        update = payload["webrtc"]["postConnectSessionUpdate"]
+        self.assertEqual(update["type"], "session.update")
+        self.assertFalse(update["session"]["audio"]["input"]["turn_detection"]["create_response"])
+        self.assertEqual(update["session"]["audio"]["input"]["transcription"]["model"], "gpt-realtime-whisper")
+        self.assertEqual(payload["sideband"]["controlBoundary"], "server-sideband")
+
+    def test_realtime_call_broker_prepared_does_not_echo_sdp_when_explicitly_disabled(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "secret-openai-key"
+        os.environ["OPENAI_REALTIME_CALL_BROKER_ENABLED"] = "false"
+        offer = "v=0\r\no=- raw-offer-sdp\r\n"
+        status, payload = api_server.create_realtime_call("local-demo", {"sdp": offer})
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["status"], "call_broker_prepared")
+        self.assertIsNone(payload["sdpAnswer"])
+        body = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("raw-offer-sdp", body)
+        self.assertNotIn("secret-openai-key", body)
+        self.assertEqual(payload["sideband"]["serverControlUrl"], "wss://api.openai.com/v1/realtime?call_id=<callId>")
+
+    def test_realtime_call_broker_default_extracts_call_id_without_key_leak(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "secret-openai-key"
+        captured: list[urllib.request.Request] = []
+
+        class FakeHeaders(dict[str, str]):
+            def get(self, key: str, default: str | None = None) -> str | None:
+                return super().get(key, default)
+
+        class FakeResponse:
+            status = 201
+            headers = FakeHeaders({"Location": "https://api.openai.com/v1/realtime/calls?call_id=call_abc123"})
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b"v=0\r\no=- answer-sdp\r\n"
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> FakeResponse:
+            captured.append(request)
+            return FakeResponse()
+
+        with patch("server.urllib.request.urlopen", side_effect=fake_urlopen):
+            status, payload = api_server.create_realtime_call("local-demo", {"sdp": "v=0\r\no=- offer-sdp\r\n"})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["callId"], "call_abc123")
+        self.assertEqual(captured[0].full_url, "https://api.openai.com/v1/realtime/calls")
+        self.assertEqual(captured[0].headers.get("Authorization"), "Bearer secret-openai-key")
+        self.assertIn(b"v=0\r\no=- offer-sdp\r\n", captured[0].data)
+        self.assertNotIn(b"v=0 o=- offer-sdp", captured[0].data)
+        self.assertIn(b'"type": "realtime"', captured[0].data)
+        self.assertIn(b'"audio": {"output":', captured[0].data)
+        self.assertNotIn(b'"turn_detection"', captured[0].data)
+        self.assertNotIn(b'"transcription"', captured[0].data)
+        body = json.dumps(payload, ensure_ascii=False)
+        self.assertIn("answer-sdp", body)
+        self.assertNotIn("offer-sdp", body)
+        self.assertNotIn("secret-openai-key", body)
 
 
     def test_question_broker_redacts_upstream_provider_failure_markers(self) -> None:

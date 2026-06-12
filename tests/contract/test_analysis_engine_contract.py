@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib.util
 import pathlib
+import sys
+import types
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -8,6 +11,36 @@ ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
 PINNED_GILJOBE_REF = "e0671f5"
 # Superseded pins must not resurface anywhere a stale copy could mislead operators.
 OLD_GILJOBE_REFS = ("b769120", "88a4df5")
+
+
+def load_analysis_engine_wrapper():
+    aiohttp = types.ModuleType("aiohttp")
+    aiohttp.web = types.SimpleNamespace()
+
+    server_main = types.ModuleType("giljobe.server.__main__")
+    server_main._build_critic = lambda: types.SimpleNamespace(warmup=lambda: None)
+    server_main._make_lanes = lambda: []
+    server_main._port = lambda: 8200
+    server_main._vllm_ready = lambda _critic: True
+
+    http_app = types.ModuleType("giljobe.server.http_app")
+    http_app.make_app = lambda _service, ready_check=None: None
+
+    service_mod = types.ModuleType("giljobe.server.service")
+    service_mod.AnalysisService = lambda **_kwargs: object()
+
+    sys.modules["aiohttp"] = aiohttp
+    sys.modules.setdefault("giljobe", types.ModuleType("giljobe"))
+    sys.modules.setdefault("giljobe.server", types.ModuleType("giljobe.server"))
+    sys.modules["giljobe.server.__main__"] = server_main
+    sys.modules["giljobe.server.http_app"] = http_app
+    sys.modules["giljobe.server.service"] = service_mod
+
+    spec = importlib.util.spec_from_file_location("analysis_engine_wrapper_contract", ANALYSIS_ENGINE_ROOT / "server.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 class AnalysisEngineContractTest(unittest.TestCase):
@@ -18,6 +51,10 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("raw_payload_not_allowed", wrapper)
         self.assertIn("rawTranscriptLogged", wrapper)
         self.assertIn("rawMediaAccepted", wrapper)
+        self.assertIn("perTurnMmmResult", wrapper)
+        self.assertIn("candidateSafePromptFragment", wrapper)
+        self.assertIn("2026-06-12.per-turn-mmm-result.v1", wrapper)
+        self.assertIn("2026-06-12.candidate-safe-prompt-fragment.v1", wrapper)
         dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
         self.assertIn("python:3.12-slim", dockerfile)
         self.assertNotIn("python:3.12-alpine", dockerfile)
@@ -26,6 +63,45 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn(f"GILJOBE_GIT_REF={PINNED_GILJOBE_REF}", dockerfile)
         self.assertIn("COPY server.py /app/server.py", dockerfile)
         self.assertIn('CMD ["python", "/app/server.py"]', dockerfile)
+
+    def test_realtime_mmm_ingress_outputs_candidate_safe_per_turn_context(self) -> None:
+        module = load_analysis_engine_wrapper()
+        record = module._public_record({
+            "schema_version": "2026-06-11.realtime-mmm-ingress.v1",
+            "sessionId": "local-demo",
+            "turnId": "2",
+            "turnIndex": 2,
+            "eventKind": "readiness_gate.full_mmm_ready",
+            "readiness": {
+                "full_mmm_ready": True,
+                "state": "full_mmm_ready",
+                "reasonCodes": ["ready"],
+                "lanes": {
+                    "transcript": {"ready": True, "observed": True, "status": "complete"},
+                    "prosody": {"ready": True, "observed": True, "status": "complete"},
+                    "vision": {"ready": True, "observed": True, "status": "complete"},
+                },
+            },
+        })
+        self.assertEqual(record["perTurnMmmResult"]["schemaVersion"], "2026-06-12.per-turn-mmm-result.v1")
+        self.assertTrue(record["perTurnMmmResult"]["ready"])
+        self.assertEqual(record["perTurnMmmResult"]["lanes"]["transcript"]["status"], "complete")
+        fragment = record["candidateSafePromptFragment"]
+        self.assertEqual(fragment["schemaVersion"], "2026-06-12.candidate-safe-prompt-fragment.v1")
+        self.assertIn("full_mmm_ready", fragment["text"])
+        self.assertFalse(fragment["containsRawTranscript"])
+        self.assertFalse(fragment["containsRawMedia"])
+        self.assertFalse(fragment["containsSecrets"])
+
+    def test_realtime_mmm_ingress_rejects_raw_transcript_text_media_and_secret_shapes(self) -> None:
+        module = load_analysis_engine_wrapper()
+        for payload in (
+            {"transcript": "raw candidate answer"},
+            {"detail": {"text": "raw candidate answer"}},
+            {"rawMedia": "bytes"},
+            {"provider": {"token": "secret"}},
+        ):
+            self.assertTrue(module._contains_forbidden_raw_field(payload), payload)
 
     def test_pinned_giljobe_ref_is_consistent_across_runtime_files(self) -> None:
         requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()

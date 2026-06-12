@@ -29,7 +29,7 @@ Cons:
 - Makes public browser code a trusted business-logic boundary.
 - Increases the blast radius of logs, screenshots, and browser devtools.
 
-### Option B — API broker issues an ephemeral Realtime client secret, browser attaches SDP to Realtime
+### Option B — API brokers Realtime session metadata, browser attaches SDP through the API
 
 Pros:
 - Keeps the standard OpenAI API key server-only.
@@ -38,7 +38,7 @@ Pros:
 - Allows the API to publish route metadata and readiness gates without proxying media.
 
 Cons:
-- The browser still talks to the provider SDP endpoint with an ephemeral secret, so the endpoint and secret-shape contract must be tested.
+- The browser does not talk to the provider SDP endpoint; the API call broker owns provider attach with the server key, so route and redaction contracts must be tested.
 - Provider failure must degrade cleanly without exposing upstream error bodies.
 
 ### Option C — Server proxies all Realtime media and datachannel traffic
@@ -53,9 +53,9 @@ Cons:
 
 ## Decision
 
-Choose **Option B: API-mediated ephemeral Realtime session plus browser WebRTC SDP attach**.
+Choose **Option B: API-mediated Realtime session plus API-brokered browser WebRTC SDP attach**.
 
-The API owns `/api/interviews/:id/realtime/session` and `/api/interviews/:id/realtime/call`. It uses the standard server-side provider key to request a short-lived Realtime client secret and returns only browser-safe metadata. The browser attaches SDP to `https://api.openai.com/v1/realtime/calls` with that ephemeral secret. The browser must not receive or log the standard provider key.
+The API owns `/api/interviews/:id/realtime/session` and `/api/interviews/:id/realtime/call`. It uses the standard server-side provider key for Realtime session checks and `/v1/realtime/calls` SDP attach, then returns only browser-safe route/session metadata and SDP answers. The browser must not call provider routes directly or receive/log the standard provider key, provider client-secret values, or raw SDP bodies.
 
 Ordinary next-question audio is gated. After the candidate answer ends, the browser forwards bounded transcript/prosody/vision sideband events to:
 
@@ -90,7 +90,7 @@ Minimum verification before claiming this contract is intact:
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py`
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v`
 - targeted smoke evidence that `/api/interviews/:id/realtime/session` does not expose a standard provider key
-- targeted smoke evidence that the browser uses `/v1/realtime/calls` for SDP attach and gates ordinary `realtime.response.create` on `full_mmm_ready`
+- targeted smoke evidence that the browser uses `/api/interviews/:id/realtime/call` for SDP attach and gates ordinary `realtime.response.create` on `full_mmm_ready`
 
 Provider or external-network failures should be reported as runtime blockers with redacted evidence, not patched around by exposing direct provider secrets.
 
@@ -99,4 +99,4 @@ Provider or external-network failures should be reported as runtime blockers wit
 - Keep the Realtime smoke harness redacted and split provider-session, SDP attach, and MMM-readiness failures.
 - Add external-network WebRTC evidence before demo readiness.
 - Do not claim SpatialReal lip-sync with OpenAI Realtime audio until a tested bridge captures or routes Realtime output audio into SpatialReal without exposing secrets, raw media, or high-latency browser recording loops.
-- Revisit server-proxying only if WebRTC provider/network constraints make the ephemeral browser attach path unsuitable.
+- Revisit browser-direct provider attach only if the API call broker proves unworkable and the product explicitly accepts browser-held ephemeral provider secrets.

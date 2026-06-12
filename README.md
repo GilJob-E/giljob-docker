@@ -33,8 +33,8 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   - 다시 버튼을 눌러 답변 종료 및 다음 질문 요청
 - OpenAI Realtime WebRTC broker route for live interviewer audio
   - `OPENAI_REALTIME_PRIMARY=true` is the realtime branch default; missing credentials fail closed rather than falling back to another voice provider
-  - browser obtains only an ephemeral Realtime client secret through `/api/interviews/:id/realtime/session`
-  - browser attaches SDP to `https://api.openai.com/v1/realtime/calls`
+  - browser obtains only Realtime session metadata through `/api/interviews/:id/realtime/session`
+  - browser attaches SDP through GilJob API `/api/interviews/:id/realtime/call`; the standard OpenAI key and provider route stay server-side
   - `OPENAI_API_KEY` stays server-side; do not introduce a browser-visible OpenAI key
 - API-mediated Realtime turn/vision/MMM readiness routes
   - `/api/interviews/:id/turns/:turnIndex/events`
@@ -79,7 +79,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 3. API는 LiveKit candidate token과 SpatialReal AvatarKit RTC viewer token을 분리해 발급합니다.
 4. 브라우저는 Caddy를 통해 LiveKit media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다.
 5. 후보자 답변 STT/분석은 `GilJobE`를 `services/analysis-engine`로 붙여 LiveKit audio/video track을 구독하는 구조입니다.
-6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 ephemeral client secret을 발급하고, 브라우저는 그 secret으로만 Realtime WebRTC SDP attach를 수행합니다. 표준 OpenAI API key는 브라우저에 노출하지 않습니다.
+6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 Realtime session metadata를 중개하고, 브라우저의 WebRTC SDP attach도 `/api/interviews/:id/realtime/call`을 통해 서버가 수행합니다. 표준 OpenAI API key와 provider route는 브라우저에 노출하지 않습니다.
 7. Realtime turn loop는 브라우저의 transcript/prosody/vision sideband event를 API에 기록하고, `full_mmm_ready`가 true가 된 뒤에만 다음 ordinary `realtime.response.create`를 허용합니다.
 8. `ai-engine`은 keyless route smoke와 optional internal TTS/avatar compatibility adapter만 담당합니다. 질문/음성의 메인 루프는 OpenAI Realtime-only이며 Gemini fallback은 없습니다.
 9. SpatialReal 아바타는 서버가 session token을 중개하고, 브라우저는 AvatarKit RTC renderer로 LiveKit room에 subscribe합니다.
@@ -157,15 +157,16 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 
 [<service> OpenAI Realtime API|
   /v1/realtime/client_secrets
-  /v1/realtime/calls SDP attach
-  ephemeral browser WebRTC secret only
+  /v1/realtime/calls server-side SDP attach
+  browser-facing API call broker only
   interviewer audio + transcript events
 ]
 
 [<service> AI Engine|
+  internal compatibility boundary only
   keyless route-smoke adapter
-  optional ElevenLabs compatibility
-  SpatialReal session broker
+  API-called TTS/avatar adapters
+  no Realtime broker/question fallback
   SpatialReal LiveKit egress attempt
 ]
 
@@ -274,6 +275,7 @@ Primary OpenAI Realtime provider를 사용할 때 추가:
 OPENAI_REALTIME_PRIMARY=true
 OPENAI_REALTIME_MODEL=gpt-realtime-2
 OPENAI_REALTIME_VOICE=marin
+OPENAI_REALTIME_CALL_BROKER_ENABLED=true
 OPENAI_API_KEY=replace-me-openai-server-key
 
 LLM_PROVIDER=fake
@@ -386,11 +388,18 @@ Operator contract:
 
 - OPENAI_API_KEY is the only OpenAI server key; do not add OPENAI_REALTIME_API_KEY.
 - OpenAI Realtime is the only live interviewer voice path when `OPENAI_REALTIME_PRIMARY=true`; legacy `/question` and `/tts` routes are keyless/internal smoke or compatibility paths only, not fallback voice paths.
-- The browser receives only a browser-safe ephemeral client_secret from `/api/interviews/:id/realtime/session`.
-- Realtime client-secret requests keep the provider `{"session": {...}} wrapper`, omit session.metadata, and never return the server key.
+- The browser receives only browser-safe Realtime session metadata from `/api/interviews/:id/realtime/session`; WebRTC SDP attach goes through `/api/interviews/:id/realtime/call`, not a browser-direct provider route or browser-held provider secret.
+- Realtime provider requests keep the `{"session": {...}} wrapper`, omit session.metadata, and never return server keys, provider routes, SDP, or client-secret values to logs/UI.
 - `full_mmm_ready must pass before realtime.response.create`; latency evidence is redacted spans only.
-- `realtime.call broker 501/not implemented is acceptable` during staged rollout if session brokering and MMM readiness are healthy.
+- `realtime.call` must be API-brokered for live browser WebRTC. A disabled/prepared broker is a runtime blocker for actual Realtime browser QA, even if static session/MMM readiness is healthy.
 - `request_failed / Connection refused` against room/app routes is stale-runtime evidence, not a provider-secret or frontend-contract leak by itself.
+
+Kiostation evidence rule:
+
+- Final team/runtime evidence comes from `ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && ...'` after the approved checkout is synced and restarted.
+- Store or report only redacted readiness categories and timing spans: `primaryOk`, `liveReady`, `staticReadiness`, `sessionRoutes`, `realtimeSessionBroker`, `realtimeCallBoundary`, `fullMmmGate`, `realtime.first_audio`, broker/SDP/MMM durations.
+- Do not paste or persist raw OpenAI client secrets, SDP, JWTs, LiveKit tokens, transcript text, raw media, or provider error bodies.
+- A local worker pass proves syntax/contracts only; it is not a substitute for kiostation smoke/latency evidence.
 
 ## Cloudflare Tunnel / public LiveKit 메모
 
