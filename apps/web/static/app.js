@@ -783,6 +783,10 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
     lastAnswerTranscript = realtimeAnswerTranscript || "Realtime transcript unavailable.";
     realtimeAnswerTranscript = "";
     realtimeTranscriptCompleted = false;
+    await applyMediaStateToRoom();
+    // 분석 구독자 stop → GilJobE turn_end → turnHandoff 생성. API가 다음 질문 직전
+    // /realtime/turn-results에서 이걸 당겨가므로 MMM 게이트보다 먼저 끝나야 한다.
+    await flushAnalysisTurn(analysisSessionId());
     renderTranscriptStatus("답변 종료. full MMM 준비 신호를 기다리는 중입니다.");
     await waitForFullMmmReady(completedTurnIndex);
     currentTurnIndex += 1;
@@ -1500,6 +1504,8 @@ async function startAnswerCapture() {
     realtimeTranscriptCompleted = false;
     realtimeTranscriptCompletionForward = Promise.resolve();
     realtimeTranscriptCompletedItemIds = new Set();
+    // 분석 턴 baseline — flush 폴링이 이 시점 이후의 레코드만 새 턴으로 센다.
+    await markAnalysisTurnStart(analysisSessionId());
     await postRealtimeTurnEvent("turn.answer.start", { source: "browser-manual-button" });
     await sendBoundedVisionEvent("answer_start");
     await sendRealtimeProsodyEvent("answer_start");
@@ -1700,6 +1706,9 @@ async function joinRoom() {
   const session = activeSession ?? (await createSession());
   if (isRealtimePrimary(session)) {
     await connectRealtimeRoom(session);
+    // 분석 미디어 경로: 대화(OpenAI WebRTC)와 별개로 LiveKit에 cam/mic을 발행해
+    // analysis-engine 레인(프로소디/비전/nv)에 공급한다. 실패해도 대화는 계속(soft-fail).
+    await connectAnalysisMediaRoom(session);
     return;
   }
   const { url, token } = sessionLiveKitConfig(session);
@@ -1727,6 +1736,39 @@ async function joinRoom() {
   }
 }
 
+async function connectAnalysisMediaRoom(session) {
+  // Realtime 모드 전용 LiveKit 연결 — 분석 레인 입력만 담당한다.
+  // bindRoomEvents는 쓰지 않는다: Connected 핸들러의 requestNextQuestion(legacy 질문 트리거)이
+  // Realtime 질문 플로우와 이중 발화하고, 상태 UI도 OpenAI 연결 표시를 덮어쓴다.
+  let url;
+  let token;
+  try {
+    ({ url, token } = sessionLiveKitConfig(session));
+  } catch (error) {
+    appendLog(`analysis media room unavailable: ${errorMessage(error)}`);
+    return;
+  }
+  try {
+    await restartAnalysisSubscriber(session.sessionId || activeInterviewId);
+  } catch (error) {
+    appendLog(`analysis subscriber unavailable before join: ${errorMessage(error)}`);
+  }
+  if (activeRoom) {
+    activeRoom.disconnect();
+  }
+  activeRoom = new Room();
+  activeRoom.on(RoomEvent.Disconnected, (reason) => {
+    appendLog(`analysis media room disconnected${reason ? `: ${reason}` : ""}`);
+  });
+  try {
+    await activeRoom.connect(url, token);
+    await maybePublishLocalMedia(activeRoom);
+    appendLog("analysis media room connected; camera/mic feed GilJobE lanes");
+  } catch (error) {
+    appendLog(`analysis media room join failed (lanes degraded): ${errorMessage(error)}`);
+  }
+}
+
 async function autoJoinRoomRoute() {
   if (!shouldAutoJoinRoom) {
     return;
@@ -1748,6 +1790,10 @@ function leaveRoom() {
   if (activeRealtimeSession) {
     disconnectAvatarRtc();
     disconnectRealtimeRoom();
+    if (activeRoom) {
+      activeRoom.disconnect();
+      activeRoom = null;
+    }
     setRoomMode("prejoin");
     setStatus("Realtime disconnected", "idle");
     if (leaveButton) {
