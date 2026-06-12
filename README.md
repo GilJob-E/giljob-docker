@@ -78,7 +78,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 
 1. 브라우저는 GilJob Web/API HTTP 요청을 Caddy로 보냅니다.
 2. API는 session/report token을 발급하되, 서버 쪽에는 purpose-separated hash만 저장합니다.
-3. API는 default Realtime/MMM 경로에서 LiveKit token을 요구하지 않습니다. Optional/legacy media overlay를 켠 경우에만 LiveKit candidate token과 SpatialReal AvatarKit RTC viewer token을 분리해 발급합니다.
+3. API는 default Realtime/MMM 경로에서 LiveKit token을 요구하지도 발급하지도 않습니다. Optional/legacy media overlay를 `LIVEKIT_MEDIA_OVERLAY_ENABLED=true`로 켠 경우에만 LiveKit candidate token과 SpatialReal AvatarKit RTC viewer token을 분리해 발급합니다.
 4. LiveKit을 사용하는 legacy/media overlay에서만 브라우저는 Caddy를 통해 media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다. 기본 Realtime/MMM 경로는 LiveKit 없이 동작해야 합니다.
 5. 후보자 답변 분석의 priority-1 Realtime 경로는 **answer → analysis-engine MMM/RNAS → API `response.create` → OpenAI Realtime output**입니다. 브라우저는 transcript/prosody/vision sideband metadata만 API로 보내고, analysis-engine이 exact `(interviewId, turnIndex)` RNAS result/readiness의 단일 owner입니다.
 6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 Realtime session metadata를 중개하고, 브라우저의 WebRTC SDP attach도 `/api/interviews/:id/realtime/call`을 통해 서버가 수행합니다. 표준 OpenAI API key와 provider route는 브라우저에 노출하지 않습니다.
@@ -283,6 +283,7 @@ Optional legacy/media overlay 또는 SpatialReal RTC 실험을 켤 때만 추가
 ```env
 LIVEKIT_API_KEY=replace-me-local-only
 LIVEKIT_API_SECRET=replace-me-local-only-minimum-32-bytes
+LIVEKIT_MEDIA_OVERLAY_ENABLED=true
 TURN_REALM=turn.example.com
 TURN_STATIC_AUTH_SECRET=replace-me-local-only-minimum-32-bytes
 LIVEKIT_INTERNAL_URL=ws://livekit:7880

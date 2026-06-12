@@ -23,6 +23,7 @@ from app.token_contract import (  # noqa: E402
 
 LIVEKIT_ENV_NAMES = (
     "LIVEKIT_REQUIRED",
+    "LIVEKIT_MEDIA_OVERLAY_ENABLED",
     "LIVEKIT_URL",
     "LIVEKIT_INTERNAL_URL",
     "LIVEKIT_PUBLIC_URL",
@@ -83,7 +84,7 @@ class TokenContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid session id"):
             issue_session(requested_session_id="../local-demo")
 
-    def test_issue_session_reports_livekit_not_configured_without_credentials(self) -> None:
+    def test_issue_session_reports_livekit_not_configured_when_media_overlay_disabled(self) -> None:
         old_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
         try:
             for name in old_env:
@@ -95,7 +96,7 @@ class TokenContractTest(unittest.TestCase):
             self.assertEqual(livekit["candidateToken"], None)
             self.assertEqual(livekit["url"], None)
             self.assertEqual(livekit["publicUrl"], None)
-            self.assertEqual(livekit["deferredReason"], "livekit_credentials_missing")
+            self.assertEqual(livekit["deferredReason"], "livekit_media_overlay_disabled")
         finally:
             restore_env(old_env)
 
@@ -106,6 +107,7 @@ class TokenContractTest(unittest.TestCase):
             for name in old_env:
                 os.environ.pop(name, None)
             os.environ["LIVEKIT_REQUIRED"] = "true"
+            os.environ["LIVEKIT_MEDIA_OVERLAY_ENABLED"] = "true"
             os.environ["LIVEKIT_INTERNAL_URL"] = "ws://livekit:7880"
             os.environ["LIVEKIT_API_KEY"] = "devkey"
             os.environ["LIVEKIT_API_SECRET"] = "devsecret-with-at-least-32-bytes"
@@ -128,6 +130,7 @@ class TokenContractTest(unittest.TestCase):
             for name in old_env:
                 os.environ.pop(name, None)
             os.environ["LIVEKIT_REQUIRED"] = "true"
+            os.environ["LIVEKIT_MEDIA_OVERLAY_ENABLED"] = "true"
             os.environ["LIVEKIT_INTERNAL_URL"] = "ws://livekit:7880"
             os.environ["LIVEKIT_API_KEY"] = "devkey"
             os.environ["LIVEKIT_API_SECRET"] = "devsecret-with-at-least-32-bytes"
@@ -145,6 +148,7 @@ class TokenContractTest(unittest.TestCase):
         old_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
         try:
             os.environ.pop("LIVEKIT_URL", None)
+            os.environ["LIVEKIT_MEDIA_OVERLAY_ENABLED"] = "true"
             os.environ["LIVEKIT_INTERNAL_URL"] = "ws://livekit:7880"
             os.environ["LIVEKIT_PUBLIC_URL"] = "ws://127.0.0.1:7880"
             os.environ["LIVEKIT_API_KEY"] = "devkey"
@@ -173,6 +177,7 @@ class TokenContractTest(unittest.TestCase):
         old_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
         try:
             os.environ.pop("LIVEKIT_URL", None)
+            os.environ["LIVEKIT_MEDIA_OVERLAY_ENABLED"] = "true"
             os.environ["LIVEKIT_INTERNAL_URL"] = "ws://livekit:7880"
             os.environ["LIVEKIT_PUBLIC_URL"] = "ws://127.0.0.1:7880"
             os.environ["LIVEKIT_API_KEY"] = "devkey"
@@ -194,6 +199,7 @@ class TokenContractTest(unittest.TestCase):
         try:
             for name in old_env:
                 os.environ.pop(name, None)
+            os.environ["LIVEKIT_MEDIA_OVERLAY_ENABLED"] = "true"
             os.environ["LIVEKIT_URL"] = "ws://legacy-livekit.example.test"
             os.environ["LIVEKIT_API_KEY"] = "devkey"
             os.environ["LIVEKIT_API_SECRET"] = "devsecret-with-at-least-32-bytes"

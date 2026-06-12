@@ -23,6 +23,7 @@ DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL = api_server.ANALYSIS_ENGINE_INTERNAL_URL
 
 LIVEKIT_ENV_NAMES = (
     "LIVEKIT_REQUIRED",
+    "LIVEKIT_MEDIA_OVERLAY_ENABLED",
     "LIVEKIT_URL",
     "LIVEKIT_INTERNAL_URL",
     "LIVEKIT_PUBLIC_URL",
@@ -183,7 +184,7 @@ class ApiHttpContractTest(unittest.TestCase):
                 report_token = public["reportToken"]
                 self.assertNotEqual(session_token, report_token)
                 self.assertEqual(public["livekit"]["tokenStatus"], "not_configured")
-                self.assertEqual(public["livekit"]["deferredReason"], "livekit_credentials_missing")
+                self.assertEqual(public["livekit"]["deferredReason"], "livekit_media_overlay_disabled")
                 self.assertEqual(public["livekit"]["publicUrl"], None)
                 self.assertNotIn("Hash", body)
                 self.assertNotIn("hash", body)
@@ -256,7 +257,7 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertIsNone(livekit["candidateToken"])
         self.assertIsNone(livekit["url"])
         self.assertIsNone(livekit["publicUrl"])
-        self.assertEqual(livekit["deferredReason"], "livekit_credentials_missing")
+        self.assertEqual(livekit["deferredReason"], "livekit_media_overlay_disabled")
         self.assertNotIn("livekitRequired", payload)
         serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         for forbidden in ("LIVEKIT_API_SECRET", "OPENAI_API_KEY", "client_secret", "server_secret", "v=0", "raw candidate"):

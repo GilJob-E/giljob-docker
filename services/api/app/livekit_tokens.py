@@ -38,6 +38,10 @@ def _env_truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _media_overlay_enabled() -> bool:
+    return _env_truthy(os.getenv("LIVEKIT_MEDIA_OVERLAY_ENABLED"))
+
+
 def _getenv_stripped(name: str) -> str:
     return os.getenv(name, "").strip()
 
@@ -147,6 +151,8 @@ def _optional_livekit_settings() -> tuple[LiveKitSettings | None, str]:
     allowed to make LiveKit a prerequisite for OpenAI Realtime bootstrap, so they turn
     strict media misconfiguration into honest deferred metadata instead.
     """
+    if not _media_overlay_enabled():
+        return None, "livekit_media_overlay_disabled"
     try:
         return load_livekit_settings(), "livekit_credentials_missing"
     except LiveKitConfigurationError:
