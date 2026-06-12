@@ -6,6 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SERVICE_PORT=8000
 
 WORKDIR /app
+# libpq is the runtime shared library pure-Python psycopg loads to reach Postgres
+# (the prebuilt psycopg[binary] wheel is glibc-only, so on Alpine we use libpq).
+RUN apk add --no-cache libpq
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY app /app/app
