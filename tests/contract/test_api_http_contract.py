@@ -238,24 +238,28 @@ class ApiHttpContractTest(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertNotIn(marker, serialized)
 
-
-    def test_create_session_succeeds_when_livekit_required_mode_is_incomplete(self) -> None:
-        os.environ["LIVEKIT_REQUIRED"] = "true"
-        os.environ["LIVEKIT_INTERNAL_URL"] = "ws://livekit:7880"
-        os.environ["LIVEKIT_API_KEY"] = "devkey"
-        os.environ["LIVEKIT_API_SECRET"] = "devsecret-with-at-least-32-bytes"
-
+    def test_create_session_default_path_is_realtime_metadata_without_livekit_token(self) -> None:
         status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"local-demo"}')
-
         self.assertEqual(status, 201, body)
         payload = json.loads(body)
         self.assertEqual(payload["sessionId"], "local-demo")
-        self.assertEqual(payload["livekit"]["tokenStatus"], "not_configured")
-        self.assertEqual(payload["livekit"]["candidateToken"], None)
-        self.assertEqual(payload["livekit"]["deferredReason"], "livekit_deferred_for_realtime_primary")
-        self.assertFalse(payload["livekit"]["requiredForRealtimePrimary"])
-        self.assertTrue(payload["realtime"]["enabled"])
-        self.assertEqual(payload["realtime"]["browserWebrtcAttach"], "api-call-broker")
+        self.assertIn("realtime", payload)
+        self.assertEqual(payload["realtime"]["primary"], True)
+        self.assertEqual(payload["realtime"]["delivery"]["mode"], "api-mediated-realtime-mmm-ready")
+        self.assertIn("/api/interviews/local-demo/realtime/session", payload["realtime"]["sessionEndpoint"])
+        self.assertIn("/api/interviews/local-demo/realtime/call", payload["realtime"]["callEndpoint"])
+        self.assertIn("/api/interviews/local-demo/turns/{turnIndex}/mmm-ready", payload["realtime"]["mmmReadyEndpoint"])
+        livekit = payload["livekit"]
+        self.assertEqual(livekit["tokenStatus"], "not_configured")
+        self.assertIsNone(livekit["candidateToken"])
+        self.assertIsNone(livekit["url"])
+        self.assertIsNone(livekit["publicUrl"])
+        self.assertEqual(livekit["deferredReason"], "livekit_credentials_missing")
+        self.assertNotIn("livekitRequired", payload)
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        for forbidden in ("LIVEKIT_API_SECRET", "OPENAI_API_KEY", "client_secret", "server_secret", "v=0", "raw candidate"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, serialized)
 
     def test_create_session_rejects_unsafe_interview_id(self) -> None:
         status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"../local-demo"}')
