@@ -135,6 +135,51 @@ function toggleContextDrawer() {
   setContextDrawerOpen(Boolean(contextDrawer?.hidden));
 }
 
+// ── 분석 시그널 디버그 패널 — /analysis/signals 실시간 뷰(QA 토글, 열려 있을 때만 폴링) ──
+let analysisDebugTimer = null;
+
+function setAnalysisDebugOpen(isOpen) {
+  const panel = document.getElementById("analysis-debug-panel");
+  if (!panel) {
+    return;
+  }
+  panel.hidden = !isOpen;
+  panel.setAttribute("aria-hidden", String(!isOpen));
+  document.getElementById("toggle-analysis-debug")?.setAttribute("aria-expanded", String(isOpen));
+  if (isOpen && analysisDebugTimer === null) {
+    refreshAnalysisDebug();
+    analysisDebugTimer = window.setInterval(refreshAnalysisDebug, 1500);
+  } else if (!isOpen && analysisDebugTimer !== null) {
+    window.clearInterval(analysisDebugTimer);
+    analysisDebugTimer = null;
+  }
+}
+
+async function refreshAnalysisDebug() {
+  const statusEl = document.getElementById("analysis-debug-status");
+  const jsonEl = document.getElementById("analysis-debug-json");
+  if (!jsonEl) {
+    return;
+  }
+  const sessionId = analysisSessionId();
+  try {
+    const payload = await fetchAnalysisSignals(sessionId);
+    const counts = {};
+    (payload.records || []).forEach((record) => {
+      counts[record.type] = (counts[record.type] || 0) + 1;
+    });
+    const summary = Object.entries(counts).map(([type, n]) => `${type}:${n}`).join(" ");
+    if (statusEl) {
+      statusEl.textContent = `${sessionId} · records ${payload.recordCount || 0}${summary ? ` (${summary})` : ""} · turnHandoff ${payload.turnHandoff ? "있음" : "없음"} · ${new Date().toLocaleTimeString()}`;
+    }
+    jsonEl.textContent = JSON.stringify(payload, null, 2);
+  } catch (error) {
+    if (statusEl) {
+      statusEl.textContent = `signals 조회 실패: ${errorMessage(error)}`;
+    }
+  }
+}
+
 function appendLog(message) {
   if (!logEl) {
     return;
@@ -1867,6 +1912,10 @@ toggleMicButton?.addEventListener("click", handleToggleMicClick);
 toggleCameraButton?.addEventListener("click", toggleCamera);
 toggleContextDrawerButton?.addEventListener("click", toggleContextDrawer);
 closeContextDrawerButton?.addEventListener("click", () => setContextDrawerOpen(false));
+document.getElementById("toggle-analysis-debug")?.addEventListener("click", () => {
+  setAnalysisDebugOpen(Boolean(document.getElementById("analysis-debug-panel")?.hidden));
+});
+document.getElementById("close-analysis-debug")?.addEventListener("click", () => setAnalysisDebugOpen(false));
 document.addEventListener("giljob:interviewer-question-started", () => {
   if (!micEnabled) {
     setAnswerTurnAvailability(false, "interviewer question started; answer button disabled");
