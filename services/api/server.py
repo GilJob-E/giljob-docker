@@ -235,6 +235,22 @@ def _env_enabled(name: str, default: str = "true") -> bool:
     return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
+def _avatar_bridge_metadata() -> dict[str, object]:
+    enabled = _env_enabled("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", "false")
+    return {
+        "browserAudioBridgeEnabled": enabled,
+        "mode": "avatarplayer-rtc-publish-probe",
+        "status": "avatar_audio_bridge_waiting_avatar" if enabled else "avatar_audio_bridge_disabled",
+        "sourceTrack": "openai-realtime-remote-audio",
+        "target": "spatialreal-avatarplayer-publishAudio",
+        "experimental": True,
+        "defaultEnabled": False,
+        "tokenHidden": True,
+        "rawMediaLogged": False,
+        "requiresKiostationBrowserProof": True,
+    }
+
+
 def _readiness_payload(interview_id: str, turn_index: int) -> dict[str, object]:
     state = _turn_state(interview_id, turn_index)
     vision_required = _env_enabled("GILJOBE_VISION", "true")
@@ -1399,6 +1415,7 @@ def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[i
     public_failure = _sanitize_upstream_provider_failure(upstream, upstream_status, "avatar_provider_failed", ready=False)
     if public_failure is not None:
         public_failure["interviewId"] = interview_id
+        public_failure["bridge"] = _avatar_bridge_metadata()
         public_failure["delivery"] = {
             "mode": "api-mediated-spatialreal-session",
             "source": "ai-engine",
@@ -1412,6 +1429,7 @@ def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[i
             session_id=interview_id,
         )
     upstream["interviewId"] = interview_id
+    upstream["bridge"] = _avatar_bridge_metadata()
     upstream["delivery"] = {
         "mode": "api-mediated-spatialreal-session",
         "source": "ai-engine",
