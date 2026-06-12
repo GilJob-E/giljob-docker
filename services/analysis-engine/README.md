@@ -5,10 +5,12 @@ GilJobE-backed analysis boundary for GilJob v2.
 This service is the hidden LiveKit analyzer participant:
 
 ```text
-Candidate browser -> LiveKit room -> services/analysis-engine (GilJobE)
-  -> transcript_full + non-verbal signals -> API/Realtime readiness gate
-API Realtime sideband -> services/analysis-engine /realtime/turn-events
-  -> sanitized MMM audit/readiness metadata
+Candidate browser -> API Realtime sideband
+  -> Realtime STT transcript + prosody + low-res internal vision sample
+  -> services/analysis-engine /realtime/turn-events
+  -> exact-turn structured MMM/RNAS result
+Legacy LiveKit room -> services/analysis-engine (GilJobE)
+  -> compatibility-only subscriber signals
 ```
 
 ## How it runs
@@ -25,7 +27,7 @@ HTTP contract served on `:8200` (Caddy prefixes `/analysis` externally; internal
 | `POST` | `/subscriber/start` `{sessionId, criticMode}` | Legacy/non-main-path LiveKit analyzer start for compatibility testing. Not used by ordinary OpenAI Realtime follow-up gating. |
 | `POST` | `/subscriber/stop` `{}` | Legacy/non-main-path LiveKit analyzer stop/flush. |
 | `GET` | `/signals?sessionId=` | Legacy signal inspection for the LiveKit analyzer path. |
-| `POST` | `/realtime/turn-events` | Primary RNAS ingress for sanitized Realtime answer lifecycle and sideband records from `services/api`; rejects raw media/transcript/token shapes. |
+| `POST` | `/realtime/turn-events` | Primary RNAS ingress for Realtime answer lifecycle, transcript/prosody signals, and optional low-resolution internal vision sample from `services/api`; public/durable records stay redacted and token-safe. |
 | `GET` | `/realtime/turn-results?interviewId=&turnIndex=` | Primary RNAS result endpoint for exact `(interviewId, turnIndex)` lookup. No active/last/session-wide fallback is allowed for the API `response.create` gate. |
 | `GET` | `/realtime/turn-events?sessionId=&turnIndex=` | Inspect the in-memory tail of accepted sideband records for smoke/debug only. |
 | `GET` | `/healthz` `/readyz` | Liveness / readiness (token-safe, never prints secrets). |
@@ -38,8 +40,9 @@ The priority-1 Realtime architecture is **answer â†’ analysis-engine MMM/RNAS â†
 - The priority-1 Realtime path does not start a LiveKit subscriber per answer. API sideband events open/finalize exact-turn RNAS state, and `/realtime/turn-results` is the only result authority used by the API `response.create` gate.
 - Legacy LiveKit room subscription + transcript + non-verbal signal paths remain available for compatibility testing, but they are not a fallback for ordinary Realtime follow-up generation.
 - Realtime MMM sideband delivery from `services/api` is push-based: `/realtime/turn-events`
-  accepts sanitized answer-state/readiness records. It does not store raw transcript/media and it does
-  not expose provider secrets.
+  accepts answer-state/readiness records plus internal STT/vision detail needed for MMM. It derives
+  structured `transcriptSignals`, `visionSignals`, `prosodySignals`, `behavioralSignals`, and
+  `candidateSafePromptFragment`; it does not store raw transcript/media or expose provider secrets.
 - Realtime sentence-lane mode (GilJobE `5ba7249`) consumes API sideband transcript events when
   `GILJOBE_TRANSCRIPT_SOURCE=external`; this is the Realtime branch default. Set
   `GILJOBE_TRANSCRIPT_SOURCE=internal` only for legacy LiveKit/Gemma STT grid testing.

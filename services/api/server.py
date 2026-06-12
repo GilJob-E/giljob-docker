@@ -48,6 +48,8 @@ REALTIME_MMM_READY_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-
 REALTIME_RESPONSE_CREATE_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/realtime/response/?$")
 MAX_TTS_TEXT_CHARS = 1_200
 MAX_REALTIME_EVENT_BYTES = int(os.getenv("MAX_REALTIME_EVENT_BYTES", "8192"))
+MAX_REALTIME_VISION_EVENT_BYTES = int(os.getenv("MAX_REALTIME_VISION_EVENT_BYTES", "65536"))
+MAX_REALTIME_VISION_FRAME_BYTES = int(os.getenv("MAX_REALTIME_VISION_FRAME_BYTES", "49152"))
 REALTIME_MMM_EVENT_LOG_PATH = os.getenv("REALTIME_MMM_EVENT_LOG_PATH", "/tmp/giljob-realtime-mmm-events.jsonl")
 REALTIME_MMM_FORWARD_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_FORWARD_TIMEOUT_SECONDS", "2"))
 REALTIME_MMM_RESULT_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_RESULT_TIMEOUT_SECONDS", "1.2"))
@@ -386,6 +388,97 @@ def _sideband_detail_for_engine(payload: dict[str, Any]) -> dict[str, object] | 
     return out or None
 
 
+def _bounded_number(value: object, *, minimum: float | None = None, maximum: float | None = None) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if minimum is not None and number < minimum:
+        return None
+    if maximum is not None and number > maximum:
+        return None
+    return int(number) if number.is_integer() else round(number, 3)
+
+
+def _sideband_vision_detail_for_engine(payload: dict[str, Any]) -> tuple[dict[str, object] | None, str | None]:
+    """Forward-only visual signals/frame detail for the analysis engine.
+
+    Durable API records remain metadata-only. A low-resolution image sample, when
+    present, is sent only on the internal API→analysis-engine hop so the engine can
+    derive visual signals before returning a candidate-safe prompt fragment.
+    """
+    detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else {}
+    top_video = payload.get("video") if isinstance(payload.get("video"), dict) else {}
+    out: dict[str, object] = {}
+    signals: dict[str, object] = {"schemaVersion": "2026-06-13.vision-signals.v1"}
+
+    def copy_bool(source: dict[str, Any], source_key: str, target_key: str | None = None) -> None:
+        value = source.get(source_key)
+        if isinstance(value, bool):
+            signals[target_key or source_key] = value
+
+    def copy_num(source: dict[str, Any], source_key: str, target_key: str | None = None, *, maximum: float | None = None) -> None:
+        value = _bounded_number(source.get(source_key), minimum=0, maximum=maximum)
+        if value is not None:
+            signals[target_key or source_key] = value
+
+    def copy_str(source: dict[str, Any], source_key: str, target_key: str | None = None) -> None:
+        value = _safe_str(source.get(source_key), 120)
+        if value:
+            signals[target_key or source_key] = value
+
+    for source in (top_video, detail):
+        copy_bool(source, "cameraEnabled")
+        copy_num(source, "width", maximum=4096)
+        copy_num(source, "height", maximum=4096)
+        copy_num(source, "readyState", maximum=4)
+        copy_bool(source, "faceVisible")
+        copy_bool(source, "personVisible")
+        copy_str(source, "visualQuality")
+        copy_str(source, "frameDroppedReason")
+        copy_num(source, "averageLuma", maximum=255)
+        copy_num(source, "darkPixelRatio", maximum=1)
+
+    nested_signals = detail.get("visionSignals") if isinstance(detail.get("visionSignals"), dict) else {}
+    for key in ("cameraEnabled", "frameAvailable", "faceVisible", "personVisible"):
+        copy_bool(nested_signals, key)
+    for key, maximum in (("width", 4096), ("height", 4096), ("averageLuma", 255), ("darkPixelRatio", 1)):
+        copy_num(nested_signals, key, maximum=maximum)
+    for key in ("visualQuality", "frameDroppedReason"):
+        copy_str(nested_signals, key)
+
+    frame = detail.get("visionFrame")
+    if isinstance(frame, dict):
+        encoding = _safe_str(frame.get("encoding"), 40).lower()
+        data = frame.get("data")
+        byte_length = _bounded_number(frame.get("byteLength"), minimum=1, maximum=MAX_REALTIME_VISION_FRAME_BYTES)
+        if encoding and encoding != "image/jpeg;base64":
+            return None, "unsupported_vision_frame_encoding"
+        if data is not None:
+            if not isinstance(data, str) or not data.strip():
+                return None, "invalid_vision_frame"
+            if len(data.encode("utf-8")) > MAX_REALTIME_VISION_FRAME_BYTES * 2:
+                return None, "vision_frame_too_large"
+            out["visionFrame"] = {
+                "schemaVersion": _safe_str(frame.get("schemaVersion") or "2026-06-13.internal-vision-frame.v1", 80),
+                "encoding": encoding or "image/jpeg;base64",
+                "width": _bounded_number(frame.get("width"), minimum=1, maximum=4096),
+                "height": _bounded_number(frame.get("height"), minimum=1, maximum=4096),
+                "byteLength": byte_length,
+                "data": data,
+                "internalOnly": True,
+                "notLogged": True,
+            }
+            signals["frameAvailable"] = True
+            if byte_length is not None:
+                signals["frameByteLength"] = byte_length
+
+    if len(signals) > 1:
+        out["visionSignals"] = signals
+    return (out or None), None
+
+
 def _record_realtime_mmm_ingress(
     interview_id: str, turn_index: int, kind: str, source_route: str,
     engine_detail: dict[str, object] | None = None,
@@ -573,8 +666,51 @@ def _candidate_safe_fragment(value: object) -> str:
     return fragment
 
 
+_PUBLIC_ANALYSIS_FORBIDDEN_KEYS = {
+    "transcript",
+    "text",
+    "data",
+    "visionFrame",
+    "rawMedia",
+    "audio",
+    "video",
+    "sdp",
+    "token",
+    "client_secret",
+    "apiKey",
+}
+
+
+def _safe_public_analysis_object(value: object, *, max_depth: int = 3) -> object:
+    if max_depth <= 0:
+        return None
+    if isinstance(value, dict):
+        out: dict[str, object] = {}
+        for key, nested in value.items():
+            key_str = _safe_str(key, 80)
+            if not key_str or key_str in _PUBLIC_ANALYSIS_FORBIDDEN_KEYS:
+                continue
+            safe_nested = _safe_public_analysis_object(nested, max_depth=max_depth - 1)
+            if safe_nested is not None:
+                out[key_str] = safe_nested
+        return out
+    if isinstance(value, list):
+        return [
+            item
+            for item in (_safe_public_analysis_object(item, max_depth=max_depth - 1) for item in value[:8])
+            if item is not None
+        ]
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        return _safe_str(value, 300)
+    return None
+
+
 def _analysis_result_public_summary(result: dict[str, Any]) -> dict[str, object]:
-    return {
+    summary: dict[str, object] = {
         "schemaVersion": _safe_str(result.get("schemaVersion") or result.get("schema_version"), 80),
         "status": _safe_str(result.get("status"), 40),
         "confidence": result.get("confidence") if isinstance(result.get("confidence"), (int, float)) else None,
@@ -582,6 +718,11 @@ def _analysis_result_public_summary(result: dict[str, Any]) -> dict[str, object]
         "rawTranscriptLogged": bool(result.get("rawTranscriptLogged", False)),
         "rawMediaAccepted": bool(result.get("rawMediaAccepted", False)),
     }
+    for key in ("transcriptSignals", "visionSignals", "prosodySignals", "behavioralSignals", "coverage"):
+        value = result.get(key)
+        if isinstance(value, dict):
+            summary[key] = _safe_public_analysis_object(value)
+    return summary
 
 
 def _safe_analysis_engine_debug(source: dict[str, object] | None) -> dict[str, object]:
@@ -995,13 +1136,17 @@ def record_realtime_vision_event(interview_id: str, turn_index: int, payload: di
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
     raw_payload = json.dumps(payload, ensure_ascii=False)
-    if len(raw_payload.encode("utf-8")) > MAX_REALTIME_EVENT_BYTES:
+    if len(raw_payload.encode("utf-8")) > MAX_REALTIME_VISION_EVENT_BYTES:
         return 413, {"error": "event_too_large"}
     if payload.get("rawMediaIncluded") is True or "rawMedia" in payload or "frame" in payload:
         return 400, {"error": "raw_media_not_allowed"}
     kind = _event_kind(payload)
     if kind not in {"vision.frame_metrics", "vision_metadata"}:
         return 400, {"error": "unsupported_vision_event"}
+    engine_detail, detail_error = _sideband_vision_detail_for_engine(payload)
+    if detail_error:
+        status = 413 if detail_error == "vision_frame_too_large" else 400
+        return status, {"error": detail_error}
     state = _turn_state(interview_id, turn_index)
     state["vision_observed"] = True
     _append_realtime_event(state, "vision.frame_metrics", payload)
@@ -1011,9 +1156,10 @@ def record_realtime_vision_event(interview_id: str, turn_index: int, payload: di
         "accepted": True,
         "eventKind": "vision.frame_metrics",
         "rawMediaAccepted": False,
+        "internalVisionFrameForwarded": bool(engine_detail and "visionFrame" in engine_detail),
         "delivery": _realtime_delivery("api-mediated-realtime-vision-event"),
         "readiness": _readiness_payload(interview_id, turn_index),
-        "ingress": _record_realtime_mmm_ingress(interview_id, turn_index, "vision.frame_metrics", "vision-events"),
+        "ingress": _record_realtime_mmm_ingress(interview_id, turn_index, "vision.frame_metrics", "vision-events", engine_detail=engine_detail),
     }
     return _return_with_latency(202, public, start, "api.realtime.vision_event.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
 

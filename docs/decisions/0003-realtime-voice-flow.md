@@ -15,7 +15,7 @@ The preserved constraints are:
 - browser-visible diagnostics and event logs do not print raw JWTs, ephemeral secrets, provider keys, SDP bodies, or raw media
 - public browser routes use `/api/*` brokers; direct `/ai/*`, `/tts/*`, and `/avatar/*` remain blocked
 - Realtime audio generation is not allowed to skip internal multimodal readiness for ordinary next-question turns
-- transcript/prosody/vision signals are treated as bounded sideband metadata, not raw media archives
+- transcript/prosody/vision signals are treated as bounded sideband inputs; low-resolution vision samples may cross only the internal API→analysis-engine hop and must never be stored or exposed as raw media archives
 
 ## Options considered
 
@@ -72,7 +72,7 @@ For turn `N >= 2`, the next ordinary `realtime.response.create` is allowed only 
 - `/api/interviews/:id/realtime/session` returns provider status, route metadata, and an ephemeral client secret shape only.
 - The SDP attach endpoint is `/v1/realtime/calls`; no `?model=` fallback is part of the locked browser attach contract.
 - Browser logs may mention that a client secret or SDP exists, but must not print the secret value or SDP body.
-- Sideband events may include bounded transcript text needed for conversation continuity, but raw audio/video media is not accepted or logged by this path.
+- Sideband events may include bounded transcript text and low-resolution vision samples needed for exact-turn MMM, but public responses, durable JSONL, browser logs, and docs expose only structured signals/candidate-safe fragments rather than raw transcript/audio/video.
 
 ## Consequences
 

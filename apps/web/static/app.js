@@ -57,7 +57,10 @@ let realtimeFirstAudioMarked = false;
 let realtimeResponseInFlight = false;
 let visionEventTimer = null;
 const REALTIME_VISION_EVENT_MIN_INTERVAL_MS = 1500;
-const REALTIME_VISION_EVENT_MAX_BYTES = 2048;
+const REALTIME_VISION_EVENT_MAX_BYTES = 48000;
+const REALTIME_VISION_FRAME_MAX_BYTES = 36000;
+const REALTIME_VISION_FRAME_WIDTH = 160;
+const REALTIME_VISION_FRAME_QUALITY = 0.45;
 const REALTIME_TRANSCRIPT_COMPLETED_EVENT = "conversation.item.input_audio_transcription.completed";
 const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
@@ -310,34 +313,169 @@ async function postRealtimeTurnEvent(type, detail = {}, turnIndex = currentTurnI
   return postClientSafeJson(realtimeTurnEventEndpoint(turnIndex), payload);
 }
 
-function boundedVisionEvent(reason = "periodic", turnIndex = currentTurnIndex) {
+function visionVideoMetrics(video = candidateRoomVideo) {
+  return {
+    cameraEnabled,
+    width: Number(video?.videoWidth || 0),
+    height: Number(video?.videoHeight || 0),
+    readyState: Number(video?.readyState || 0),
+  };
+}
+
+function canvasBlob(canvas, type, quality) {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), type, quality);
+  });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || "");
+      resolve(value.includes(",") ? value.split(",").pop() : value);
+    };
+    reader.onerror = () => reject(reader.error || new Error("vision frame encode failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function captureInternalVisionFrame(video = candidateRoomVideo) {
+  const metrics = visionVideoMetrics(video);
+  if (!cameraEnabled || !video || metrics.readyState < 2 || metrics.width <= 0 || metrics.height <= 0) {
+    return {
+      signals: {
+        frameAvailable: false,
+        cameraEnabled,
+        visualQuality: cameraEnabled ? "camera_not_ready" : "camera_off",
+      },
+      frame: null,
+    };
+  }
+
+  const width = Math.min(REALTIME_VISION_FRAME_WIDTH, metrics.width);
+  const height = Math.max(1, Math.round((metrics.height / metrics.width) * width));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return { signals: { frameAvailable: false, visualQuality: "canvas_unavailable" }, frame: null };
+  }
+  context.drawImage(video, 0, 0, width, height);
+
+  let averageLuma = null;
+  let darkPixelRatio = null;
+  try {
+    const pixels = context.getImageData(0, 0, width, height).data;
+    let lumaTotal = 0;
+    let darkPixels = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      const luma = (0.2126 * pixels[index]) + (0.7152 * pixels[index + 1]) + (0.0722 * pixels[index + 2]);
+      lumaTotal += luma;
+      if (luma < 35) {
+        darkPixels += 1;
+      }
+    }
+    const pixelCount = pixels.length / 4;
+    averageLuma = Number((lumaTotal / Math.max(1, pixelCount)).toFixed(1));
+    darkPixelRatio = Number((darkPixels / Math.max(1, pixelCount)).toFixed(3));
+  } catch (_error) {
+    averageLuma = null;
+    darkPixelRatio = null;
+  }
+
+  const blob = await canvasBlob(canvas, "image/jpeg", REALTIME_VISION_FRAME_QUALITY);
+  if (!blob || blob.size <= 0 || blob.size > REALTIME_VISION_FRAME_MAX_BYTES) {
+    return {
+      signals: {
+        frameAvailable: false,
+        frameDroppedReason: blob && blob.size > REALTIME_VISION_FRAME_MAX_BYTES ? "encoded_frame_too_large" : "encode_failed",
+        visualQuality: "frame_unavailable",
+        averageLuma,
+        darkPixelRatio,
+      },
+      frame: null,
+    };
+  }
+
+  const data = await blobToBase64(blob);
+  return {
+    signals: {
+      frameAvailable: true,
+      cameraEnabled,
+      width,
+      height,
+      averageLuma,
+      darkPixelRatio,
+      visualQuality: averageLuma === null ? "unknown" : (averageLuma < 35 ? "too_dark" : "usable"),
+      faceVisible: null,
+    },
+    frame: {
+      schemaVersion: "2026-06-13.internal-vision-frame.v1",
+      internalOnly: true,
+      notLogged: true,
+      encoding: "image/jpeg;base64",
+      width,
+      height,
+      byteLength: blob.size,
+      data,
+    },
+  };
+}
+
+async function boundedVisionEvent(reason = "periodic", turnIndex = currentTurnIndex) {
   const video = candidateRoomVideo;
+  const metrics = visionVideoMetrics(video);
+  const capture = await captureInternalVisionFrame(video);
   const event = {
     type: "vision_metadata",
     normalizedType: "vision.frame_metrics",
     reason,
     turnIndex,
     capturedAt: new Date().toISOString(),
-    source: "browser-camera-metadata",
+    source: "browser-camera-sideband",
     rawMediaIncluded: false,
-    video: {
-      cameraEnabled,
-      width: Number(video?.videoWidth || 0),
-      height: Number(video?.videoHeight || 0),
-      readyState: Number(video?.readyState || 0),
+    internalVisionFrameIncluded: Boolean(capture.frame),
+    video: metrics,
+    detail: {
+      schemaVersion: "2026-06-13.realtime-vision-sideband.v1",
+      cameraEnabled: metrics.cameraEnabled,
+      width: metrics.width,
+      height: metrics.height,
+      readyState: metrics.readyState,
+      visionSignals: capture.signals,
+      ...(capture.frame ? { visionFrame: capture.frame } : {}),
     },
   };
-  const encoded = JSON.stringify(event);
-  if (encoded.length > REALTIME_VISION_EVENT_MAX_BYTES) {
+  if (JSON.stringify(event).length > REALTIME_VISION_EVENT_MAX_BYTES) {
+    delete event.detail.visionFrame;
+    event.internalVisionFrameIncluded = false;
+    event.detail.visionSignals = {
+      ...event.detail.visionSignals,
+      frameAvailable: false,
+      frameDroppedReason: "event_too_large",
+    };
+  }
+  if (JSON.stringify(event).length > REALTIME_VISION_EVENT_MAX_BYTES) {
     return {
       type: "vision_metadata",
       normalizedType: "vision.frame_metrics",
       reason,
       turnIndex,
       capturedAt: event.capturedAt,
-      source: "browser-camera-metadata",
+      source: "browser-camera-sideband",
       rawMediaIncluded: false,
+      internalVisionFrameIncluded: false,
       truncated: true,
+      detail: {
+        schemaVersion: "2026-06-13.realtime-vision-sideband.v1",
+        visionSignals: {
+          frameAvailable: false,
+          frameDroppedReason: "event_too_large",
+          cameraEnabled: metrics.cameraEnabled,
+        },
+      },
     };
   }
   return event;
@@ -347,10 +485,10 @@ async function sendBoundedVisionEvent(reason = "periodic", turnIndex = currentTu
   if (!isRealtimePrimary()) {
     return null;
   }
-  const event = boundedVisionEvent(reason, turnIndex);
+  const event = await boundedVisionEvent(reason, turnIndex);
   try {
     await postClientSafeJson(realtimeVisionEventEndpoint(turnIndex), event);
-    appendLog(`vision event sent: ${reason}; bounded metadata only; raw media hidden`);
+    appendLog(`vision event sent: ${reason}; ${event.internalVisionFrameIncluded ? "internal frame sampled" : "metadata/signals only"}; raw media not logged`);
   } catch (error) {
     appendLog(`vision event unavailable: ${errorMessage(error)}; full MMM must fail closed if visual state is required`);
   }

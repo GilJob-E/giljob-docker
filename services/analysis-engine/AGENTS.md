@@ -21,7 +21,7 @@ This module owns the GilJobE-backed analysis boundary. Follow the root `AGENTS.m
 - Treat `GilJobE` as the STT and multimodal input-analysis source of truth.
 - Serve the legacy hidden LiveKit analyzer HTTP contract: `/subscriber/start`, `/subscriber/stop`,
   `/signals`, `/healthz`, `/readyz` for compatibility/non-main-path testing.
-- Own the priority-1 Realtime-native analysis session (RNAS): accept sanitized API-forwarded answer lifecycle/sideband records at `/realtime/turn-events`, store exact `(interviewId, turnIndex)` state/results, and expose `/realtime/turn-results` for the API `response.create` gate. Reject raw media, raw transcripts, provider tokens, SDP, and browser secrets.
+- Own the priority-1 Realtime-native analysis session (RNAS): accept API-forwarded answer lifecycle plus internal-only STT/prosody/low-resolution vision sideband at `/realtime/turn-events`, store exact `(interviewId, turnIndex)` state/results, and expose `/realtime/turn-results` for the API `response.create` gate. Public/durable records must expose only structured signals and candidate-safe prompt fragments; reject provider tokens, SDP, browser secrets, and any raw media/transcript fields outside the approved internal detail paths.
 - Report dependency/config readiness without exposing raw LiveKit tokens, JWTs, API secrets, media,
   or transcript payloads in logs. `/healthz` and `/readyz` are token-safe.
 

@@ -6,9 +6,10 @@ same GilJobE aiohttp app and adds one GilJob-v2-specific route:
 
     POST /realtime/turn-events
 
-The route accepts only sanitized Realtime sideband readiness metadata forwarded
-by services/api. It does not accept raw media, raw provider tokens, or raw
-transcripts, and it does not replace GilJobE's LiveKit subscriber path.
+The route accepts sanitized Realtime sideband readiness metadata plus an optional
+low-resolution internal vision sample forwarded by services/api. It does not
+persist raw media, raw provider tokens, or raw transcripts, and it does not
+replace GilJobE's LiveKit subscriber path.
 """
 from __future__ import annotations
 
@@ -32,10 +33,15 @@ except ImportError:  # 구 핀(turn_handoff 이전) — turn-results는 pending�
 
 logger = logging.getLogger(__name__)
 
-MAX_REALTIME_MMM_RECORD_BYTES = int(os.getenv("MAX_REALTIME_MMM_RECORD_BYTES", "16384"))
+MAX_REALTIME_MMM_RECORD_BYTES = int(os.getenv("MAX_REALTIME_MMM_RECORD_BYTES", "65536"))
 MAX_REALTIME_MMM_RECORDS = int(os.getenv("MAX_REALTIME_MMM_RECORDS", "500"))
 RAW_FIELD_MARKERS = {"rawMedia", "frame", "audio", "video", "sdp", "client_secret", "token", "apiKey", "transcript", "text"}
-INTERNAL_TRANSCRIPT_DETAIL_PATHS = {("detail", "transcript"), ("detail", "text")}
+INTERNAL_DETAIL_PATHS = {
+    ("detail", "transcript"),
+    ("detail", "text"),
+    ("detail", "visionFrame"),
+    ("detail", "visionFrame", "data"),
+}
 SAFE_LANE_KEYS = ("transcript", "prosody", "vision")
 
 
@@ -45,7 +51,6 @@ class _RnasSession:
         self.turn_index = turn_index
         self.critic_mode = critic_mode
         self.started_at = started_at
-        self.turn_index: int | None = None
         self.records: list[dict[str, Any]] = []
         self.seen_sentence_keys: set[str] = set()
         self.last_sentence_end_s = 0.0
@@ -53,6 +58,20 @@ class _RnasSession:
         self.prosody_observed = False
         self.vision_observed = False
         self.answer_ended = False
+        self.sentence_count = 0
+        self.transcript_char_count = 0
+        self.transcript_question_like = False
+        self.transcript_has_numbers = False
+        self.transcript_specificity_score = 0.0
+        self.prosody_marker_count = 0
+        self.vision_marker_count = 0
+        self.vision_frame_count = 0
+        self.vision_frame_bytes = 0
+        self.vision_camera_enabled: bool | None = None
+        self.vision_face_visible: bool | None = None
+        self.vision_person_visible: bool | None = None
+        self.vision_quality = ""
+        self.vision_average_luma: int | float | None = None
 
     @property
     def key(self) -> tuple[str, int]:
@@ -74,7 +93,7 @@ class _EventOnlyRealtimeTurns:
     """First-class Realtime-native analysis sessions keyed by interview + turn.
 
     The Realtime main path does not depend on the LiveKit subscriber lifecycle.
-    API-forwarded answer lifecycle and bounded sideband metadata open, update,
+    API-forwarded answer lifecycle and internal STT/prosody/vision sideband open, update,
     finalize, and expose candidate-safe results for the exact
     ``(interviewId, turnIndex)`` requested by the ordinary response gate. No
     active/last/session-wide fallback is used for `/realtime/turn-results`.
@@ -217,15 +236,27 @@ class _EventOnlyRealtimeTurns:
                     "end_s": round(end_s, 3),
                     "text": sentence,
                 })
+                _update_transcript_signals(sess, sentence)
                 sess.last_sentence_end_s = end_s
                 sess.transcript_observed = True
                 sentence_added = True
         if kind in {"prosody.window_metrics", "analysis.prosody.window_metrics"}:
             sess.prosody_observed = True
-            sess.records.append({"type": "prosody_marker", "t": round(time.monotonic() - sess.started_at, 3)})
+            sess.prosody_marker_count += 1
+            sess.records.append({
+                "type": "prosody_marker",
+                "turnIndex": sess.turn_index,
+                "t": round(time.monotonic() - sess.started_at, 3),
+            })
         if kind in {"vision.frame_metrics", "vision_metadata"}:
             sess.vision_observed = True
-            sess.records.append({"type": "vision_marker", "t": round(time.monotonic() - sess.started_at, 3)})
+            _update_vision_signals(sess, detail)
+            sess.records.append({
+                "type": "vision_marker",
+                "turnIndex": sess.turn_index,
+                "t": round(time.monotonic() - sess.started_at, 3),
+                "status": _vision_status(sess),
+            })
         return sentence_added
 
     def turn_result_status(self, interview_id: str, turn_index: int) -> str:
@@ -250,24 +281,33 @@ class _EventOnlyRealtimeTurns:
             missing.append("missing_vision")
         if missing:
             return _pending_result(interview_id, turn_index, missing[0], missing)
+        transcript_signals = _transcript_signals(sess)
+        prosody_signals = _prosody_signals(sess)
+        vision_signals = _vision_signals(sess)
+        behavioral_signals = _behavioral_signals(transcript_signals, prosody_signals, vision_signals)
         coverage = {
             "transcript": {"observed": True, "status": "complete"},
-            "prosody": {"observed": True, "status": "metadata_observed"},
-            "vision": {"observed": True, "status": "metadata_observed"},
+            "prosody": {"observed": True, "status": prosody_signals["status"]},
+            "vision": {"observed": True, "status": vision_signals["status"]},
         }
-        fragment = (
-            "Use the previous answer coverage to ask one focused Korean follow-up. "
-            "The answer had complete transcript plus prosody and visual metadata markers; "
-            "probe for a concrete example, decision, or measurable outcome without quoting the transcript."
-        )
+        guidance = _next_question_guidance(transcript_signals, vision_signals)
+        fragment = _candidate_safe_structured_fragment(guidance)
         return {
-            "schemaVersion": "2026-06-12.rnas-turn-result.v1",
+            "schemaVersion": "2026-06-13.rnas-turn-result.v2",
             "status": "ready",
             "sessionId": interview_id,
             "interviewId": interview_id,
             "turnIndex": turn_index,
-            "candidatePromptFragment": fragment,
+            "candidatePromptFragment": fragment["text"],
+            "candidateSafePromptFragment": fragment,
+            "nextQuestionGuidance": guidance,
+            "transcriptSignals": transcript_signals,
+            "visionSignals": vision_signals,
+            "prosodySignals": prosody_signals,
+            "behavioralSignals": behavioral_signals,
             "coverage": coverage,
+            "confidence": _turn_confidence(transcript_signals, prosody_signals, vision_signals),
+            "latencyMs": max(0, round((time.monotonic() - sess.started_at) * 1000)),
             "recordCount": len(sess.records),
             "rawTranscriptLogged": False,
             "rawMediaAccepted": False,
@@ -293,6 +333,146 @@ class _EventOnlyRealtimeTurns:
             "t": round(time.monotonic() - sess.started_at, 3),
             "transcript_full": transcript,
         })
+
+
+def _safe_signal_number(value: object, *, maximum: float | None = None) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if number < 0:
+        return None
+    if maximum is not None and number > maximum:
+        return None
+    return int(number) if number.is_integer() else round(number, 3)
+
+
+def _bool_or_none(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _update_transcript_signals(sess: _RnasSession, sentence: str) -> None:
+    sess.sentence_count += 1
+    sess.transcript_char_count += len(sentence)
+    sess.transcript_question_like = sess.transcript_question_like or any(marker in sentence for marker in ("?", "？", "인가요", "나요", "습니까"))
+    sess.transcript_has_numbers = sess.transcript_has_numbers or any(ch.isdigit() for ch in sentence)
+    concrete_markers = ("예를", "구체", "프로젝트", "결과", "성과", "문제", "해결", "역할", "수치", "기간", "팀")
+    marker_hits = sum(1 for marker in concrete_markers if marker in sentence)
+    length_score = min(1.0, len(sentence) / 180.0)
+    sess.transcript_specificity_score = max(sess.transcript_specificity_score, round(min(1.0, length_score + marker_hits * 0.08), 3))
+
+
+def _update_vision_signals(sess: _RnasSession, detail: dict[str, Any]) -> None:
+    sess.vision_marker_count += 1
+    signals = detail.get("visionSignals") if isinstance(detail.get("visionSignals"), dict) else {}
+    for source in (detail, signals):
+        camera_enabled = _bool_or_none(source.get("cameraEnabled"))
+        if camera_enabled is not None:
+            sess.vision_camera_enabled = camera_enabled
+        face_visible = _bool_or_none(source.get("faceVisible"))
+        if face_visible is not None:
+            sess.vision_face_visible = face_visible
+        person_visible = _bool_or_none(source.get("personVisible"))
+        if person_visible is not None:
+            sess.vision_person_visible = person_visible
+        average_luma = _safe_signal_number(source.get("averageLuma"), maximum=255)
+        if average_luma is not None:
+            sess.vision_average_luma = average_luma
+        visual_quality = _safe_str(source.get("visualQuality"), 80)
+        if visual_quality:
+            sess.vision_quality = visual_quality
+    frame = detail.get("visionFrame") if isinstance(detail.get("visionFrame"), dict) else {}
+    frame_available = _bool_or_none(signals.get("frameAvailable"))
+    if frame or frame_available:
+        sess.vision_frame_count += 1
+        byte_length = _safe_signal_number(frame.get("byteLength") or signals.get("frameByteLength"), maximum=10_000_000)
+        if byte_length is not None:
+            sess.vision_frame_bytes += int(byte_length)
+
+
+def _vision_status(sess: _RnasSession) -> str:
+    if sess.vision_frame_count:
+        return "frame_observed"
+    if sess.vision_marker_count:
+        return "signals_observed"
+    return "missing"
+
+
+def _transcript_signals(sess: _RnasSession) -> dict[str, object]:
+    return {
+        "observed": sess.transcript_observed,
+        "status": "complete" if sess.transcript_observed else "missing",
+        "sentenceCount": sess.sentence_count,
+        "charCount": sess.transcript_char_count,
+        "specificityScore": sess.transcript_specificity_score,
+        "questionLike": sess.transcript_question_like,
+        "hasNumbers": sess.transcript_has_numbers,
+    }
+
+
+def _prosody_signals(sess: _RnasSession) -> dict[str, object]:
+    return {
+        "observed": sess.prosody_observed,
+        "status": "lifecycle_observed" if sess.prosody_observed else "missing",
+        "markerCount": sess.prosody_marker_count,
+    }
+
+
+def _vision_signals(sess: _RnasSession) -> dict[str, object]:
+    signals: dict[str, object] = {
+        "observed": sess.vision_observed,
+        "status": _vision_status(sess),
+        "markerCount": sess.vision_marker_count,
+        "sampledFrameCount": sess.vision_frame_count,
+        "frameBytesObserved": sess.vision_frame_bytes,
+        "cameraEnabled": bool(sess.vision_camera_enabled) if sess.vision_camera_enabled is not None else False,
+        "faceVisible": sess.vision_face_visible,
+        "personVisible": sess.vision_person_visible,
+        "visualQuality": sess.vision_quality or ("frame_observed" if sess.vision_frame_count else "metadata_only"),
+    }
+    if sess.vision_average_luma is not None:
+        signals["averageLuma"] = sess.vision_average_luma
+    return signals
+
+
+def _behavioral_signals(transcript: dict[str, object], prosody: dict[str, object], vision: dict[str, object]) -> dict[str, object]:
+    return {
+        "observed": bool(transcript.get("observed")) and bool(prosody.get("observed")) and bool(vision.get("observed")),
+        "status": "ready",
+        "needsConcreteFollowup": float(transcript.get("specificityScore") or 0) < 0.55,
+        "visualEvidenceLevel": "frame" if int(vision.get("sampledFrameCount") or 0) > 0 else "signals",
+    }
+
+
+def _next_question_guidance(transcript: dict[str, object], vision: dict[str, object]) -> str:
+    focus = "구체적인 사례, 본인 역할, 결과 수치"
+    if transcript.get("hasNumbers"):
+        focus = "수치로 언급한 결과의 기준, 본인 기여도, 재현 가능성"
+    elif float(transcript.get("specificityScore") or 0) >= 0.65:
+        focus = "방금 답변의 핵심 선택 이유와 어려웠던 트레이드오프"
+    visual_note = "시각 신호는 참고만 하고 표정·자세를 단정하지 마세요."
+    if int(vision.get("sampledFrameCount") or 0) > 0:
+        visual_note = "카메라 프레임이 확인되었지만 외형 판단 없이 답변 내용 중심으로 이어가세요."
+    return f"직전 답변을 바탕으로 {focus}를 자연스럽게 확인하는 한국어 후속 질문 하나를 하세요. {visual_note}"
+
+
+def _candidate_safe_structured_fragment(guidance: str) -> dict[str, object]:
+    return {
+        "schemaVersion": "2026-06-13.candidate-safe-prompt-fragment.v2",
+        "kind": "candidate_safe_realtime_mmm_context",
+        "text": _safe_str(guidance, 600),
+        "containsRawTranscript": False,
+        "containsRawMedia": False,
+        "containsSecrets": False,
+    }
+
+
+def _turn_confidence(transcript: dict[str, object], prosody: dict[str, object], vision: dict[str, object]) -> float:
+    score = 0.0
+    score += 0.5 if transcript.get("observed") else 0.0
+    score += 0.2 if prosody.get("observed") else 0.0
+    score += 0.2 if vision.get("observed") else 0.0
+    score += 0.1 if int(vision.get("sampledFrameCount") or 0) > 0 else 0.0
+    return round(min(0.98, score), 2)
 
 
 def _safe_turn_index(value: object) -> int | None:
@@ -482,7 +662,7 @@ def _contains_forbidden_raw_field(value: Any, path: tuple[str, ...] = ()) -> boo
         for key, nested in value.items():
             key_str = str(key)
             nested_path = (*path, key_str)
-            if key_str in RAW_FIELD_MARKERS and nested_path not in INTERNAL_TRANSCRIPT_DETAIL_PATHS:
+            if key_str in RAW_FIELD_MARKERS and nested_path not in INTERNAL_DETAIL_PATHS:
                 return True
             if _contains_forbidden_raw_field(nested, nested_path):
                 return True

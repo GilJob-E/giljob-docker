@@ -9,7 +9,7 @@
 [<external> 후보자 브라우저|
   /interviews/:id/room
   OpenAI Realtime WebRTC participant
-  MMM sideband sender
+  STT/prosody/vision sideband sender
   avatar disabled/deferred by default
 ]
 
@@ -38,6 +38,7 @@
   AvatarKit RTC viewer token is legacy/deferred
   /api/interviews/:id/* broker
   Realtime MMM sideband forward
+  exact-turn result gate
 ]
 
 [<store> Postgres|
@@ -64,8 +65,9 @@
 [<analysis> Analysis Engine Service\n(GilJobE)|
   Realtime sideband MMM/RNAS owner
   exact-turn result readiness
+  structured candidate-safe result
   legacy LiveKit subscriber only for compatibility
-  transcript_full + structured signal emit
+  transcript/prosody/vision signal emit
 ]
 
 [<service> OpenAI Realtime API|
@@ -107,10 +109,10 @@
 [API Service] - server key -> ephemeral Realtime secret -> [OpenAI Realtime API]
 [후보자 브라우저] - ephemeral SDP attach only -> [OpenAI Realtime API]
 [OpenAI Realtime API] - interviewer audio/transcript events -> [후보자 브라우저]
-[후보자 브라우저] - transcript/prosody/vision sideband -> [API Service]
+[후보자 브라우저] - STT transcript/prosody/low-res vision sideband -> [API Service]
 [API Service] - full_mmm_ready gate -> [후보자 브라우저]
-[API Service] - sanitized MMM events /realtime/turn-events -> [Analysis Engine Service\n(GilJobE)]
-[후보자 브라우저] - Realtime sideband metadata -> [Analysis Engine Service\n(GilJobE)]
+[API Service] - internal MMM events /realtime/turn-events -> [Analysis Engine Service\n(GilJobE)]
+[Analysis Engine Service\n(GilJobE)] - exact-turn candidate-safe result -> [API Service]
 [LiveKit Server] - legacy media tracks -> [Analysis Engine Service\n(GilJobE)]
 [Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [API Service]
 [AI Engine] - compatibility TTS/avatar metadata -> [API Service]

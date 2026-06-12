@@ -25,8 +25,8 @@ RUN apt-get update \
 
 # GilJobE owns the STT/subscriber HTTP contract surface itself (server/http_app.py):
 # /subscriber/start|stop, /signals, /healthz, /readyz. The local entrypoint below builds
-# that same GilJobE app and adds GilJob v2's sanitized Realtime MMM ingress route
-# (/realtime/turn-events) so services/api can forward answer-state sideband metadata.
+# that same GilJobE app and adds GilJob v2's Realtime MMM ingress route
+# (/realtime/turn-events) so services/api can forward answer-state STT/prosody/vision sideband.
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY server.py /app/server.py

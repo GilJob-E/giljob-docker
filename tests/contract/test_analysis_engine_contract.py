@@ -119,6 +119,7 @@ class AnalysisEngineContractTest(unittest.TestCase):
         for payload in (
             {"detail": {"transcript": "bounded candidate answer"}},
             {"detail": {"text": "bounded candidate answer", "itemId": "item-1"}},
+            {"detail": {"visionFrame": {"encoding": "image/jpeg;base64", "data": "ZmFrZQ==", "byteLength": 4}}},
         ):
             self.assertFalse(module._contains_forbidden_raw_field(payload), payload)
 
@@ -258,13 +259,30 @@ class TurnResultsContractTest(unittest.TestCase):
         self.assertTrue(start["accepted"])
         rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
         rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "prosody.window_metrics"})
-        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "vision.frame_metrics"})
+        rnas.ingest({
+            "interviewId": "demo",
+            "turnIndex": 1,
+            "eventKind": "vision.frame_metrics",
+            "detail": {
+                "visionSignals": {"cameraEnabled": True, "faceVisible": True, "averageLuma": 80, "frameAvailable": True},
+                "visionFrame": {"encoding": "image/jpeg;base64", "data": "ZmFrZQ==", "byteLength": 4, "width": 2, "height": 2},
+            },
+        })
         end = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_ended"})
         self.assertTrue(end["accepted"])
         ready = rnas.turn_result("demo", 1)
         self.assertEqual(ready["status"], "ready")
         self.assertEqual(ready["turnIndex"], 1)
         self.assertIn("candidatePromptFragment", ready)
+        self.assertEqual(ready["schemaVersion"], "2026-06-13.rnas-turn-result.v2")
+        self.assertIn("candidateSafePromptFragment", ready)
+        self.assertEqual(ready["visionSignals"]["status"], "frame_observed")
+        self.assertEqual(ready["visionSignals"]["sampledFrameCount"], 1)
+        self.assertTrue(ready["visionSignals"]["faceVisible"])
+        self.assertIn("transcriptSignals", ready)
+        self.assertIn("prosodySignals", ready)
+        self.assertIn("behavioralSignals", ready)
+        self.assertIn("nextQuestionGuidance", ready)
         self.assertFalse(ready["rawTranscriptLogged"])
         self.assertEqual(rnas.turn_result("demo", 2)["reason"], "no_exact_turn_result")
         self.assertEqual(rnas.turn_result("other", 1)["reason"], "no_exact_turn_result")

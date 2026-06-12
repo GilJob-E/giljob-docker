@@ -78,7 +78,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 2. API는 session/report token을 발급하되, 서버 쪽에는 purpose-separated hash만 저장합니다.
 3. API는 default Realtime/MMM 경로에서 LiveKit token을 요구하지 않습니다. Optional/legacy media overlay를 켠 경우에만 LiveKit candidate token과 SpatialReal AvatarKit RTC viewer token을 분리해 발급합니다.
 4. LiveKit을 사용하는 legacy/media overlay에서만 브라우저는 Caddy를 통해 media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다. 기본 Realtime/MMM 경로는 LiveKit 없이 동작해야 합니다.
-5. 후보자 답변 분석의 priority-1 Realtime 경로는 **answer → analysis-engine MMM/RNAS → API `response.create` → OpenAI Realtime output**입니다. 브라우저는 transcript/prosody/vision sideband metadata만 API로 보내고, analysis-engine이 exact `(interviewId, turnIndex)` RNAS result/readiness의 단일 owner입니다.
+5. 후보자 답변 분석의 priority-1 Realtime 경로는 **answer → analysis-engine MMM/RNAS → API `response.create` → OpenAI Realtime output**입니다. 브라우저는 Realtime STT transcript/prosody와 low-resolution internal vision sideband를 API로 보내고, analysis-engine이 exact `(interviewId, turnIndex)` RNAS result/readiness의 단일 owner입니다. Durable/public records expose only structured signals and candidate-safe prompt fragments, never raw transcript/media/provider secrets.
 6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 Realtime session metadata를 중개하고, 브라우저의 WebRTC SDP attach도 `/api/interviews/:id/realtime/call`을 통해 서버가 수행합니다. 표준 OpenAI API key와 provider route는 브라우저에 노출하지 않습니다.
 7. Realtime turn loop는 `turn 1 bootstrap`만 MMM 없이 시작하고, `turn N>=2`는 직전 답변의 exact-turn RNAS result가 `ready`일 때만 API-authored `response.create`를 허용합니다. 즉 ordinary follow-up은 `exact prior-turn full MMM readiness`가 필요합니다. 브라우저는 API-approved command를 data channel로 relay할 뿐 prompt나 `response.create`를 직접 작성하지 않습니다.
 8. `ai-engine`은 keyless route smoke와 optional internal TTS/avatar compatibility adapter만 담당합니다. 질문/음성의 메인 루프는 OpenAI Realtime-only이며 Gemini fallback은 없습니다.
@@ -199,12 +199,11 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 [API Service] - server key -> ephemeral Realtime secret -> [OpenAI Realtime API]
 [후보자 브라우저] - ephemeral SDP attach only -> [OpenAI Realtime API]
 [OpenAI Realtime API] - interviewer audio/transcript events -> [후보자 브라우저]
-[후보자 브라우저] - transcript/prosody/vision sideband -> [API Service]
+[후보자 브라우저] - STT transcript/prosody/low-res vision sideband -> [API Service]
 [API Service] - full_mmm_ready gate -> [후보자 브라우저]
-[API Service] - sanitized MMM events /realtime/turn-events -> [Analysis Engine Service\n(GilJobE)]
-[후보자 브라우저] - Realtime sideband metadata -> [Analysis Engine Service\n(GilJobE)]
+[API Service] - internal MMM events /realtime/turn-events -> [Analysis Engine Service\n(GilJobE)]
 [LiveKit Server] - legacy media tracks -> [Analysis Engine Service\n(GilJobE)]
-[Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [API Service]
+[Analysis Engine Service\n(GilJobE)] - exact-turn candidate-safe structured result -> [API Service]
 [AI Engine] - compatibility TTS/avatar metadata -> [API Service]
 [AI Engine] - optional post-TTS egress audio -> [SpatialReal Cloud]
 [SpatialReal Cloud] - legacy RTC avatar stream if enabled -> [LiveKit Server]
@@ -271,6 +270,8 @@ OPENAI_REALTIME_VOICE=marin
 OPENAI_REALTIME_CALL_BROKER_ENABLED=true
 OPENAI_API_KEY=replace-me-openai-server-key
 REALTIME_MMM_FORWARD_ENABLED=true
+MAX_REALTIME_VISION_EVENT_BYTES=65536
+MAX_REALTIME_VISION_FRAME_BYTES=49152
 LLM_PROVIDER=fake
 VOICE_PROVIDER=fake
 AVATAR_PROVIDER=disabled

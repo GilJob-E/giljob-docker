@@ -361,15 +361,33 @@ class ApiHttpContractTest(unittest.TestCase):
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         status, body = self._post(
             "/api/interviews/local-demo/turns/1/vision-events",
-            json.dumps({"type": "vision.frame_metrics", "detail": {"faceVisible": True}}).encode("utf-8"),
+            json.dumps({
+                "type": "vision.frame_metrics",
+                "detail": {
+                    "visionSignals": {"cameraEnabled": True, "faceVisible": True, "frameAvailable": True},
+                    "visionFrame": {
+                        "schemaVersion": "2026-06-13.internal-vision-frame.v1",
+                        "encoding": "image/jpeg;base64",
+                        "width": 2,
+                        "height": 2,
+                        "byteLength": 4,
+                        "data": "ZmFrZQ==",
+                    },
+                },
+            }).encode("utf-8"),
         )
         self.assertEqual(status, 202, body)
         payload = json.loads(body)
+        self.assertTrue(payload["internalVisionFrameForwarded"])
         self.assertTrue(payload["ingress"]["analysisEngine"]["attempted"])
         self.assertEqual(captured[0]["path"], "/realtime/turn-events")
         forwarded = json.loads(str(captured[0]["body"]))
         self.assertEqual(forwarded["eventKind"], "vision.frame_metrics")
         self.assertEqual(forwarded["sourceRoute"], "vision-events")
+        self.assertTrue(forwarded["detail"]["visionSignals"]["faceVisible"])
+        self.assertEqual(forwarded["detail"]["visionFrame"]["encoding"], "image/jpeg;base64")
+        self.assertEqual(forwarded["detail"]["visionFrame"]["data"], "ZmFrZQ==")
+        self.assertNotIn("visionFrame", payload)
 
 
     def test_realtime_response_create_allows_bootstrap_first_question_without_mmm_gate(self) -> None:
