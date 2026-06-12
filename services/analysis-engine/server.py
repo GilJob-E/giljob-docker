@@ -45,6 +45,7 @@ class _RnasSession:
         self.turn_index = turn_index
         self.critic_mode = critic_mode
         self.started_at = started_at
+        self.turn_index: int | None = None
         self.records: list[dict[str, Any]] = []
         self.seen_sentence_keys: set[str] = set()
         self.last_sentence_end_s = 0.0
@@ -179,6 +180,10 @@ class _EventOnlyRealtimeTurns:
         session_id = _safe_str(payload.get("sessionId") or payload.get("interviewId"), 96)
         if session_id and session_id != sess.session_id:
             return {"accepted": False, "reason": "session_mismatch"}
+        turn_index = payload.get("turnIndex")
+        if isinstance(turn_index, int):
+            sess.turn_index = turn_index
+        kind = _safe_str(payload.get("eventKind") or payload.get("normalizedType") or payload.get("type"), 120)
         detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else {}
         sentence_added = self._apply_payload(sess, kind, payload, detail)
         if kind in {"turn.answer_ended", "turn.answer.end"}:
@@ -206,6 +211,7 @@ class _EventOnlyRealtimeTurns:
                 end_s = start_s + duration_s
                 sess.records.append({
                     "type": "sentence",
+                    "turnIndex": sess.turn_index,
                     "t": round(time.monotonic() - sess.started_at, 3),
                     "start_s": round(start_s, 3),
                     "end_s": round(end_s, 3),
@@ -283,6 +289,7 @@ class _EventOnlyRealtimeTurns:
         )
         sess.records.append({
             "type": "turn_end",
+            "turnIndex": sess.turn_index,
             "t": round(time.monotonic() - sess.started_at, 3),
             "transcript_full": transcript,
         })
