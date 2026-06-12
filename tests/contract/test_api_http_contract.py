@@ -216,7 +216,7 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertFalse(bridge["enabled"])
         self.assertEqual(bridge["directProviderRoutes"], "blocked")
         self.assertEqual(bridge["controlBoundary"], "api-metadata-and-browser-livekit-publication")
-        self.assertEqual(bridge["requiresFeatureFlag"], "REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED")
+        self.assertEqual(bridge["requiresFeatureFlag"], "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED")
         self.assertFalse(bridge["providerSecretsExposed"])
         self.assertFalse(bridge["rawMediaExposed"])
         self.assertFalse(bridge["rawTranscriptExposed"])

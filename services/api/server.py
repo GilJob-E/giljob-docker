@@ -238,9 +238,16 @@ def _env_enabled(name: str, default: str = "true") -> bool:
 def _avatar_bridge_metadata() -> dict[str, object]:
     enabled = _env_enabled("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", "false")
     return {
+        "enabled": enabled,
         "browserAudioBridgeEnabled": enabled,
-        "mode": "avatarplayer-rtc-publish-probe",
-        "status": "avatar_audio_bridge_waiting_avatar" if enabled else "avatar_audio_bridge_disabled",
+        "mode": "experimental-openai-realtime-audio-to-avatar",
+        "status": "enabled" if enabled else "blocked",
+        "directProviderRoutes": "blocked",
+        "controlBoundary": "api-metadata-and-browser-livekit-publication",
+        "requiresFeatureFlag": "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED",
+        "providerSecretsExposed": False,
+        "rawMediaExposed": False,
+        "rawTranscriptExposed": False,
         "sourceTrack": "openai-realtime-remote-audio",
         "target": "spatialreal-avatarplayer-publishAudio",
         "experimental": True,
@@ -248,6 +255,8 @@ def _avatar_bridge_metadata() -> dict[str, object]:
         "tokenHidden": True,
         "rawMediaLogged": False,
         "requiresKiostationBrowserProof": True,
+        "description": "Experimental browser bridge probe from OpenAI Realtime remote audio to SpatialReal AvatarPlayer; disabled by default.",
+        "blockedOutcome": "blocked until the server flag is enabled and kiostation browser QA verifies bridge support.",
     }
 
 
