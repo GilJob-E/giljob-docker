@@ -255,7 +255,7 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("function realtimeAudioAvatarBridgeConfig", body)
         self.assertIn("function isRealtimeAudioAvatarBridgeEnabled", body)
         self.assertIn("activeSession?.realtimeAvatarBridge", body)
-        self.assertIn("REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED", body)
+        self.assertIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", body)
         self.assertIn("experimental-openai-realtime-audio-to-avatar", body)
         self.assertIn("avatarBridge.status === \"enabled\"", body)
         self.assertIn("avatarBridge.directProviderRoutes === \"blocked\"", body)
@@ -271,8 +271,8 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("function unpublishRealtimeAudioFromAvatar", body)
         self.assertIn("realtimeAvatarBridgePublishedKeys", body)
         self.assertIn("avatarBridgePublishKey", body)
-        self.assertIn("publishTrack", body)
-        self.assertIn("unpublishTrack", body)
+        self.assertIn("publishAudio", body)
+        self.assertIn("unpublishAudio", body)
         self.assertIn("track.addEventListener(\"ended\"", body)
 
         lifecycle_reasons = [

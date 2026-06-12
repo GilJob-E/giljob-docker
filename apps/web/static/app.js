@@ -50,7 +50,7 @@ let answerTurnAvailable = false;
 let nextQuestionRequested = false;
 let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
-let lastAnalysisBlock = ""; // server-owned analysis summary only; browser never starts analysis workers or injects raw transcripts.
+let lastAnalysisBlock = ""; // server-owned analysis summary only; browser never starts analysis workers or injects verbatim transcripts.
 let activeAvatarSession = null;
 let avatarRtcRuntime = { sdkInitialized: false, player: null, view: null, provider: null, avatarId: "" };
 let avatarRtcInitializing = null;
@@ -58,6 +58,7 @@ let activeRealtimeSession = null;
 let realtimeRemoteAudioTrack = null;
 let activeRealtimeResponseId = "";
 let avatarAudioBridgePublished = null;
+let realtimeAvatarBridgePublishedKeys = new Set();
 let realtimeAudioTrackObjectIds = new WeakMap();
 let realtimeAudioTrackObjectIdCounter = 0;
 let realtimeAnswerTranscript = "";
@@ -71,6 +72,8 @@ const REALTIME_TRANSCRIPT_COMPLETED_EVENT = "conversation.item.input_audio_trans
 const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
 const AVATAR_RTC_PREFLIGHT_TIMEOUT_MS = 2500;
+const REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED = "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED";
+const REALTIME_AVATAR_AUDIO_BRIDGE_MODE = "experimental-openai-realtime-audio-to-avatar";
 const REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS = [
   "당신은 한국어 라이브 면접관입니다.",
   "백엔드 분석 준비는 이미 완료된 뒤에만 응답이 요청됩니다.",
@@ -445,12 +448,29 @@ function attachRealtimeRemoteAudio(stream) {
   interviewerAudio.play().catch((error) => appendLog(`Realtime remote audio autoplay skipped: ${errorMessage(error)}`));
 }
 
+function realtimeAudioAvatarBridgeConfig() {
+  return activeAvatarSession?.bridge || activeSession?.realtimeAvatarBridge || activeSession?.bridge || {};
+}
+
+function isRealtimeAudioAvatarBridgeEnabled() {
+  const avatarBridge = realtimeAudioAvatarBridgeConfig();
+  return avatarBridge.browserAudioBridgeEnabled === true
+    && avatarBridge.enabled === true
+    && avatarBridge.mode === REALTIME_AVATAR_AUDIO_BRIDGE_MODE
+    && avatarBridge.status === "enabled"
+    && avatarBridge.directProviderRoutes === "blocked"
+    && avatarBridge.providerSecretsExposed === false
+    && avatarBridge.rawMediaExposed === false
+    && avatarBridge.rawTranscriptExposed === false
+    && avatarBridge.requiresFeatureFlag === REALTIME_AVATAR_AUDIO_BRIDGE_ENABLED;
+}
+
 function avatarAudioBridgeMetadata() {
-  return activeAvatarSession?.bridge || activeSession?.bridge || {};
+  return realtimeAudioAvatarBridgeConfig();
 }
 
 function isAvatarAudioBridgeEnabled() {
-  return avatarAudioBridgeMetadata()?.browserAudioBridgeEnabled === true;
+  return isRealtimeAudioAvatarBridgeEnabled();
 }
 
 function realtimeAudioTrackIdentity(track) {
@@ -469,6 +489,10 @@ function realtimeAudioTrackIdentity(track) {
 
 function realtimeAudioBridgeDedupKey(track = realtimeRemoteAudioTrack) {
   return `${activeRealtimeResponseId || currentTurnIndex}:${realtimeAudioTrackIdentity(track)}`;
+}
+
+function avatarBridgePublishKey(track = realtimeRemoteAudioTrack) {
+  return realtimeAudioBridgeDedupKey(track);
 }
 
 function safeAvatarAudioBridgeFailureReason(reason) {
@@ -541,8 +565,11 @@ async function maybePublishRealtimeAudioToAvatar(track = realtimeRemoteAudioTrac
     renderAvatarAudioBridgeStatus("avatar_audio_bridge_waiting_realtime_track");
     return false;
   }
-  const dedupKey = realtimeAudioBridgeDedupKey(track);
+  const dedupKey = avatarBridgePublishKey(track);
   if (avatarAudioBridgePublished?.dedupKey === dedupKey) {
+    return true;
+  }
+  if (realtimeAvatarBridgePublishedKeys.has(dedupKey)) {
     return true;
   }
   if (avatarAudioBridgePublished) {
@@ -556,6 +583,7 @@ async function maybePublishRealtimeAudioToAvatar(track = realtimeRemoteAudioTrac
     muteAvatarRtcAudioElements();
     await player.publishAudio(track);
     avatarAudioBridgePublished = { dedupKey, track };
+    realtimeAvatarBridgePublishedKeys.add(dedupKey);
     renderAvatarAudioBridgeStatus("avatar_audio_bridge_published", "dedup active");
     muteAvatarRtcAudioElements();
     return true;
@@ -574,9 +602,12 @@ function captureRealtimeRemoteAudioTrack(track) {
   if (activeRealtimeSession) {
     activeRealtimeSession.remoteAudioTrack = track;
   }
-  track.addEventListener?.("ended", () => {
-    unpublishRealtimeAudioFromAvatar("realtime-track-ended").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
-  }, { once: true });
+  appendLog("avatar audio bridge remote-track observed; raw media hidden");
+  if (typeof track.addEventListener === "function") {
+    track.addEventListener("ended", () => {
+      unpublishRealtimeAudioFromAvatar("track-ended").catch((error) => appendLog(`avatar audio bridge unpublish skipped: ${errorMessage(error)}`));
+    }, { once: true });
+  }
   maybePublishRealtimeAudioToAvatar(track).catch((error) => appendLog(`avatar audio bridge publish skipped: ${errorMessage(error)}`));
 }
 
@@ -1674,7 +1705,7 @@ async function startAnswerCapture() {
     await sendBoundedVisionEvent("answer_start");
     await sendRealtimeProsodyEvent("answer_start");
     renderTranscriptStatus("답변 중입니다. Realtime STT/VAD 이벤트와 bounded vision metadata를 API sideband로 전달합니다.");
-    appendLog("candidate answer turn started; Realtime event boundary active; raw transcript hidden");
+    appendLog("candidate answer turn started; Realtime event boundary active; verbatim transcript hidden");
     return;
   }
   renderTranscriptStatus("답변 중입니다. 브라우저는 LiveKit media만 게시하고 전사/분석 제어를 시작하지 않습니다.");
