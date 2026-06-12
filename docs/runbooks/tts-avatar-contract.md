@@ -60,7 +60,7 @@ Provider calls are backend-owned. Browser-facing voice/avatar status must be rou
 
 - No ElevenLabs STT replacement.
 - No production SpatialReal browser avatar lip-sync claim.
-- No default OpenAI Realtime remote-audio injection into SpatialReal; the only allowed carve-out is the feature-flagged experimental browser `AvatarPlayer.publishAudio(track)` probe above.
+- No OpenAI Realtime remote-audio injection into SpatialReal by default; the only allowed carve-out is the feature-flagged experimental browser `AvatarPlayer.publishAudio(track)` probe above.
 - No interviewer/avatar audio publication into the candidate LiveKit room by default. SpatialReal RTC egress remains opt-in, post-TTS only, and requires a public LiveKit path plus provider credentials.
 - No Realtime or LiveKit Agents migration.
 - No `livekit-client` downgrade.
