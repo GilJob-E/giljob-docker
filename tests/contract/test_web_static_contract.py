@@ -44,8 +44,8 @@ class WebStaticContractTest(unittest.TestCase):
         status, content_type, body = self._get("/")
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
-        self.assertIn("Self-hosted LiveKit", body)
-        self.assertIn("session route", body)
+        self.assertIn("비언어 신호", body)
+        self.assertIn("멀티모달", body)
         self.assertIn('href="/interviews/new"', body)
         self.assertIn("새 면접 시작", body)
         self.assertNotIn('id="join-form"', body)
@@ -56,7 +56,7 @@ class WebStaticContractTest(unittest.TestCase):
             "/interviews/new": ["Production flow · Step 1", "local-demo", "CV upload"],
             "/interviews/prod-demo_01/lobby": ["Production flow · Step 2", "Pre-join lobby", "Device check"],
             "/interviews/prod-demo_01/room": ["production-room-shell", "light-media-room-shell", "room-context-drawer", "avatar-surface", 'src="/app.js"'],
-            "/interviews/prod-demo_01/report": ["Production flow · Step 4", "리포트 placeholder", "Background analysis"],
+            "/interviews/prod-demo_01/report": ["Production flow · Step 4", "면접 리포트", "질문과 답변", "답변 분석 보기", "비언어 지표"],
         }
         for path, expected_strings in route_expectations.items():
             with self.subTest(path=path):

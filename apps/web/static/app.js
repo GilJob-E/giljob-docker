@@ -1,4 +1,4 @@
-const form = document.querySelector("#join-form");
+﻿const form = document.querySelector("#join-form");
 const createButton = document.querySelector("#create-session");
 const joinButton = document.querySelector("#join-room");
 const leaveButton = document.querySelector("#leave-room");
@@ -1960,6 +1960,11 @@ function renderRealtimeQuestionDone(event) {
     turnIndex: currentTurnIndex,
     provider: "openai-realtime",
   });
+  if (question && isRealtimePrimary()) {
+    postRealtimeTurnEvent("interviewer.question.completed", { question }, currentTurnIndex).catch(
+      (err) => appendLog(`interviewer question store failed: ${errorMessage(err)}`)
+    );
+  }
   realtimeInterviewerQuestionTranscript = "";
 }
 
