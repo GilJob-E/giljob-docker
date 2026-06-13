@@ -56,6 +56,8 @@ let realtimeRemoteAudioTrack = null;
 let activeAvatarSdkRuntime = null;
 let avatarSdkInitializePromise = null;
 let avatarPcmBridge = null;
+let avatarSdkConnectionState = "unknown";
+let avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, rmsMax: 0, startedAt: 0 };
 let activeRealtimeResponseId = "";
 let realtimeAnswerTranscript = "";
 let realtimeInterviewerQuestionTranscript = "";
@@ -77,6 +79,7 @@ const SPATIALREAL_SDK_ACCEPTED_OUTCOMES = new Set([SPATIALREAL_SDK_READY_OUTCOME
 const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
 const SPATIALREAL_SDK_TRANSPORT = "spatialreal-sdk-websocket";
 const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
+const AVATAR_PCM_END_GRACE_MS = 1400;
 const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
 const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
 const SPATIALREAL_SDK_MODE_LABEL = "SpatialReal SDK Mode";
@@ -683,6 +686,53 @@ function setAvatarSdkMuted(controller) {
   throw new Error("sdk_mute_unavailable");
 }
 
+function resetAvatarSdkPcmStats() {
+  avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, rmsMax: 0, startedAt: Date.now() };
+}
+
+function appendAvatarSdkPcmSummary(reason = "summary") {
+  if (!avatarSdkPcmStats.startedAt) {
+    return;
+  }
+  const elapsedMs = Date.now() - avatarSdkPcmStats.startedAt;
+  appendLog(`avatar SDK PCM ${reason}: chunks=${avatarSdkPcmStats.chunks}; bytes=${avatarSdkPcmStats.bytes}; sends=${avatarSdkPcmStats.sends}; nullSends=${avatarSdkPcmStats.nullSends}; rmsMax=${avatarSdkPcmStats.rmsMax.toFixed(4)}; connection=${avatarSdkConnectionState}; elapsedMs=${elapsedMs}; media hidden`);
+}
+
+function pcm16Rms(pcmBuffer) {
+  if (!pcmBuffer || pcmBuffer.byteLength < 2) {
+    return 0;
+  }
+  const view = new DataView(pcmBuffer);
+  let total = 0;
+  const samples = Math.floor(pcmBuffer.byteLength / 2);
+  for (let offset = 0; offset + 1 < pcmBuffer.byteLength; offset += 2) {
+    const value = view.getInt16(offset, true) / 32768;
+    total += value * value;
+  }
+  return samples ? Math.sqrt(total / samples) : 0;
+}
+
+function sendAvatarSdkPcmChunk(controller, pcmBuffer, isLast = false) {
+  if (!controller || typeof controller.send !== "function") {
+    throw new Error("sdk_controller_send_unavailable");
+  }
+  const bytes = pcmBuffer?.byteLength || 0;
+  const rms = pcm16Rms(pcmBuffer);
+  avatarSdkPcmStats.chunks += 1;
+  avatarSdkPcmStats.bytes += bytes;
+  avatarSdkPcmStats.rmsMax = Math.max(avatarSdkPcmStats.rmsMax, rms);
+  const conversationId = controller.send(pcmBuffer || new ArrayBuffer(0), isLast);
+  if (conversationId) {
+    avatarSdkPcmStats.sends += 1;
+  } else {
+    avatarSdkPcmStats.nullSends += 1;
+  }
+  if (avatarSdkPcmStats.chunks === 1 || isLast || avatarSdkPcmStats.chunks % 25 === 0) {
+    appendLog(`avatar SDK PCM chunk ${avatarSdkPcmStats.chunks}: bytes=${bytes}; rms=${rms.toFixed(4)}; final=${Boolean(isLast)}; accepted=${Boolean(conversationId)}; connection=${avatarSdkConnectionState}; media hidden`);
+  }
+  return conversationId;
+}
+
 function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
   if (!track || track.kind !== "audio") {
     throw new Error("realtime_audio_track_unavailable");
@@ -748,7 +798,7 @@ function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
       return;
     }
     try {
-      controller.send(pcm, false);
+      sendAvatarSdkPcmChunk(controller, pcm, false);
     } catch (error) {
       renderAvatarSdkDegraded(`sdk_pcm_send_failed:${errorMessage(error)}`);
     }
@@ -770,7 +820,8 @@ function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
       ended = true;
       try {
         const finalChunk = carry.length ? downsampleToPcm16(carry, context.sampleRate, sampleRate) : new ArrayBuffer(0);
-        controller.send(finalChunk || new ArrayBuffer(0), true);
+        sendAvatarSdkPcmChunk(controller, finalChunk || new ArrayBuffer(0), true);
+        appendAvatarSdkPcmSummary("end");
       } finally {
         carry = new Float32Array(0);
       }
@@ -789,10 +840,11 @@ async function startAvatarPcmBridgeIfReady(track = realtimeRemoteAudioTrack) {
     return;
   }
   try {
+    resetAvatarSdkPcmStats();
     avatarPcmBridge = createAvatarPcmBridge(track, activeAvatarSdkRuntime.controller, activeAvatarSdkRuntime.sampleRate || 16000);
     await avatarPcmBridge.start();
     avatarSdkModeState = { ...avatarSdkModeState, audioBridge: "pcm16_active" };
-    appendLog("avatar SDK muted PCM16 bridge active; Realtime remains the only audible path; media hidden");
+    appendLog(`avatar SDK muted PCM16 bridge active; connection=${avatarSdkConnectionState}; Realtime remains the only audible path; media hidden`);
   } catch (error) {
     renderAvatarSdkDegraded(`sdk_pcm_bridge_failed:${errorMessage(error)}`);
   }
@@ -803,7 +855,10 @@ async function endAvatarPcmBridgeRound() {
     return;
   }
   try {
-    await avatarPcmBridge.end();
+    const bridge = avatarPcmBridge;
+    avatarPcmBridge = null;
+    await bridge.end();
+    bridge.close();
     appendLog("avatar SDK PCM16 end marker sent; Realtime/MMM ownership unchanged");
   } catch (error) {
     renderAvatarSdkDegraded(`sdk_pcm_end_failed:${errorMessage(error)}`);
@@ -823,14 +878,17 @@ function avatarSdkEndResponseFeed(responseId = "") {
   if (!activeAvatarSdkRuntime?.controller && !avatarPcmBridge) {
     return;
   }
-  endAvatarPcmBridgeRound()
-    .then(() => {
-      const safeResponseId = String(responseId || "response").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
-      appendLog(`avatar SDK response feed ended: ${safeResponseId}; Realtime question boundary already released; tokens hidden`);
-    })
-    .catch((error) => {
-      appendLog(`avatar SDK response feed end skipped: ${errorMessage(error)}; Realtime question boundary already released`);
-    });
+  const safeResponseId = String(responseId || "response").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  appendLog(`avatar SDK response feed grace ${AVATAR_PCM_END_GRACE_MS}ms started: ${safeResponseId}; Realtime question boundary already released`);
+  window.setTimeout(() => {
+    endAvatarPcmBridgeRound()
+      .then(() => {
+        appendLog(`avatar SDK response feed ended: ${safeResponseId}; Realtime question boundary already released; tokens hidden`);
+      })
+      .catch((error) => {
+        appendLog(`avatar SDK response feed end skipped: ${errorMessage(error)}; Realtime question boundary already released`);
+      });
+  }, AVATAR_PCM_END_GRACE_MS);
 }
 
 function renderAvatarSdkModeStatus(payload = activeAvatarSession) {
@@ -1269,6 +1327,7 @@ async function disconnectAvatarRtc() {
   activeAvatarSdkRuntime?.avatarView?.dispose?.();
   activeAvatarSdkRuntime?.sdk?.AvatarSDK?.cleanup?.();
   activeAvatarSdkRuntime = null;
+  avatarSdkConnectionState = "disconnected";
   avatarSdkInitializePromise = null;
   avatarSdkModeState = { ...avatarSdkModeState, initialized: false, reason: "disconnected", audioFeed: SPATIALREAL_SDK_AUDIO_FEED_FORMAT };
   avatarRenderTarget?.classList.remove("is-rtc-active", "is-sdk-active");
@@ -1322,8 +1381,19 @@ async function initializeSpatialRealSdkAvatar(payload) {
     avatarRenderTarget.replaceChildren();
     const avatarView = new sdk.AvatarView(avatar, avatarRenderTarget);
     const controller = avatarView.controller;
+    controller.onConnectionState = (state) => {
+      avatarSdkConnectionState = String(state || "unknown");
+      appendLog(`avatar SDK connection state: ${avatarSdkConnectionState}; tokens hidden`);
+    };
+    controller.onConversationState = (state) => {
+      appendLog(`avatar SDK conversation state: ${String(state || "unknown")}; media hidden`);
+    };
+    controller.onError = (error) => {
+      appendLog(`avatar SDK error: ${errorMessage(error)}; tokens hidden`);
+    };
     const muteMethod = setAvatarSdkMuted(controller);
     await controller.initializeAudioContext();
+    avatarSdkConnectionState = "connecting";
     await controller.start();
     setAvatarSdkMuted(controller);
     activeAvatarSdkRuntime = { sdk, avatarView, controller, sampleRate: metadata.sampleRate || 16000, muteMethod };
