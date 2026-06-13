@@ -4,6 +4,7 @@ from http.server import ThreadingHTTPServer
 import importlib.util
 import json
 import pathlib
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -360,6 +361,64 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("node_modules/@spatialwalk/avatarkit-rtc/dist", dockerfile)
         if "node_modules/@spatialwalk/avatarkit/dist" in dockerfile:
             self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED", (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8"))
+
+    def test_web_server_serves_only_allowed_spatialreal_sdk_vendor_assets_with_safe_mime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            node_modules_root = pathlib.Path(tmp_dir)
+            sdk_dist = node_modules_root / "@spatialwalk" / "avatarkit" / "dist"
+            sdk_dist.mkdir(parents=True)
+            (sdk_dist / "index.js").write_text("export const SpatialRealAvatarKit = {};\n", encoding="utf-8")
+            (sdk_dist / "worker.mjs").write_text("export default {};\n", encoding="utf-8")
+            (sdk_dist / "avatar.wasm").write_bytes(b"\x00asm\x01\x00\x00\x00")
+            (node_modules_root / "@spatialwalk" / "avatarkit" / "package.json").write_text("{}", encoding="utf-8")
+
+            original_node_modules_root = web_server.NODE_MODULES_ROOT
+            web_server.NODE_MODULES_ROOT = node_modules_root.resolve()
+            try:
+                expected_assets = {
+                    "/vendor/@spatialwalk/avatarkit/dist/index.js": "text/javascript",
+                    "/vendor/@spatialwalk/avatarkit/dist/worker.mjs": "text/javascript",
+                    "/vendor/@spatialwalk/avatarkit/dist/avatar.wasm": "application/wasm",
+                }
+                for path, expected_content_type in expected_assets.items():
+                    with self.subTest(path=path):
+                        status, content_type, body = self._get(path)
+                        self.assertEqual(status, 200)
+                        self.assertIn(expected_content_type, content_type)
+                        if path.endswith(".wasm"):
+                            self.assertNotIn("text/javascript", content_type)
+                        else:
+                            self.assertIn("export", body)
+
+                rejected_paths = [
+                    "/vendor/@spatialwalk/avatarkit/dist/%2e%2e/package.json",
+                    "/vendor/@spatialwalk/avatarkit/package.json",
+                    "/vendor/@spatialwalk/avatarkit-rtc/dist/index.js",
+                    "/vendor/livekit-client/dist/livekit-client.esm.mjs",
+                ]
+                for path in rejected_paths:
+                    with self.subTest(path=path):
+                        status, content_type, body = self._get(path)
+                        self.assertEqual(status, 404)
+                        self.assertIn("application/json", content_type)
+                        self.assertEqual(json.loads(body)["error"], "not_found")
+            finally:
+                web_server.NODE_MODULES_ROOT = original_node_modules_root
+
+    def test_spatialreal_sdk_importmap_and_docs_keep_vendor_scope_explicit(self) -> None:
+        room_html = (WEB_ROOT / "static" / "interview-room.html").read_text(encoding="utf-8")
+        web_readme = (WEB_ROOT / "README.md").read_text(encoding="utf-8")
+        verification_runbook = (REPO_ROOT / "docs" / "runbooks" / "verification.md").read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+        self.assertIn('"@spatialwalk/avatarkit": "/vendor/@spatialwalk/avatarkit/dist/index.js"', room_html)
+        self.assertNotIn('"@spatialwalk/avatarkit-rtc"', room_html)
+        self.assertIn("allowed SDK vendor path", web_readme)
+        self.assertIn("application/wasm", web_readme)
+        self.assertIn("vendor/WASM/MIME contract", verification_runbook)
+        self.assertIn("npm --prefix apps/web ci", verification_runbook)
+        self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED=false", env_example)
+        self.assertIn("browser SDK assets are public static files only", env_example)
 
     def test_web_server_does_not_serve_legacy_livekit_rtc_vendor_assets(self) -> None:
         status, content_type, body = self._get("/vendor/@spatialwalk/avatarkit-rtc/dist/index.js")

@@ -56,6 +56,20 @@ Record only redacted summary fields from `scripts/realtime-smoke-readiness.py`:
 
 Do not claim live Realtime readiness from a local Mac/worktree. If `REQUIRE_REALTIME_LIVE=1` fails because provider credentials, DNS, TLS, or network reachability are missing, report it as a kiostation runtime blocker with the redacted category above.
 
+## Web static vendor/WASM/MIME contract
+
+Before blaming Realtime or avatar code for a browser startup failure, verify the static asset contract from a checkout with web dependencies installed:
+
+```bash
+npm --prefix apps/web ci
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.contract.test_web_static_contract -v
+node --check apps/web/static/app.js
+```
+
+Expected result: the room import map may reference only the deferred base SDK path `/vendor/@spatialwalk/avatarkit/dist/index.js`; legacy `/vendor/livekit-client/...` and `/vendor/@spatialwalk/avatarkit-rtc/...` stay 404 on the default path. Allowed SDK JavaScript/MJS assets must be served as `text/javascript`, and allowed SDK `.wasm` assets must be served as `application/wasm`. Path traversal or package-root reads under `/vendor/` must stay rejected.
+
+Archive/runtime note: `git archive HEAD` does not include `apps/web/node_modules`, so remote verification that exercises allowed vendor assets must either run `npm --prefix apps/web ci` in the synced checkout or use a runtime tree where those dependencies are already installed. Missing package files should be reported as a vendor install/runtime packaging blocker, not as proof that LiveKit RTC is required.
+
 ## SpatialReal non-LiveKit spike evidence
 
 Current docs/infra outcome: `sdk_mode_deferred`. The worker checkout declares `@spatialwalk/avatarkit` but lacks installed package files, so SDK Mode Web exports/method names and audio-feed lifecycle were not locally verifiable. Future SDK Mode verification must prove package/API availability and a muted PCM16 mono audio feed without LiveKit before changing avatar status from disabled/deferred. Valid outcomes are `sdk_mode_verified`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred`.
