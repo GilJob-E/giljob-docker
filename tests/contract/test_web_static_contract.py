@@ -326,9 +326,12 @@ class WebStaticContractTest(unittest.TestCase):
             "avatarSdkResponseFeedActive",
             "interviewer-audio-element-capture",
             "waiting for Realtime response feed",
-            "PCM feed waits for Realtime audio delta",
+            "PCM feed opens when SDK is ready and silence is gated until speech",
             "first question waits for avatar session readiness check",
             "waiting for SDK init before first Realtime question",
+            "waiting for SDK connection before first Realtime question",
+            "avatar SDK PCM silence dropped before speech",
+            "AVATAR_PCM_SPEECH_RMS_THRESHOLD",
         ]
         for marker in required_activation_markers:
             with self.subTest(marker=marker):
@@ -355,7 +358,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("Realtime remote audio track observed for interviewer playback; avatar SDK muted PCM16 adapter waits for response feed", body)
         self.assertIn("avatar SDK response feed active from", body)
         self.assertIn("realtime-connected-avatar-checked", body)
+        self.assertIn("avatar SDK connection wait before first Realtime question", body)
         self.assertNotIn("avatarSdkBeginResponseFeed();", body)
+        self.assertNotIn("PCM feed waits for Realtime audio delta", body)
         self.assertLess(body.index("waitForFullMmmReady"), body.index("requestRealtimeNextQuestion"))
         self.assertNotIn("AvatarPlayer.publishAudio", body)
         self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", body)

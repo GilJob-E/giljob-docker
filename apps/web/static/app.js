@@ -60,7 +60,8 @@ let avatarPcmBridgeIdleTimer = null;
 let avatarPcmBridgeEndTimer = null;
 let avatarSdkResponseFeedActive = false;
 let avatarSdkConnectionState = "unknown";
-let avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, rmsMax: 0, startedAt: 0 };
+let avatarSdkConnectionWaiters = [];
+let avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, silentDrops: 0, rmsMax: 0, startedAt: 0, speechStarted: false };
 let activeRealtimeResponseId = "";
 let realtimeAnswerTranscript = "";
 let realtimeInterviewerQuestionTranscript = "";
@@ -83,6 +84,8 @@ const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
 const SPATIALREAL_SDK_TRANSPORT = "spatialreal-sdk-websocket";
 const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
 const AVATAR_PCM_END_GRACE_MS = 1400;
+const AVATAR_PCM_SPEECH_RMS_THRESHOLD = 0.0015;
+const AVATAR_SDK_CONNECTED_WAIT_MS = 5000;
 const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
 const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
 const SPATIALREAL_SDK_MODE_LABEL = "SpatialReal SDK Mode";
@@ -694,7 +697,30 @@ function setAvatarSdkMuted(controller) {
 }
 
 function resetAvatarSdkPcmStats() {
-  avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, rmsMax: 0, startedAt: Date.now() };
+  avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, silentDrops: 0, rmsMax: 0, startedAt: Date.now(), speechStarted: false };
+}
+
+function notifyAvatarSdkConnected() {
+  const waiters = avatarSdkConnectionWaiters;
+  avatarSdkConnectionWaiters = [];
+  waiters.forEach((resolve) => resolve(true));
+}
+
+function waitForAvatarSdkConnected(timeoutMs = AVATAR_SDK_CONNECTED_WAIT_MS) {
+  if (avatarSdkConnectionState === "connected") {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      avatarSdkConnectionWaiters = avatarSdkConnectionWaiters.filter((waiter) => waiter !== finish);
+      resolve(false);
+    }, timeoutMs);
+    const finish = (connected) => {
+      window.clearTimeout(timer);
+      resolve(Boolean(connected));
+    };
+    avatarSdkConnectionWaiters.push(finish);
+  });
 }
 
 function clearAvatarPcmBridgeIdleTimer() {
@@ -716,7 +742,7 @@ function appendAvatarSdkPcmSummary(reason = "summary") {
     return;
   }
   const elapsedMs = Date.now() - avatarSdkPcmStats.startedAt;
-  appendLog(`avatar SDK PCM ${reason}: chunks=${avatarSdkPcmStats.chunks}; bytes=${avatarSdkPcmStats.bytes}; sends=${avatarSdkPcmStats.sends}; nullSends=${avatarSdkPcmStats.nullSends}; rmsMax=${avatarSdkPcmStats.rmsMax.toFixed(4)}; connection=${avatarSdkConnectionState}; elapsedMs=${elapsedMs}; media hidden`);
+  appendLog(`avatar SDK PCM ${reason}: chunks=${avatarSdkPcmStats.chunks}; bytes=${avatarSdkPcmStats.bytes}; sends=${avatarSdkPcmStats.sends}; nullSends=${avatarSdkPcmStats.nullSends}; silentDrops=${avatarSdkPcmStats.silentDrops}; speechStarted=${Boolean(avatarSdkPcmStats.speechStarted)}; rmsMax=${avatarSdkPcmStats.rmsMax.toFixed(4)}; connection=${avatarSdkConnectionState}; elapsedMs=${elapsedMs}; media hidden`);
 }
 
 function pcm16Rms(pcmBuffer) {
@@ -731,6 +757,23 @@ function pcm16Rms(pcmBuffer) {
     total += value * value;
   }
   return samples ? Math.sqrt(total / samples) : 0;
+}
+
+function shouldDropAvatarSdkSilence(pcmBuffer) {
+  const rms = pcm16Rms(pcmBuffer);
+  avatarSdkPcmStats.rmsMax = Math.max(avatarSdkPcmStats.rmsMax, rms);
+  if (avatarSdkPcmStats.speechStarted || rms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
+    if (!avatarSdkPcmStats.speechStarted) {
+      avatarSdkPcmStats.speechStarted = true;
+      appendLog(`avatar SDK PCM speech detected: rms=${rms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; connection=${avatarSdkConnectionState}; media hidden`);
+    }
+    return false;
+  }
+  avatarSdkPcmStats.silentDrops += 1;
+  if (avatarSdkPcmStats.silentDrops === 1 || avatarSdkPcmStats.silentDrops % 25 === 0) {
+    appendLog(`avatar SDK PCM silence dropped before speech: drops=${avatarSdkPcmStats.silentDrops}; rms=${rms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; connection=${avatarSdkConnectionState}; media hidden`);
+  }
+  return true;
 }
 
 function sendAvatarSdkPcmChunk(controller, pcmBuffer, isLast = false) {
@@ -839,6 +882,16 @@ function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
     if (!pcm || pcm.byteLength % 2 !== 0) {
       return;
     }
+    if (avatarSdkConnectionState !== "connected") {
+      avatarSdkPcmStats.silentDrops += 1;
+      if (avatarSdkPcmStats.silentDrops === 1 || avatarSdkPcmStats.silentDrops % 25 === 0) {
+        appendLog(`avatar SDK PCM held until connected: drops=${avatarSdkPcmStats.silentDrops}; connection=${avatarSdkConnectionState}; media hidden`);
+      }
+      return;
+    }
+    if (shouldDropAvatarSdkSilence(pcm)) {
+      return;
+    }
     try {
       sendAvatarSdkPcmChunk(controller, pcm, false);
     } catch (error) {
@@ -862,7 +915,17 @@ function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
       ended = true;
       try {
         const finalChunk = carry.length ? downsampleToPcm16(carry, context.sampleRate, sampleRate) : new ArrayBuffer(0);
-        sendAvatarSdkPcmChunk(controller, finalChunk || new ArrayBuffer(0), true);
+        const finalRms = pcm16Rms(finalChunk || new ArrayBuffer(0));
+        if (avatarSdkPcmStats.speechStarted || finalRms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
+          if (!avatarSdkPcmStats.speechStarted) {
+            avatarSdkPcmStats.speechStarted = true;
+            appendLog(`avatar SDK PCM speech detected on final chunk: rms=${finalRms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; media hidden`);
+          }
+          sendAvatarSdkPcmChunk(controller, finalChunk || new ArrayBuffer(0), true);
+        } else {
+          avatarSdkPcmStats.silentDrops += 1;
+          appendLog(`avatar SDK PCM final silence dropped: rms=${finalRms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; no avatar end marker needed before speech; media hidden`);
+        }
         appendAvatarSdkPcmSummary("end");
       } finally {
         carry = new Float32Array(0);
@@ -1127,7 +1190,8 @@ function handleRealtimeServerEvent(event) {
   if (type === "response.created") {
     activeRealtimeResponseId = event.response?.id || event.response_id || event.id || "";
     renderAvatarSdkModeStatus();
-    appendLog("avatar SDK response created; PCM feed waits for Realtime audio delta; media hidden");
+    appendLog("avatar SDK response created; PCM feed opens when SDK is ready and silence is gated until speech; media hidden");
+    avatarSdkBeginResponseFeed(type);
     return;
   }
   if (type === "conversation.item.input_audio_transcription.delta" && typeof event.delta === "string") {
@@ -1401,6 +1465,7 @@ async function disconnectAvatarRtc() {
   avatarPcmBridge?.close();
   avatarPcmBridge = null;
   avatarSdkResponseFeedActive = false;
+  avatarSdkConnectionWaiters.splice(0).forEach((resolve) => resolve(false));
   clearAvatarPcmBridgeIdleTimer();
   clearAvatarPcmBridgeEndTimer();
   activeAvatarSdkRuntime?.avatarView?.dispose?.();
@@ -1463,6 +1528,9 @@ async function initializeSpatialRealSdkAvatar(payload) {
     controller.onConnectionState = (state) => {
       avatarSdkConnectionState = String(state || "unknown");
       appendLog(`avatar SDK connection state: ${avatarSdkConnectionState}; tokens hidden`);
+      if (avatarSdkConnectionState === "connected") {
+        notifyAvatarSdkConnected();
+      }
     };
     controller.onConversationState = (state) => {
       appendLog(`avatar SDK conversation state: ${String(state || "unknown")}; media hidden`);
@@ -1552,6 +1620,9 @@ async function requestAvatarSession(reason = "room-join") {
     if (payload?.ready && avatarSdkInitializePromise) {
       appendLog("avatar session ready; waiting for SDK init before first Realtime question; tokens hidden");
       await avatarSdkInitializePromise;
+      appendLog("avatar SDK init complete; waiting for SDK connection before first Realtime question; tokens hidden");
+      const connected = await waitForAvatarSdkConnected();
+      appendLog(`avatar SDK connection wait before first Realtime question: ${connected ? "connected" : "timeout"}; current=${avatarSdkConnectionState}; tokens hidden`);
     }
     appendLog(`avatar session state: ${payload.status || "unknown"}; provider ${payload.provider || "unknown"}; session token hidden; Realtime voice unaffected`);
     return payload;
