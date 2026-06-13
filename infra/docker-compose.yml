@@ -60,6 +60,14 @@ services:
     depends_on:
       - postgres
 
+  hashimoto:
+    build: ../services/hashimoto
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      HASHIMOTO_ANALYSIS_MODEL: ${HASHIMOTO_ANALYSIS_MODEL:-gemini-3.1-flash-lite}
+    expose:
+      - "8200"          # internal only -- no ports:, no Caddy route
+
   analysis-engine:
     build: ../services/analysis-engine
     environment:

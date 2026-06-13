@@ -1,0 +1,150 @@
+from pydantic import BaseModel, Field, model_validator
+from typing import Any, Dict, List, Literal, Optional
+
+
+class MultimodalVector(BaseModel):
+    anxiety: float = Field(default=50.0, ge=0.0, le=100.0)
+    confidence: float = Field(default=50.0, ge=0.0, le=100.0)
+
+
+class EngineInput(BaseModel):
+    stt_text: str
+    multimodal: MultimodalVector = Field(default_factory=MultimodalVector)
+    turn_number: int = 1
+    # giljob-docker 통합: 턴 추적·dedup용 정식 식별자(분석 로직에는 비관여). 미지정 시 None.
+    turn_id: Optional[str] = None
+
+
+# ── Session configuration ─────────────────────────────────────────────────────
+
+class HashimotoConfig(BaseModel):
+    """면접 세션 단위 튜닝 파라미터. 오케스트레이터가 세션 시작 시 엔진에 주입한다.
+
+    모든 필드는 기본값을 가지므로 HashimotoConfig() 만으로 기존 동작을 그대로 재현한다.
+    """
+
+    # 주제 내 최대 꼬리질문 깊이 — within-topic depth prune 발동 깊이
+    prune_depth_threshold: int = Field(default=5, ge=1)
+    # 불안도 최고 시 적용되는 depth 임계값 하한
+    min_prune_depth_threshold: int = Field(default=2, ge=1)
+    # root topic당 누적 질문 수 상한 — 도달 시 주제 전환
+    topic_question_threshold: int = Field(default=10, ge=1)
+    # 슬롯 검증(VERIFIED) 판정 점수 컷오프
+    fulfillment_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    # Multi-Slot Scanning 윈도우 — LLM이 동시에 고려하는 상위 슬롯 수
+    active_window: int = Field(default=3, ge=1)
+    # 불안도에 따른 depth 임계값 자동 하향 사용 여부 (False면 항상 base 사용)
+    anxiety_adjust: bool = True
+    # 분석 LLM 모델 오버라이드 (None이면 클라이언트 기본 모델)
+    analysis_model: Optional[str] = None
+    # 채용공고에서 도출한 세션 집중 키워드. 엔진 로직에서 직접 쓰이지 않고
+    # SapienStrategyPackage의 부가 메타정보로만 전달된다.
+    focus_keywords: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> "HashimotoConfig":
+        if self.min_prune_depth_threshold > self.prune_depth_threshold:
+            raise ValueError(
+                "min_prune_depth_threshold는 prune_depth_threshold 이하여야 합니다."
+            )
+        return self
+
+
+# ── LLM output schema ────────────────────────────────────────────────────────
+
+class SlotEvaluationResult(BaseModel):
+    slot_id: str
+    fulfillment_score: float = Field(ge=0.0, le=1.0)
+    evidence: str
+    # ANSWERED: 답변 시도 있음 / INSUFFICIENT: 시도했으나 핵심 미충족 / REFUSED: 거부·모름
+    response_type: Literal["ANSWERED", "INSUFFICIENT", "REFUSED"] = "ANSWERED"
+
+
+class CriterionInput(BaseModel):
+    # 닫힌 스키마 — Gemini response_schema는 개방형 객체(additionalProperties)를 거부함
+    criterion: str = ""
+    weight: float = 0.5
+
+
+class EmergentSlotData(BaseModel):
+    slot_id: str
+    proposition_statement: str
+    verification_criteria: List[CriterionInput] = []
+    expected_answer_depth: str = "Conceptual"
+
+
+class AbductionResult(BaseModel):
+    observed_gap: str
+    abductive_hypothesis: str
+    parent_slot_id: Optional[str] = None  # 이 emergent_slot이 보완하는 부모 슬롯의 ID
+    emergent_slot: EmergentSlotData
+
+
+class StateCommands(BaseModel):
+    # PUSH: push emergent_slot; POP: pop verified slots; PRUNE: reset for topic switch
+    stack_action: str
+    pop_count: int = 0
+    depth_increment: int = 1
+    slots_to_pop: List[str] = []
+
+
+class StrategyForSapien(BaseModel):
+    logic_goal: str
+    logical_gap_to_bridge: str
+    interviewer_intent: str
+    focus_point: str
+    suggested_tone: str
+
+
+class LLMAnalysisOutput(BaseModel):
+    slot_evaluations: List[SlotEvaluationResult]
+    abduction: Optional[AbductionResult] = None
+    state_commands: StateCommands
+    strategy: StrategyForSapien
+
+
+# ── Final output to Sapien ────────────────────────────────────────────────────
+
+class SapienStrategyPackage(BaseModel):
+    interaction_strategy: Dict[str, Any]
+
+    @classmethod
+    def from_analysis(
+        cls,
+        strategy: StrategyForSapien,
+        topic: str,
+        depth_level: int,
+        multimodal: MultimodalVector,
+        topic_changed: bool = False,
+        transition_hint: Optional[str] = None,
+        resolved_history: Optional[List[Dict[str, Any]]] = None,
+        focus_keywords: Optional[List[str]] = None,
+    ) -> "SapienStrategyPackage":
+        adjust_note = ""
+        if multimodal.anxiety > 70:
+            adjust_note = "사용자가 불안을 보이고 있습니다. 질문 수위를 조절하세요."
+        elif multimodal.confidence < 30:
+            adjust_note = "사용자의 자신감이 낮습니다. 유도 질문을 활용하세요."
+
+        return cls(
+            interaction_strategy={
+                "logic_goal": strategy.logic_goal,
+                "logical_gap_to_bridge": strategy.logical_gap_to_bridge,
+                "interviewer_persona_guidance": {
+                    "intent": strategy.interviewer_intent,
+                    "emotion_direction": strategy.suggested_tone,
+                    "focus_point": strategy.focus_point,
+                },
+                "current_context": {
+                    "topic": topic,
+                    "depth_level": depth_level,
+                    "topic_changed": topic_changed,
+                    "transition_hint": transition_hint,
+                    "multimodal_feedback_requirement": adjust_note or None,
+                    # 이미 검증/거부된 명제 — 질문 LLM이 재질문하지 않도록 전달
+                    "resolved_history": resolved_history or [],
+                    # 채용공고 기반 세션 집중 키워드 (부가 메타정보)
+                    "focus_keywords": focus_keywords or [],
+                },
+            }
+        )
