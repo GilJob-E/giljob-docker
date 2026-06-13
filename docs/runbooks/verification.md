@@ -82,7 +82,7 @@ Archive/runtime note: `git archive HEAD` does not include `apps/web/node_modules
 
 ## SpatialReal non-LiveKit spike evidence
 
-Current stable default outcome: `sdk_mode_deferred`. When the SDK flag and SpatialReal server credentials are present, API-key token brokerage can move `/avatar/session` to `ready`, but browser QA must still prove package/API availability and a muted PCM16 mono audio feed without LiveKit before changing avatar outcome to verified. Valid outcomes are `sdk_mode_verified`, `sdk_mode_blocked_provider_token_broker`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_missing_provider_token`, `sdk_mode_blocked_by_audio_feed`, `sdk_mode_blocked_double_audio_or_mute`, or `sdk_mode_deferred`.
+Current stable default outcome: `sdk_mode_deferred`. When the SDK flag and SpatialReal server credentials are present, API-key token brokerage can move `/avatar/session` to `ready`, but browser QA must still prove package/API availability and a muted PCM16 mono audio feed without LiveKit before changing avatar outcome to verified. The token broker must send an explicit `SPATIALREAL_TOKEN_BROKER_USER_AGENT`; Python urllib's default signature has been observed to trigger Cloudflare 1010. Valid outcomes are `sdk_mode_verified`, `sdk_mode_blocked_provider_token_broker`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_missing_provider_token`, `sdk_mode_blocked_by_audio_feed`, `sdk_mode_blocked_double_audio_or_mute`, or `sdk_mode_deferred`.
 
 ## Interviewer voice and avatar provider contract
 

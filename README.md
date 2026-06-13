@@ -274,6 +274,7 @@ SPATIALREAL_AVATAR_ID=replace-me-spatialreal-avatar-id
 SPATIALREAL_ENVIRONMENT=intl
 SPATIALREAL_REGION=ap-northeast
 SPATIALREAL_SESSION_TTL_SECONDS=600
+SPATIALREAL_TOKEN_BROKER_USER_AGENT=GilJob-v2-SpatialReal-TokenBroker/1.0
 ```
 
 Optional legacy/media overlay 또는 SpatialReal RTC 실험을 켤 때만 추가:
@@ -425,7 +426,7 @@ Kiostation evidence rule:
 
 ### SpatialReal SDK Mode Web spike status
 
-Current default outcome: `sdk_mode_deferred`. When explicitly enabled and configured, the API uses server-side `SPATIALREAL_API_KEY` to mint a short-lived SpatialReal session token and returns `client.spatialrealSdk` from `/api/interviews/{id}/avatar/session`. The browser then initializes `@spatialwalk/avatarkit`, mutes SDK playback, and feeds a PCM16 mono 16 kHz copy of OpenAI Realtime output to the avatar controller. Record `sdk_mode_verified`, `sdk_mode_blocked_provider_token_broker`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred` from kiostation browser QA; do not claim production lip-sync until that proof exists.
+Current default outcome: `sdk_mode_deferred`. When explicitly enabled and configured, the API uses server-side `SPATIALREAL_API_KEY` to mint a short-lived SpatialReal session token and returns `client.spatialrealSdk` from `/api/interviews/{id}/avatar/session`. The token broker sends an explicit `SPATIALREAL_TOKEN_BROKER_USER_AGENT` because Python urllib's default signature can be blocked by SpatialReal's Cloudflare layer. The browser then initializes `@spatialwalk/avatarkit`, mutes SDK playback, and feeds a PCM16 mono 16 kHz copy of OpenAI Realtime output to the avatar controller. Record `sdk_mode_verified`, `sdk_mode_blocked_provider_token_broker`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred` from kiostation browser QA; do not claim production lip-sync until that proof exists.
 
 ### SpatialReal SDK Mode / Host Mode fallback status
 
