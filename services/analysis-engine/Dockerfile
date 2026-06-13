@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SERVICE_NAME=analysis-engine \
     SERVICE_PORT=8200 \
     ANALYSIS_ENGINE_PORT=8200 \
-    GILJOBE_GIT_REF=5ba7249 \
+    GILJOBE_GIT_REF=f817f81 \
     ANALYSIS_ENGINE_ENABLE_SUBSCRIBER=false \
     GILJOBE_VISION_MODELS_DIR=/app/models \
     # matplotlib (mediapipe dep) and fontconfig need a writable cache dir; USER nobody has
@@ -31,14 +31,17 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY server.py /app/server.py
 
-# MediaPipe Face/Pose Landmarker models for GilJobE's objective vision grounding lane.
+# MediaPipe Face/Pose/Hand Landmarker models for GilJobE's objective vision grounding lane
+# (Hands adds finger-count segments that ride the turn_handoff fragment as finger_sequence).
 # Baked at build time from version-pinned URLs so the runtime needs no network fetch.
 # The lane self-disables when models/deps are missing, so this stays optional-by-design.
 RUN mkdir -p /app/models \
     && curl -fsSL -o /app/models/face_landmarker.task \
        https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task \
     && curl -fsSL -o /app/models/pose_landmarker.task \
-       https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task
+       https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task \
+    && curl -fsSL -o /app/models/hand_landmarker.task \
+       https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task
 
 EXPOSE 8200
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

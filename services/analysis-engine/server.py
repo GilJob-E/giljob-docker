@@ -416,7 +416,7 @@ def _route_registered(app: web.Application, method: str, path: str) -> bool:
 
 def _add_realtime_sideband_routes(app: web.Application) -> None:
     routes = []
-    # GilJobE 5ba7249 owns POST /realtime/turn-events for the external transcript
+    # GilJobE f817f81 owns POST /realtime/turn-events for the external transcript
     # sentence lane. Keep this wrapper fallback only for older pins and never
     # duplicate a provider-owned route, because aiohttp rejects duplicate method/path.
     if not _route_registered(app, "POST", "/realtime/turn-events"):
