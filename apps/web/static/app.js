@@ -50,7 +50,7 @@ let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
 let lastAnalysisBlock = ""; // server-owned analysis summary only; browser never starts analysis workers or injects verbatim transcripts.
 let activeAvatarSession = null;
-let avatarSdkModeState = { initialized: false, outcome: "sdk_mode_deferred", reason: "not_started" };
+let avatarSdkModeState = { initialized: false, outcome: "sdk_mode_deferred", reason: "not_started", audioFeed: "pcm16-mono-16000" };
 let activeRealtimeSession = null;
 let realtimeRemoteAudioTrack = null;
 let activeRealtimeResponseId = "";
@@ -69,7 +69,9 @@ const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
 const SPATIALREAL_SDK_MODE_WEB_ENABLED = "SPATIALREAL_SDK_MODE_WEB_ENABLED";
 const SPATIALREAL_SDK_MODE_OUTCOME = "sdk_mode_deferred";
-const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
+const SPATIALREAL_SDK_MODE = "spatialreal-non-livekit-sdk-mode";
+const SPATIALREAL_SDK_TRANSPORT = "direct-sdk";
+const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
 const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
 const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
 const SPATIALREAL_SDK_MODE_LABEL = "SpatialReal SDK Mode";
@@ -190,17 +192,43 @@ function avatarStatusLabel(payload) {
 }
 
 function avatarSdkModeConfig(payload = activeAvatarSession) {
-  return payload?.sdkMode || payload?.client?.sdkMode || activeSession?.avatarSdkMode || {};
+  // SDK Mode metadata must be sibling/public metadata. Do not read token-bearing
+  // client metadata for browser feature gating or Realtime audio adapter state.
+  return payload?.sdkMode || activeSession?.avatarSdkMode || {};
 }
 
-function isSpatialRealSdkModeEnabled(payload = activeAvatarSession) {
+function avatarSdkAudioFeedConfig(payload = activeAvatarSession) {
   const sdkMode = avatarSdkModeConfig(payload);
-  return sdkMode.enabled === true
+  return sdkMode.audioFeed || sdkMode.audio || {};
+}
+
+function normalizeAvatarSdkModeState(payload = activeAvatarSession) {
+  const sdkMode = avatarSdkModeConfig(payload);
+  const audioFeed = avatarSdkAudioFeedConfig(payload);
+  const audioFormat = audioFeed.format || [audioFeed.encoding, audioFeed.channels, audioFeed.sampleRate].filter(Boolean).join("-") || SPATIALREAL_SDK_AUDIO_FEED_FORMAT;
+  const metadataAccepted = sdkMode.enabled === true
     && sdkMode.mode === SPATIALREAL_SDK_MODE
+    && sdkMode.transport === SPATIALREAL_SDK_TRANSPORT
+    && sdkMode.livekitRequired === false
     && sdkMode.requiresFeatureFlag === SPATIALREAL_SDK_MODE_WEB_ENABLED
     && sdkMode.outcome === SPATIALREAL_SDK_MODE_OUTCOME
     && sdkMode.providerSecretsExposed === false
-    && sdkMode.rawMediaExposed === false;
+    && sdkMode.rawMediaExposed === false
+    && sdkMode.rawTranscriptExposed !== true;
+  return {
+    initialized: false,
+    metadataAccepted,
+    mode: sdkMode.mode || SPATIALREAL_SDK_MODE,
+    transport: sdkMode.transport || SPATIALREAL_SDK_TRANSPORT,
+    livekitRequired: sdkMode.livekitRequired === false ? false : Boolean(sdkMode.livekitRequired),
+    outcome: sdkMode.outcome || sdkMode.status || SPATIALREAL_SDK_MODE_OUTCOME,
+    reason: sdkMode.reason || (metadataAccepted ? "pcm_audio_feed_unverified" : "sdk_mode_metadata_incomplete"),
+    audioFeed: audioFormat || SPATIALREAL_SDK_AUDIO_FEED_FORMAT,
+  };
+}
+
+function isSpatialRealSdkModeEnabled(payload = activeAvatarSession) {
+  return normalizeAvatarSdkModeState(payload).metadataAccepted === true;
 }
 
 
@@ -587,12 +615,12 @@ function attachRealtimeRemoteAudio(stream) {
 }
 
 function renderAvatarSdkModeStatus(payload = activeAvatarSession) {
-  const sdkMode = avatarSdkModeConfig(payload);
-  const mode = sdkMode.mode || SPATIALREAL_SDK_MODE;
-  const outcome = sdkMode.outcome || sdkMode.status || SPATIALREAL_SDK_MODE_OUTCOME;
-  const safeMode = String(mode).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
-  const safeOutcome = String(outcome).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
-  appendLog(`${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}; ${AVATAR_DEFERRED_LABEL}; ${SPATIALREAL_SDK_MODE_LABEL} ${safeMode}:${safeOutcome}; tokens hidden; media hidden`);
+  const state = normalizeAvatarSdkModeState(payload);
+  avatarSdkModeState = { ...avatarSdkModeState, ...state };
+  const safeMode = String(state.mode).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  const safeOutcome = String(state.outcome).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  const safeAudioFeed = String(state.audioFeed).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  appendLog(`${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}; ${AVATAR_DEFERRED_LABEL}; ${SPATIALREAL_SDK_MODE_LABEL} ${safeMode}:${safeOutcome}; ${state.transport}; ${safeAudioFeed}; tokens hidden; media hidden`);
 }
 
 function captureRealtimeRemoteAudioTrack(track) {
@@ -604,7 +632,7 @@ function captureRealtimeRemoteAudioTrack(track) {
     activeRealtimeSession.remoteAudioTrack = track;
   }
   renderAvatarSdkModeStatus();
-  appendLog("Realtime remote audio track observed for interviewer playback only; avatar SDK Mode output remains deferred; media hidden");
+  appendLog("Realtime remote audio track observed for interviewer playback only; non-LiveKit avatar SDK adapter remains deferred; PCM16 feed not attached; media hidden");
   if (typeof track.addEventListener === "function") {
     track.addEventListener("ended", () => {
       if (realtimeRemoteAudioTrack === track) {
@@ -1010,13 +1038,13 @@ function renderAvatarRtcEgressStatus(avatarRtc) {
 }
 
 async function disconnectAvatarRtc() {
-  avatarSdkModeState = { ...avatarSdkModeState, initialized: false, reason: "disconnected" };
+  avatarSdkModeState = { ...avatarSdkModeState, initialized: false, reason: "disconnected", audioFeed: SPATIALREAL_SDK_AUDIO_FEED_FORMAT };
   avatarRenderTarget?.classList.remove("is-rtc-active");
   appendLog(`${AVATAR_DEFERRED_LABEL}: disconnected; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} unaffected`);
 }
 
 function renderAvatarRtcDegraded(reason) {
-  avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_MODE_OUTCOME, reason: String(reason || "sdk_mode_deferred") };
+  avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_MODE_OUTCOME, reason: String(reason || "sdk_mode_deferred"), audioFeed: SPATIALREAL_SDK_AUDIO_FEED_FORMAT };
   setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
   setAvatarPanelMessage(`${AVATAR_DEFERRED_LABEL}: ${reason}. OpenAI Realtime owns STT/VAD/interviewer audio. ${SPATIALREAL_SDK_MODE_LABEL} remains ${SPATIALREAL_SDK_MODE_OUTCOME}; no production lip-sync claim.`);
   appendLog(`${AVATAR_DEFERRED_LABEL}: ${reason}; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}; tokens hidden; media hidden`);
@@ -1031,9 +1059,9 @@ async function initializeAvatarRtc(payload) {
     renderAvatarRtcDegraded("sdk_mode_deferred");
     return;
   }
-  avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_MODE_OUTCOME, reason: "web_sdk_mode_not_verified" };
+  avatarSdkModeState = { ...normalizeAvatarSdkModeState(payload), initialized: false, reason: "pcm_audio_feed_unverified" };
   setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
-  setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} metadata is browser-safe, but runtime rendering is deferred until a kiostation proof verifies the SDK Mode audio-feed lifecycle. ${AVATAR_DEFERRED_LABEL}.`);
+  setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} metadata is browser-safe for ${SPATIALREAL_SDK_TRANSPORT}, but runtime rendering is deferred until a kiostation proof verifies the ${SPATIALREAL_SDK_AUDIO_FEED_FORMAT} lifecycle. ${AVATAR_DEFERRED_LABEL}.`);
   renderAvatarSdkModeStatus(payload);
 }
 
@@ -1052,12 +1080,11 @@ function renderAvatarState(payload) {
   }
   if (avatarPanelBody) {
     if (payload?.ready) {
-      const audio = payload?.client?.audioFormat || {};
-      const sdkMode = avatarSdkModeConfig(payload);
-      const sdkStatus = isSpatialRealSdkModeEnabled(payload)
-        ? `${SPATIALREAL_SDK_MODE_LABEL} metadata accepted; ${SPATIALREAL_SDK_MODE_OUTCOME}`
-        : `${SPATIALREAL_SDK_MODE_LABEL} ${SPATIALREAL_SDK_MODE_OUTCOME} (${sdkMode.status || sdkMode.reason || "feature flag off"})`;
-      avatarPanelBody.textContent = `SpatialReal session metadata is ready, but avatar rendering is disabled/deferred. Session token is not shown. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${sdkStatus}. ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} continues.`;
+      const sdkModeState = normalizeAvatarSdkModeState(payload);
+      const sdkStatus = sdkModeState.metadataAccepted
+        ? `${SPATIALREAL_SDK_MODE_LABEL} metadata accepted for ${sdkModeState.transport}; ${sdkModeState.outcome}`
+        : `${SPATIALREAL_SDK_MODE_LABEL} ${SPATIALREAL_SDK_MODE_OUTCOME} (${sdkModeState.reason || "feature flag off"})`;
+      avatarPanelBody.textContent = `SpatialReal session metadata is ready, but avatar rendering is disabled/deferred. Session token is not shown. Audio feed ${sdkModeState.audioFeed}. ${sdkStatus}. ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} continues.`;
     } else if (payload?.reason) {
       avatarPanelBody.textContent = `${AVATAR_DEFERRED_LABEL}: ${payload.reason}. Provider keys stay server-side.`;
     } else if (payload?.error) {
