@@ -8,9 +8,9 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
-PINNED_GILJOBE_REF = "f817f81"
+PINNED_GILJOBE_REF = "a26045d"
 # Superseded pins must not resurface anywhere a stale copy could mislead operators.
-OLD_GILJOBE_REFS = ("b769120", "88a4df5", "e0671f5", "5ba7249")
+OLD_GILJOBE_REFS = ("f817f81", "b769120", "88a4df5", "e0671f5", "5ba7249")
 
 
 def load_analysis_engine_wrapper():
@@ -151,7 +151,7 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("GILJOBE_VISION_MODELS_DIR=/app/models", dockerfile)
         self.assertIn("face_landmarker.task", dockerfile)
         self.assertIn("pose_landmarker.task", dockerfile)
-        # Hands lane (GilJobE f817f81): finger-count segments ride the turn_handoff
+        # Hands lane (GilJobE a26045d): finger-count segments ride the turn_handoff
         # fragment; without the baked model the lane silently self-disables.
         self.assertIn("hand_landmarker.task", dockerfile)
         # MediaPipe C bindings dlopen GLES/EGL even for CPU inference (verified in-container);

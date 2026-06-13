@@ -15,7 +15,7 @@ Claude reminders:
   (`records` + `turnHandoff.{speech,visual,nonverbal,prompt_block}`), wrapping GilJobE.
   `/realtime/turn-results` returns only a candidate-safe 880-char fragment (a lossy
   projection the API feeds the consumer LLM), not the rich lanes.
-- RNAS (`_EventOnlyRealtimeTurns`) is dormant under pin `f817f81`: GilJobE owns
+- RNAS (`_EventOnlyRealtimeTurns`) is dormant under pin `a26045d`: GilJobE owns
   `POST /realtime/turn-events`, so `turn-results` falls back to the turnHandoff fragment
   (`schemaVersion: …turn-handoff-fragment.v2`). Don't expect `visionSignals`/`prosodySignals`
   from turn-results; read `turnHandoff` instead.

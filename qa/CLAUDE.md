@@ -71,12 +71,12 @@ lossy summary of `prompt_block`, not the raw handoff.
   is **no transcript-independent vision read**. Media-only publishing therefore yields
   an essentially empty `signals.json`; you must use the product path (real transcript).
 
-## RNAS is dormant under pin f817f81
+## RNAS is dormant under pin a26045d
 
 RNAS = Realtime-Native Analysis Session (`_EventOnlyRealtimeTurns` /`_RnasSession`
 in `services/analysis-engine/server.py`) — assembles `transcriptSignals` /
 `prosodySignals` / `visionSignals` from forwarded sideband events. **But under pin
-f817f81 GilJobE owns `POST /realtime/turn-events`** (the wrapper's `_route_registered`
+a26045d GilJobE owns `POST /realtime/turn-events`** (the wrapper's `_route_registered`
 guard skips its own handler), so RNAS sessions never fill → `/realtime/turn-results`
 falls back to the turnHandoff-fragment branch (`schemaVersion:
 2026-06-12.turn-handoff-fragment.v2` in our artifacts is the proof). Don't chase
@@ -98,7 +98,7 @@ judged from `signals.json`/`candidate-fragment.json`, not from the spoken reply.
 The analysis-engine **bakes** giljobe at build time into
 `/usr/local/lib/python3.12/site-packages/giljobe` (no source mount). The source is
 the separate repo `/home/kio/workspace/giljobe`, branch `feat/grounding-hands-whisper`
-@ `f817f81` (the container's `GILJOBE_GIT_REF`).
+@ `a26045d` (the container's `GILJOBE_GIT_REF`).
 
 To test a giljobe code change without a rebuild:
 
@@ -107,14 +107,17 @@ To test a giljobe code change without a rebuild:
     # wait for ready:
     curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/analysis/readyz   # → 200
 
-These patches live only in the running container + the giljobe working tree; a
-rebuild/replace **loses them**. To persist: commit giljobe + bump the pin in
-`infra/docker-compose.yml`.
+When you hot-patch, a container rebuild/replace **loses it** unless you commit
+giljobe + bump the pin (`GILJOBE_GIT_REF` in `infra/docker-compose.yml`,
+`.env.example`, `Dockerfile`, `requirements.txt`, and `PINNED_GILJOBE_REF` in
+`tests/contract/test_analysis_engine_contract.py` — the contract test enforces
+consistency + a superseded-ref guard).
 
-### Uncommitted giljobe patches as of 2026-06-13 (hot-patched into QA engine)
+### giljobe analysis fixes committed in pin a26045d (2026-06-13)
 
-In `/home/kio/workspace/giljobe` (working tree, `feat/grounding-hands-whisper`),
-not yet committed — all validated by `pytest tests/` (176 passed, 4 vLLM-skipped):
+Committed on `feat/grounding-hands-whisper` (a26045d, supersedes f817f81); the QA
+engine runs this code. All validated by `pytest tests/` (176 passed, 4 vLLM-skipped),
+regression tests included:
 
 1. `analysis/grounding.py` + `emit/handoff.py` — removed the wrist-not-visible
    "관측 불가(평가 금지)" guard that was contradicting finger-count numbers.

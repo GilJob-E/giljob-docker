@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SERVICE_NAME=analysis-engine \
     SERVICE_PORT=8200 \
     ANALYSIS_ENGINE_PORT=8200 \
-    GILJOBE_GIT_REF=f817f81 \
+    GILJOBE_GIT_REF=a26045d \
     ANALYSIS_ENGINE_ENABLE_SUBSCRIBER=false \
     GILJOBE_VISION_MODELS_DIR=/app/models \
     # matplotlib (mediapipe dep) and fontconfig need a writable cache dir; USER nobody has
