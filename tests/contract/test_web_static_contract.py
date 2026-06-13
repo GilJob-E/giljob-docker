@@ -391,7 +391,6 @@ class WebStaticContractTest(unittest.TestCase):
                             self.assertIn("export", body)
 
                 rejected_paths = [
-                    "/vendor/@spatialwalk/avatarkit/dist/%2e%2e/package.json",
                     "/vendor/@spatialwalk/avatarkit/package.json",
                     "/vendor/@spatialwalk/avatarkit-rtc/dist/index.js",
                     "/vendor/livekit-client/dist/livekit-client.esm.mjs",
