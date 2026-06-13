@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """GilJobE analysis-engine entrypoint with GilJob v2 Realtime MMM ingress.
 
 GilJobE still owns the STT/subscriber HTTP contract. This wrapper builds the

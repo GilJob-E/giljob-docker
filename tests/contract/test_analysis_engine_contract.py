@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import importlib.util
 import pathlib
@@ -54,7 +54,7 @@ def load_analysis_engine_wrapper():
 
 class AnalysisEngineContractTest(unittest.TestCase):
     def test_analysis_engine_runs_giljobe_app_with_realtime_mmm_ingress_wrapper(self) -> None:
-        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text(encoding="utf-8")
         self.assertIn("from giljobe.server.http_app import make_app", wrapper)
         self.assertIn('web.post("/realtime/turn-events"', wrapper)
         self.assertIn("raw_payload_not_allowed", wrapper)
@@ -69,7 +69,7 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("_finalized_by_key", wrapper)
         self.assertIn("2026-06-12.per-turn-mmm-result.v1", wrapper)
         self.assertIn("2026-06-12.candidate-safe-prompt-fragment.v1", wrapper)
-        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
+        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("python:3.12-slim", dockerfile)
         self.assertNotIn("python:3.12-alpine", dockerfile)
         self.assertIn("git ffmpeg ca-certificates", dockerfile)
@@ -124,10 +124,10 @@ class AnalysisEngineContractTest(unittest.TestCase):
             self.assertFalse(module._contains_forbidden_raw_field(payload), payload)
 
     def test_pinned_giljobe_ref_is_consistent_across_runtime_files(self) -> None:
-        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
-        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
-        env_example = (REPO_ROOT / ".env.example").read_text()
-        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
+        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text(encoding="utf-8")
         for label, text in {
             "requirements": requirements,
             "compose": compose,
@@ -143,10 +143,10 @@ class AnalysisEngineContractTest(unittest.TestCase):
     def test_grounding_lane_assets_and_toggles_are_wired(self) -> None:
         """GilJobE objective grounding lanes (vision/prosody): the image must install the
         extras and bake the MediaPipe models; compose must pass the lane toggles through."""
-        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
-        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
-        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
-        env_example = (REPO_ROOT / ".env.example").read_text()
+        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
         self.assertIn("giljobe[vision,prosody]", requirements)
         self.assertIn("GILJOBE_VISION_MODELS_DIR=/app/models", dockerfile)
         self.assertIn("face_landmarker.task", dockerfile)
@@ -164,16 +164,16 @@ class AnalysisEngineContractTest(unittest.TestCase):
             # Realtime sentence lane: transcript-source toggle must stay wired and default to sideband.
             self.assertIn("GILJOBE_TRANSCRIPT_SOURCE", text)
         self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}", compose)
-        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text(encoding="utf-8")
         self.assertIn("from giljobe.analysis.grounding import maybe_vision_grounder", wrapper)
         self.assertIn("_analyze_internal_vision_frame", wrapper)
         self.assertIn("faceSeenRatio", wrapper)
         self.assertIn("poseSeenRatio", wrapper)
 
     def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
-        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
-        media_compose = (REPO_ROOT / "infra" / "docker-compose.media.yml").read_text()
-        caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text()
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+        media_compose = (REPO_ROOT / "infra" / "docker-compose.media.yml").read_text(encoding="utf-8")
+        caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text(encoding="utf-8")
         self.assertIn("analysis-engine:", compose)
         self.assertIn("../services/analysis-engine", compose)
         self.assertIn("VLLM_BASE_URL", compose)
@@ -189,9 +189,9 @@ class AnalysisEngineContractTest(unittest.TestCase):
     def test_docs_describe_giljobe_owned_http_contract(self) -> None:
         analysis_docs = "\n".join(
             [
-                (ANALYSIS_ENGINE_ROOT / "README.md").read_text(),
-                (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text(),
-                (ANALYSIS_ENGINE_ROOT / "CLAUDE.md").read_text(),
+                (ANALYSIS_ENGINE_ROOT / "README.md").read_text(encoding="utf-8"),
+                (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text(encoding="utf-8"),
+                (ANALYSIS_ENGINE_ROOT / "CLAUDE.md").read_text(encoding="utf-8"),
             ]
         )
         for expected in (
@@ -209,9 +209,9 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("legacy", analysis_docs.lower())
 
     def test_root_docs_and_verification_no_longer_reference_deleted_wrapper(self) -> None:
-        root_readme = (REPO_ROOT / "README.md").read_text()
-        verification_runbook = (REPO_ROOT / "docs" / "runbooks" / "verification.md").read_text()
-        analysis_agents = (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text()
+        root_readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        verification_runbook = (REPO_ROOT / "docs" / "runbooks" / "verification.md").read_text(encoding="utf-8")
+        analysis_agents = (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("services/analysis-engine/server.py", root_readme)
         self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py", verification_runbook)
         self.assertIn("/realtime/turn-events", analysis_agents)
@@ -219,7 +219,7 @@ class AnalysisEngineContractTest(unittest.TestCase):
 
     def test_no_raw_secret_or_media_examples_in_analysis_docs(self) -> None:
         docs = "\n".join(
-            path.read_text()
+            path.read_text(encoding="utf-8")
             for path in [
                 ANALYSIS_ENGINE_ROOT / "README.md",
                 ANALYSIS_ENGINE_ROOT / "AGENTS.md",
@@ -246,7 +246,7 @@ class TurnResultsContractTest(unittest.TestCase):
     """GET /realtime/turn-results — API _fetch_analysis_result가 당겨가는 turn_handoff 운반 계약."""
 
     def test_turn_results_route_serves_turn_handoff_fragment(self) -> None:
-        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text(encoding="utf-8")
         self.assertIn('web.get("/realtime/turn-results"', wrapper)
         self.assertIn("from giljobe.emit.handoff import render_prompt_fragment", wrapper)
         self.assertIn("candidatePromptFragment", wrapper)

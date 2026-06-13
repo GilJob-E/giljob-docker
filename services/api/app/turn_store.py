@@ -32,7 +32,7 @@ def _visual_measurable(evals: list[dict[str, Any]]) -> bool:
 
 
 class TurnStore(Protocol):
-    def upsert_question(self, session_id: str, turn_id: int, question: str) -> None: ...
+    def upsert_question(self, session_id: str, turn_id: int, question: str, metadata: dict[str, Any] | None = None) -> None: ...
     def upsert_answer(self, session_id: str, turn_id: int, answer: str, overwrite: bool = True) -> None: ...
     def upsert_signals(self, session_id: str, turn_id: int, signals: list[dict[str, Any]], giljobe_ref: object = None) -> None: ...
     def report_rows(self, session_id: str) -> list[dict[str, Any]]: ...
@@ -50,9 +50,18 @@ class InMemoryTurnStore:
     def _entry(self, session_id: str, turn_id: int) -> dict[str, Any]:
         return self._turns.setdefault((session_id, turn_id), {"question": None, "answer": None})
 
-    def upsert_question(self, session_id: str, turn_id: int, question: str) -> None:
+    def upsert_question(self, session_id: str, turn_id: int, question: str, metadata: dict[str, Any] | None = None) -> None:
         with self._lock:
-            self._entry(session_id, turn_id)["question"] = question
+            entry = self._entry(session_id, turn_id)
+            entry["question"] = question
+            if metadata:
+                entry.update({
+                    "topic": metadata.get("topic"),
+                    "topicSource": metadata.get("topicSource"),
+                    "hashimotoAsOfTurnId": metadata.get("hashimotoAsOfTurnId"),
+                    "hashimotoTopicChanged": bool(metadata.get("hashimotoTopicChanged")),
+                    "strategyReady": bool(metadata.get("strategyReady")),
+                })
 
     def upsert_answer(self, session_id: str, turn_id: int, answer: str, overwrite: bool = True) -> None:
         with self._lock:
@@ -78,6 +87,11 @@ class InMemoryTurnStore:
                 "turnId": turn_id,
                 "question": qa.get("question"),
                 "answer": qa.get("answer"),
+                "topic": qa.get("topic"),
+                "topicSource": qa.get("topicSource"),
+                "hashimotoAsOfTurnId": qa.get("hashimotoAsOfTurnId"),
+                "hashimotoTopicChanged": qa.get("hashimotoTopicChanged"),
+                "strategyReady": qa.get("strategyReady"),
                 "signals": signal_row.get("signals"),
             })
         return rows
@@ -109,16 +123,32 @@ class PostgresTurnStore:
         if last_error is not None:
             raise last_error
 
-    def upsert_question(self, session_id: str, turn_id: int, question: str) -> None:
+    def upsert_question(self, session_id: str, turn_id: int, question: str, metadata: dict[str, Any] | None = None) -> None:
+        metadata = metadata or {}
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO interview_turns (session_id, turn_id, question)
-                VALUES (%s, %s, %s)
+                INSERT INTO interview_turns
+                    (session_id, turn_id, question, topic, topic_source,
+                     hashimoto_as_of_turn_id, hashimoto_topic_changed, strategy_ready)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id, turn_id)
-                DO UPDATE SET question = EXCLUDED.question, updated_at = now()
+                DO UPDATE SET question = EXCLUDED.question,
+                              topic = EXCLUDED.topic,
+                              topic_source = EXCLUDED.topic_source,
+                              hashimoto_as_of_turn_id = EXCLUDED.hashimoto_as_of_turn_id,
+                              hashimoto_topic_changed = EXCLUDED.hashimoto_topic_changed,
+                              strategy_ready = EXCLUDED.strategy_ready,
+                              updated_at = now()
                 """,
-                (session_id, turn_id, question),
+                (
+                    session_id, turn_id, question,
+                    metadata.get("topic"),
+                    metadata.get("topicSource"),
+                    metadata.get("hashimotoAsOfTurnId"),
+                    bool(metadata.get("hashimotoTopicChanged")),
+                    bool(metadata.get("strategyReady")),
+                ),
             )
 
     def upsert_answer(self, session_id: str, turn_id: int, answer: str, overwrite: bool = True) -> None:
@@ -176,7 +206,9 @@ class PostgresTurnStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT t.turn_id, t.question, t.answer, s.signals
+                SELECT t.turn_id, t.question, t.answer, t.topic, t.topic_source,
+                       t.hashimoto_as_of_turn_id, t.hashimoto_topic_changed,
+                       t.strategy_ready, s.signals
                 FROM interview_turns t
                 LEFT JOIN interview_turn_signals s
                   ON t.session_id = s.session_id AND t.turn_id = s.turn_id
@@ -187,7 +219,17 @@ class PostgresTurnStore:
             )
             fetched = cur.fetchall()
         return [
-            {"turnId": row[0], "question": row[1], "answer": row[2], "signals": row[3]}
+            {
+                "turnId": row[0],
+                "question": row[1],
+                "answer": row[2],
+                "topic": row[3],
+                "topicSource": row[4],
+                "hashimotoAsOfTurnId": row[5],
+                "hashimotoTopicChanged": row[6],
+                "strategyReady": row[7],
+                "signals": row[8],
+            }
             for row in fetched
         ]
 

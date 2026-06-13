@@ -38,11 +38,23 @@ CREATE TABLE IF NOT EXISTS interview_turns (
     turn_id INTEGER NOT NULL,
     question TEXT,
     answer TEXT,
+    topic TEXT,
+    topic_source TEXT,
+    hashimoto_as_of_turn_id TEXT,
+    hashimoto_topic_changed BOOLEAN NOT NULL DEFAULT FALSE,
+    strategy_ready BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (session_id, turn_id),
     CHECK (turn_id >= 1)
 );
+
+ALTER TABLE interview_turns
+    ADD COLUMN IF NOT EXISTS topic TEXT,
+    ADD COLUMN IF NOT EXISTS topic_source TEXT,
+    ADD COLUMN IF NOT EXISTS hashimoto_as_of_turn_id TEXT,
+    ADD COLUMN IF NOT EXISTS hashimoto_topic_changed BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS strategy_ready BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Fetch all turns of one interview, ordered by turn_id, in a single query.
 CREATE INDEX IF NOT EXISTS idx_interview_turns_session
