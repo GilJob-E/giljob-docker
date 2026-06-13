@@ -61,6 +61,10 @@ SPATIALREAL_CONSOLE_HOSTS = {
     "ap-northeast": "console.ap-northeast.spatialwalk.cloud",
     "us-west": "console.us-west.spatialwalk.cloud",
 }
+SPATIALREAL_TOKEN_BROKER_USER_AGENT = (
+    os.getenv("SPATIALREAL_TOKEN_BROKER_USER_AGENT", "GilJob-v2-SpatialReal-TokenBroker/1.0").strip()
+    or "GilJob-v2-SpatialReal-TokenBroker/1.0"
+)
 try:
     SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS = float(os.getenv("SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS", "10"))
 except ValueError:
@@ -548,6 +552,7 @@ def _spatialreal_broker_session_token() -> tuple[dict[str, object] | None, str |
         headers={
             "Accept": "application/json",
             "Content-Type": "application/json",
+            "User-Agent": SPATIALREAL_TOKEN_BROKER_USER_AGENT,
             "X-Api-Key": api_key,
         },
         method="POST",

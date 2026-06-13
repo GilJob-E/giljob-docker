@@ -56,6 +56,7 @@ LIVEKIT_ENV_NAMES = (
     "SPATIALREAL_CONSOLE_ENDPOINT",
     "SPATIALREAL_SESSION_TTL_SECONDS",
     "SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS",
+    "SPATIALREAL_TOKEN_BROKER_USER_AGENT",
     "SPATIALREAL_AUDIO_SAMPLE_RATE",
     "SPATIALREAL_AUDIO_CHANNEL_COUNT",
 )
@@ -127,6 +128,7 @@ class ApiHttpContractTest(unittest.TestCase):
                     "method": "POST",
                     "path": inner_self.path,
                     "x_api_key": inner_self.headers.get("X-Api-Key"),
+                    "user_agent": inner_self.headers.get("User-Agent"),
                     "body": raw.decode("utf-8"),
                 })
                 body = json.dumps(
@@ -1321,6 +1323,7 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0]["path"], "/v1/console/session-tokens")
         self.assertEqual(captured[0]["x_api_key"], "secret-spatialreal-api-key")
+        self.assertEqual(captured[0]["user_agent"], "GilJob-v2-SpatialReal-TokenBroker/1.0")
         token_request = json.loads(str(captured[0]["body"]))
         self.assertIsInstance(token_request["expireAt"], int)
 
@@ -1440,6 +1443,7 @@ class ApiHttpContractTest(unittest.TestCase):
             "SPATIALREAL_CONSOLE_ENDPOINT",
             "SPATIALREAL_SESSION_TTL_SECONDS",
             "SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS",
+            "SPATIALREAL_TOKEN_BROKER_USER_AGENT",
         ):
             with self.subTest(sdk_env_name=sdk_env_name):
                 self.assertIn(f"{sdk_env_name}: ${{{sdk_env_name}", compose)

@@ -27,6 +27,7 @@ This runbook defines the current contract for interviewer voice and avatar integ
 | `SPATIALREAL_CONSOLE_ENDPOINT` | Legacy optional console endpoint override; accepted for compatibility. | no, but server-mediated | empty |
 | `SPATIALREAL_SESSION_TTL_SECONDS` | Short-lived session token TTL; clamped by the API to SpatialReal's under-24h limit. | no | `600` |
 | `SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS` | Provider token-mint request timeout. | no | `10` |
+| `SPATIALREAL_TOKEN_BROKER_USER_AGENT` | Server-side User-Agent for SpatialReal token minting; avoids Cloudflare blocking Python's default urllib signature. | no | `GilJob-v2-SpatialReal-TokenBroker/1.0` |
 | `SPATIALREAL_AUDIO_SAMPLE_RATE` | Avatar audio input sample rate metadata. | no | `16000` |
 | `SPATIALREAL_AUDIO_CHANNEL_COUNT` | Avatar audio channel count metadata. | no | `1` |
 | `SPATIALREAL_RTC_EGRESS_ENABLED` | Enables optional SpatialReal-to-LiveKit avatar publishing after separate verification. | no | `false` |
@@ -40,7 +41,7 @@ Use `SPATIALREAL_REGION` first. Provider-specific console endpoint overrides are
 
 ## SpatialReal SDK Mode Web bootstrap
 
-Current default outcome without credentials: `sdk_mode_deferred` or a safe blocked reason. With `SPATIALREAL_SDK_MODE_WEB_ENABLED=true`, `SPATIALREAL_APP_ID`, `SPATIALREAL_AVATAR_ID`, and either `SPATIALREAL_API_KEY` or a manual `SPATIALREAL_SESSION_TOKEN`, `/api/interviews/{id}/avatar/session` returns SDK-shaped metadata (`sdkMode.mode=spatialreal-sdk-mode-web`, `transport=spatialreal-sdk-websocket`, `livekitRequired=false`) plus `client.spatialrealSdk` fields approved for browser use. The API-key path calls SpatialReal Console `/v1/console/session-tokens` server-side with `X-Api-Key` and returns the resulting short-lived `sessionToken` to the browser. It must not return the API key, upstream error bodies, or LiveKit viewer-token fields such as `token`, `url`, `roomName`, `candidateToken`, or `avatarClientToken`.
+Current default outcome without credentials: `sdk_mode_deferred` or a safe blocked reason. With `SPATIALREAL_SDK_MODE_WEB_ENABLED=true`, `SPATIALREAL_APP_ID`, `SPATIALREAL_AVATAR_ID`, and either `SPATIALREAL_API_KEY` or a manual `SPATIALREAL_SESSION_TOKEN`, `/api/interviews/{id}/avatar/session` returns SDK-shaped metadata (`sdkMode.mode=spatialreal-sdk-mode-web`, `transport=spatialreal-sdk-websocket`, `livekitRequired=false`) plus `client.spatialrealSdk` fields approved for browser use. The API-key path calls SpatialReal Console `/v1/console/session-tokens` server-side with `X-Api-Key` and an explicit server User-Agent, then returns the resulting short-lived `sessionToken` to the browser. It must not return the API key, upstream error bodies, or LiveKit viewer-token fields such as `token`, `url`, `roomName`, `candidateToken`, or `avatarClientToken`.
 
 The browser dynamically imports `@spatialwalk/avatarkit`, calls `AvatarSDK.setSessionToken`, `AvatarSDK.initialize`, `AvatarManager.shared.load`, creates `new AvatarView`, mutes SDK playback, and feeds a PCM16 mono 16 kHz copy of OpenAI Realtime output through `AvatarController.send(pcm, false)`. On Realtime `response.done`, it sends one safe end marker. Realtime remains the audible interviewer voice owner, and MMM readiness remains authoritative before ordinary `response.create`.
 
