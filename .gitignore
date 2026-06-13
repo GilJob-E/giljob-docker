@@ -1,6 +1,7 @@
 # Local secrets and machine-specific runtime files
 .env
 .env.*
+.env_*
 !.env.example
 
 # Python / Node transient files
@@ -11,4 +12,26 @@ node_modules/
 
 # OS/editor noise
 .DS_Store
+
+# QA artifacts: track verification scripts + analysis JSON + notes, but never
+# commit raw media (large binaries) or downloaded benchmark media.
+/qa/**/*.mp4
+/qa/**/*.wav
+/qa/**/*.y4m
+/qa/**/*.h264
+/qa/**/*.ogg
+/qa/media/
+/qa/**/.omc/
+
+# oh-my-claudecode session state (AI tooling litter — never commit)
+.omc/
+
+# local Claude settings (personal hooks/overrides — never commit)
+.claude/settings.local.json
+
+# Browser automation / e2e trace logs
 .gstack/
+.tmp-e2e-trace.*.log
+
+# Ephemeral context docs generated during sessions
+hashimoto-realtime-context.md
