@@ -56,6 +56,7 @@ let realtimeRemoteAudioTrack = null;
 let activeAvatarSdkRuntime = null;
 let avatarSdkInitializePromise = null;
 let avatarPcmBridge = null;
+let avatarPcmBridgeIdleTimer = null;
 let avatarSdkConnectionState = "unknown";
 let avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, rmsMax: 0, startedAt: 0 };
 let activeRealtimeResponseId = "";
@@ -162,11 +163,15 @@ function toggleContextDrawer() {
 }
 
 function appendLog(message) {
-  if (!logEl) {
-    return;
-  }
   const timestamp = new Date().toISOString();
-  logEl.textContent = `${timestamp} ${redactSensitiveText(message)}\n${logEl.textContent}`;
+  const safeMessage = redactSensitiveText(message);
+  if (logEl) {
+    logEl.textContent = `${timestamp} ${safeMessage}\n${logEl.textContent}`;
+  }
+  const lowerMessage = String(safeMessage).toLowerCase();
+  if ((lowerMessage.includes("avatar sdk") || lowerMessage.includes("spatialreal sdk")) && window.console?.info) {
+    window.console.info(`[giljob-avatar] ${timestamp} ${safeMessage}`);
+  }
 }
 
 function setStatus(message, state = "idle") {
@@ -690,6 +695,13 @@ function resetAvatarSdkPcmStats() {
   avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, rmsMax: 0, startedAt: Date.now() };
 }
 
+function clearAvatarPcmBridgeIdleTimer() {
+  if (avatarPcmBridgeIdleTimer) {
+    window.clearTimeout(avatarPcmBridgeIdleTimer);
+    avatarPcmBridgeIdleTimer = null;
+  }
+}
+
 function appendAvatarSdkPcmSummary(reason = "summary") {
   if (!avatarSdkPcmStats.startedAt) {
     return;
@@ -718,6 +730,9 @@ function sendAvatarSdkPcmChunk(controller, pcmBuffer, isLast = false) {
   }
   const bytes = pcmBuffer?.byteLength || 0;
   const rms = pcm16Rms(pcmBuffer);
+  if (avatarSdkPcmStats.chunks === 0) {
+    clearAvatarPcmBridgeIdleTimer();
+  }
   avatarSdkPcmStats.chunks += 1;
   avatarSdkPcmStats.bytes += bytes;
   avatarSdkPcmStats.rmsMax = Math.max(avatarSdkPcmStats.rmsMax, rms);
@@ -745,6 +760,7 @@ function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
     throw new Error("audio_context_unavailable");
   }
   const context = new AudioContextClass();
+  appendLog("avatar SDK PCM bridge created with ScriptProcessorNode diagnostic path; browser deprecation warning is expected and not treated as lip-sync failure; media hidden");
   const sourceStream = new MediaStream([track]);
   const source = context.createMediaStreamSource(sourceStream);
   const processor = context.createScriptProcessor(4096, 1, 1);
@@ -844,7 +860,13 @@ async function startAvatarPcmBridgeIfReady(track = realtimeRemoteAudioTrack) {
     avatarPcmBridge = createAvatarPcmBridge(track, activeAvatarSdkRuntime.controller, activeAvatarSdkRuntime.sampleRate || 16000);
     await avatarPcmBridge.start();
     avatarSdkModeState = { ...avatarSdkModeState, audioBridge: "pcm16_active" };
-    appendLog(`avatar SDK muted PCM16 bridge active; connection=${avatarSdkConnectionState}; Realtime remains the only audible path; media hidden`);
+    appendLog(`avatar SDK muted PCM16 bridge active; connection=${avatarSdkConnectionState}; trackReadyState=${track.readyState || "unknown"}; trackMuted=${Boolean(track.muted)}; trackEnabled=${Boolean(track.enabled)}; Realtime remains the only audible path; media hidden`);
+    clearAvatarPcmBridgeIdleTimer();
+    avatarPcmBridgeIdleTimer = window.setTimeout(() => {
+      if (avatarPcmBridge && avatarSdkPcmStats.startedAt && avatarSdkPcmStats.chunks === 0) {
+        appendLog(`avatar SDK PCM bridge idle: no audio frames after 2000ms; connection=${avatarSdkConnectionState}; trackReadyState=${track.readyState || "unknown"}; trackMuted=${Boolean(track.muted)}; trackEnabled=${Boolean(track.enabled)}; ScriptProcessorNode deprecation warning is not the failure; media hidden`);
+      }
+    }, 2000);
   } catch (error) {
     renderAvatarSdkDegraded(`sdk_pcm_bridge_failed:${errorMessage(error)}`);
   }
@@ -857,6 +879,7 @@ async function endAvatarPcmBridgeRound() {
   try {
     const bridge = avatarPcmBridge;
     avatarPcmBridge = null;
+    clearAvatarPcmBridgeIdleTimer();
     await bridge.end();
     bridge.close();
     appendLog("avatar SDK PCM16 end marker sent; Realtime/MMM ownership unchanged");
@@ -912,12 +935,19 @@ function captureRealtimeRemoteAudioTrack(track) {
   startAvatarPcmBridgeIfReady(track);
   appendLog("Realtime remote audio track observed for interviewer playback; avatar SDK muted PCM16 adapter will attach only after SDK readiness; media hidden");
   if (typeof track.addEventListener === "function") {
+    track.addEventListener("mute", () => {
+      appendLog("Realtime remote audio track muted; avatar SDK PCM bridge may idle until audio resumes; media hidden");
+    });
+    track.addEventListener("unmute", () => {
+      appendLog("Realtime remote audio track unmuted; avatar SDK PCM bridge should receive frames on interviewer audio; media hidden");
+    });
     track.addEventListener("ended", () => {
       if (realtimeRemoteAudioTrack === track) {
         realtimeRemoteAudioTrack = null;
       }
       avatarPcmBridge?.close();
       avatarPcmBridge = null;
+      clearAvatarPcmBridgeIdleTimer();
       appendLog("Realtime remote audio track ended; avatar SDK PCM16 bridge closed; media hidden");
     }, { once: true });
   }
