@@ -10,7 +10,7 @@
   /interviews/:id/room
   OpenAI Realtime WebRTC participant
   STT/prosody/vision sideband sender
-  SpatialReal SDK avatar renderer gated/deferred
+  SpatialReal SDK avatar renderer gated/optional
 ]
 
 [<service> Caddy Ingress|
@@ -34,7 +34,7 @@
   session/report token 발급
   purpose-separated hash contract
   Realtime session/call broker
-  SpatialReal SDK session bootstrap metadata
+  SpatialReal API-key session-token broker
   optional LiveKit token only for legacy media overlay
   /api/interviews/:id/* broker
   Realtime MMM sideband forward
@@ -94,6 +94,7 @@
 [Caddy Ingress] - /api/* -> [API Service]
 [API Service] - token hash 저장 -> [Postgres]
 [API Service] - Realtime session/call metadata -> [후보자 브라우저]
+[API Service] - server SpatialReal API key -> short-lived SDK session token -> [SpatialReal Cloud]
 [API Service] - avatarSdkMode/sdkMode + short-lived SDK client metadata -> [후보자 브라우저]
 [후보자 브라우저] - optional legacy WebRTC publish/subscribe only when overlay enabled -> [LiveKit Server]
 [후보자 브라우저] - muted PCM16 Realtime output copy -> [SpatialReal Cloud]

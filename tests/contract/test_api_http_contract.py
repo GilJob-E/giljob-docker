@@ -50,6 +50,12 @@ LIVEKIT_ENV_NAMES = (
     "SPATIALREAL_APP_ID",
     "SPATIALREAL_SESSION_TOKEN",
     "SPATIALREAL_AVATAR_ID",
+    "SPATIALREAL_ENVIRONMENT",
+    "SPATIALREAL_REGION",
+    "SPATIALREAL_CONSOLE_API_HOST",
+    "SPATIALREAL_CONSOLE_ENDPOINT",
+    "SPATIALREAL_SESSION_TTL_SECONDS",
+    "SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS",
     "SPATIALREAL_AUDIO_SAMPLE_RATE",
     "SPATIALREAL_AUDIO_CHANNEL_COUNT",
 )
@@ -104,6 +110,54 @@ class ApiHttpContractTest(unittest.TestCase):
                 return res.status, res.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode("utf-8")
+
+    def _start_fake_spatialreal_console(
+        self,
+        *,
+        status: int = 200,
+        response_payload: dict[str, object] | None = None,
+    ) -> tuple[str, list[dict[str, object]]]:
+        captured: list[dict[str, object]] = []
+
+        class FakeSpatialRealConsoleHandler(BaseHTTPRequestHandler):
+            def do_POST(inner_self) -> None:  # noqa: N802 - stdlib callback name
+                length = int(inner_self.headers.get("Content-Length", "0") or "0")
+                raw = inner_self.rfile.read(length) if length else b""
+                captured.append({
+                    "method": "POST",
+                    "path": inner_self.path,
+                    "x_api_key": inner_self.headers.get("X-Api-Key"),
+                    "body": raw.decode("utf-8"),
+                })
+                body = json.dumps(
+                    response_payload if response_payload is not None else {
+                        "id": "token-record-id",
+                        "sessionToken": "browser-safe-spatialreal-session-token",
+                        "expireAt": 1893456000,
+                    }
+                ).encode("utf-8")
+                inner_self.send_response(status)
+                inner_self.send_header("Content-Type", "application/json")
+                inner_self.send_header("Content-Length", str(len(body)))
+                inner_self.end_headers()
+                inner_self.wfile.write(body)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+                return
+
+        fake_server = ThreadingHTTPServer(("127.0.0.1", 0), FakeSpatialRealConsoleHandler)
+        thread = threading.Thread(target=fake_server.serve_forever, daemon=True)
+        thread.start()
+
+        def cleanup() -> None:
+            fake_server.shutdown()
+            fake_server.server_close()
+            thread.join(timeout=2)
+
+        self.addCleanup(cleanup)
+        host, port = fake_server.server_address
+        return f"http://{host}:{port}", captured
+
 
     def _start_fake_analysis_engine(self, *, status: int = 202, result_payload: dict[str, object] | None = None, result_status: int = 200) -> list[dict[str, object]]:
         captured: list[dict[str, object]] = []
@@ -1238,6 +1292,68 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertNotIn("SPATIALREAL_API_KEY", serialized)
         self.assertNotIn("LIVEKIT_API_SECRET", serialized)
 
+    def test_avatar_session_sdk_enabled_brokers_short_lived_token_with_server_api_key(self) -> None:
+        console_base_url, captured = self._start_fake_spatialreal_console()
+        os.environ["SPATIALREAL_SDK_MODE_WEB_ENABLED"] = "true"
+        os.environ["SPATIALREAL_API_KEY"] = "secret-spatialreal-api-key"
+        os.environ["SPATIALREAL_APP_ID"] = "public-app-id-for-browser"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-demo-01"
+        os.environ["SPATIALREAL_CONSOLE_API_HOST"] = console_base_url
+        os.environ["SPATIALREAL_SESSION_TTL_SECONDS"] = "600"
+
+        status, body = self._post(
+            "/api/interviews/local-demo/avatar/session",
+            json.dumps({"reason": "sdk-ready-api-key-broker-contract"}).encode("utf-8"),
+        )
+
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        client_sdk = payload["client"]["spatialrealSdk"]
+        self.assertEqual(client_sdk["appId"], "public-app-id-for-browser")
+        self.assertEqual(client_sdk["avatarId"], "avatar-demo-01")
+        self.assertEqual(client_sdk["sessionToken"], "browser-safe-spatialreal-session-token")
+        self.assertEqual(client_sdk["sessionTokenExpiresAt"], 1893456000)
+        self.assertEqual(client_sdk["tokenPolicy"], "api-key-brokered-single-use-session-token")
+        self.assertEqual(client_sdk["tokenSource"], "server-side-spatialreal-api-key")
+        self.assertEqual(client_sdk["consoleRegion"], "ap-northeast")
+        self.assertFalse(payload["sdkMode"]["livekitRequired"])
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0]["path"], "/v1/console/session-tokens")
+        self.assertEqual(captured[0]["x_api_key"], "secret-spatialreal-api-key")
+        token_request = json.loads(str(captured[0]["body"]))
+        self.assertIsInstance(token_request["expireAt"], int)
+
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn("secret-spatialreal-api-key", serialized)
+        self.assertNotIn("SPATIALREAL_API_KEY", serialized)
+        self.assertNotIn("AvatarKit RTC", serialized)
+        self.assertNotIn("livekitUrl", serialized)
+
+    def test_avatar_session_sdk_enabled_api_key_broker_failure_is_redacted(self) -> None:
+        console_base_url, _captured = self._start_fake_spatialreal_console(
+            status=401,
+            response_payload={"error": "invalid_api_key", "message": "secret-spatialreal-api-key"},
+        )
+        os.environ["SPATIALREAL_SDK_MODE_WEB_ENABLED"] = "true"
+        os.environ["SPATIALREAL_API_KEY"] = "secret-spatialreal-api-key"
+        os.environ["SPATIALREAL_APP_ID"] = "public-app-id-for-browser"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-demo-01"
+        os.environ["SPATIALREAL_CONSOLE_API_HOST"] = console_base_url
+
+        status, body = self._post("/api/interviews/local-demo/avatar/session", b"{}")
+
+        self.assertEqual(status, 502, body)
+        payload = json.loads(body)
+        self.assertFalse(payload["ready"])
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["reason"], "spatialreal_session_token_http_401")
+        self.assertEqual(payload["sdkMode"]["outcome"], "sdk_mode_blocked_provider_token_broker")
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn("secret-spatialreal-api-key", serialized)
+        self.assertNotIn("invalid_api_key", serialized)
+        self.assertNotIn("SPATIALREAL_API_KEY", serialized)
+
     def test_sdk_enabled_avatar_metadata_does_not_bypass_full_mmm_gate(self) -> None:
         os.environ["SPATIALREAL_SDK_MODE_WEB_ENABLED"] = "true"
         os.environ["SPATIALREAL_APP_ID"] = "public-app-id-for-browser"
@@ -1314,10 +1430,16 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertIn("http://analysis-engine:8200", compose)
         for sdk_env_name in (
             "SPATIALREAL_SDK_MODE_WEB_ENABLED",
+            "SPATIALREAL_API_KEY",
             "SPATIALREAL_APP_ID",
             "SPATIALREAL_AVATAR_ID",
             "SPATIALREAL_SESSION_TOKEN",
             "SPATIALREAL_ENVIRONMENT",
+            "SPATIALREAL_REGION",
+            "SPATIALREAL_CONSOLE_API_HOST",
+            "SPATIALREAL_CONSOLE_ENDPOINT",
+            "SPATIALREAL_SESSION_TTL_SECONDS",
+            "SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS",
         ):
             with self.subTest(sdk_env_name=sdk_env_name):
                 self.assertIn(f"{sdk_env_name}: ${{{sdk_env_name}", compose)
