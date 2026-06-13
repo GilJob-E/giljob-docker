@@ -71,12 +71,12 @@ lossy summary of `prompt_block`, not the raw handoff.
   is **no transcript-independent vision read**. Media-only publishing therefore yields
   an essentially empty `signals.json`; you must use the product path (real transcript).
 
-## RNAS is dormant under pin a26045d
+## RNAS is dormant under pin f7307fc
 
 RNAS = Realtime-Native Analysis Session (`_EventOnlyRealtimeTurns` /`_RnasSession`
 in `services/analysis-engine/server.py`) — assembles `transcriptSignals` /
 `prosodySignals` / `visionSignals` from forwarded sideband events. **But under pin
-a26045d GilJobE owns `POST /realtime/turn-events`** (the wrapper's `_route_registered`
+f7307fc GilJobE owns `POST /realtime/turn-events`** (the wrapper's `_route_registered`
 guard skips its own handler), so RNAS sessions never fill → `/realtime/turn-results`
 falls back to the turnHandoff-fragment branch (`schemaVersion:
 2026-06-12.turn-handoff-fragment.v2` in our artifacts is the proof). Don't chase
@@ -98,7 +98,7 @@ judged from `signals.json`/`candidate-fragment.json`, not from the spoken reply.
 The analysis-engine **bakes** giljobe at build time into
 `/usr/local/lib/python3.12/site-packages/giljobe` (no source mount). The source is
 the separate repo `/home/kio/workspace/giljobe`, branch `feat/grounding-hands-whisper`
-@ `a26045d` (the container's `GILJOBE_GIT_REF`).
+@ `f7307fc` (the container's `GILJOBE_GIT_REF`).
 
 To test a giljobe code change without a rebuild:
 
@@ -113,11 +113,11 @@ giljobe + bump the pin (`GILJOBE_GIT_REF` in `infra/docker-compose.yml`,
 `tests/contract/test_analysis_engine_contract.py` — the contract test enforces
 consistency + a superseded-ref guard).
 
-### giljobe analysis fixes committed in pin a26045d (2026-06-13)
+### giljobe analysis fixes committed in pin f7307fc (2026-06-13)
 
-Committed on `feat/grounding-hands-whisper` (a26045d, supersedes f817f81); the QA
-engine runs this code. All validated by `pytest tests/` (176 passed, 4 vLLM-skipped),
-regression tests included:
+Committed on `feat/grounding-hands-whisper` (f7307fc, supersedes a26045d → f817f81);
+the QA engine runs this code. All validated by `pytest tests/` (177 passed,
+4 vLLM-skipped), regression tests included:
 
 1. `analysis/grounding.py` + `emit/handoff.py` — removed the wrist-not-visible
    "관측 불가(평가 금지)" guard that was contradicting finger-count numbers.
@@ -127,6 +127,10 @@ regression tests included:
    speech-bounded.
 4. `emit/handoff.py` + `analysis/prosody.py` — whisper (voiced_ratio<0.15) takes
    priority over sparse-voicing F0, so a low-confidence F0 doesn't mask "속삭임형".
+5. `emit/handoff.py` `render_prompt_fragment` — face guard now checks
+   `face_seen_ratio>0` (not just `face_frames`); a no-face cam (empty room) emits
+   "얼굴 미검출", not "미소 평균 None", so the consumer can't claim it sees a face.
+   `.dev/grounding/noface_trace.py` reproduces the empty-cam → fragment path.
 
 ## Current up-to-date signals (regenerate after any engine change)
 
