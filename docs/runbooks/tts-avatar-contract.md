@@ -10,18 +10,23 @@ This runbook defines the current contract for interviewer voice and avatar integ
 - Avatar metadata is API-owned. The canonical `/api/interviews/{id}/avatar/session` route is the SpatialReal SDK Mode Web bootstrap; avatar UI must be disabled/deferred unless ready SDK metadata and browser initialization succeed.
 - `SPATIALREAL_RTC_EGRESS_ENABLED=false` remains the safe default and belongs only to legacy AvatarKit RTC / SpatialReal-to-LiveKit publishing. Enabling it requires a LiveKit URL reachable from SpatialReal cloud, not only local Docker or `127.0.0.1`. It is not required for the default Realtime/MMM path.
 - SpatialReal RTC egress is a deprecated compatibility publisher only and is disabled by default. It must not be used by the default Realtime/MMM path, must not depend on ai-engine, and does not ingest OpenAI Realtime remote audio, Realtime datachannel events, or candidate LiveKit media.
-- `SPATIALREAL_SDK_MODE_WEB_ENABLED=false` remains the stable default. Setting it true enables only API-brokered SDK Mode Web metadata; it is not a production lip-sync claim until kiostation browser evidence marks the SDK outcome verified.
+- `SPATIALREAL_SDK_MODE_WEB_ENABLED=false` remains the stable default. Setting it true enables API-brokered SDK Mode Web bootstrap. The API keeps `SPATIALREAL_API_KEY` server-side, mints a short-lived SpatialReal session token, and returns only browser-approved SDK metadata; it is not a production lip-sync claim until kiostation browser evidence marks the SDK outcome verified.
 - Do not downgrade `livekit-client` just to satisfy SpatialReal. Also do not upgrade it in this docs-only lane without a separate dependency spike. This checkout declares `livekit-client` `2.16.1`; keep version changes out of this lane unless proven needed.
 
 ## Environment variables
 
 | Variable | Purpose | Secret | Default / phase |
 |---|---|---:|---|
-| `SPATIALREAL_API_KEY` | Future SpatialReal API key for a separately verified avatar metadata broker. | yes | empty |
+| `SPATIALREAL_API_KEY` | Server-only SpatialReal API key used by `services/api` to mint short-lived browser session tokens. | yes | empty |
 | `SPATIALREAL_APP_ID` | Future SpatialReal app identifier. | no, but server-mediated | empty |
 | `SPATIALREAL_AVATAR_ID` | Future SpatialReal avatar identifier. | no, but server-mediated | empty |
 | `SPATIALREAL_ENVIRONMENT` | SpatialReal SDK environment for browser initialization. | no | `intl` |
-| `SPATIALREAL_SESSION_TOKEN` | QA-only/manual SpatialReal SDK session token until replaced by API-brokered short-lived token issuance. | yes | empty |
+| `SPATIALREAL_SESSION_TOKEN` | QA-only/manual SpatialReal SDK session token override. Prefer the API-key broker; never place the API key here. | yes | empty |
+| `SPATIALREAL_REGION` | SpatialReal console region for token minting. Supported defaults are `ap-northeast` and `us-west`. | no | `ap-northeast` |
+| `SPATIALREAL_CONSOLE_API_HOST` | Optional console API host/URL override for token minting. | no, but server-mediated | empty |
+| `SPATIALREAL_CONSOLE_ENDPOINT` | Legacy optional console endpoint override; accepted for compatibility. | no, but server-mediated | empty |
+| `SPATIALREAL_SESSION_TTL_SECONDS` | Short-lived session token TTL; clamped by the API to SpatialReal's under-24h limit. | no | `600` |
+| `SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS` | Provider token-mint request timeout. | no | `10` |
 | `SPATIALREAL_AUDIO_SAMPLE_RATE` | Avatar audio input sample rate metadata. | no | `16000` |
 | `SPATIALREAL_AUDIO_CHANNEL_COUNT` | Avatar audio channel count metadata. | no | `1` |
 | `SPATIALREAL_RTC_EGRESS_ENABLED` | Enables optional SpatialReal-to-LiveKit avatar publishing after separate verification. | no | `false` |
@@ -31,11 +36,11 @@ This runbook defines the current contract for interviewer voice and avatar integ
 | `SPATIALREAL_RTC_SETTLE_SECONDS` | Startup settle delay before RTC egress readiness checks. | no | `1.0` |
 | `SPATIALREAL_SDK_MODE_WEB_ENABLED` | Enables canonical SDK Mode Web bootstrap metadata on `/avatar/session`. | no | `false` |
 
-SpatialReal console/ingress endpoint overrides are intentionally not part of the default `.env.example` surface. Use `SPATIALREAL_REGION` first; add provider-specific endpoint overrides only in a compatibility-gated deployment change. RTC egress variables are retained only as deferred compatibility placeholders; they do not make the browser render an avatar tile by themselves and do not bridge OpenAI Realtime remote audio into SpatialReal.
+Use `SPATIALREAL_REGION` first. Provider-specific console endpoint overrides are compatibility-only and stay server-side. RTC egress variables are retained only as deferred compatibility placeholders; they do not make the browser render an avatar tile by themselves and do not bridge OpenAI Realtime remote audio into SpatialReal.
 
 ## SpatialReal SDK Mode Web bootstrap
 
-Current default outcome without credentials: `sdk_mode_deferred` or a safe blocked reason. With `SPATIALREAL_SDK_MODE_WEB_ENABLED=true` and configured SDK metadata, `/api/interviews/{id}/avatar/session` returns SDK-shaped metadata (`sdkMode.mode=spatialreal-sdk-mode-web`, `transport=spatialreal-sdk-websocket`, `livekitRequired=false`) plus `client.spatialrealSdk` fields approved for browser use. It must not return LiveKit viewer-token fields such as `token`, `url`, `roomName`, `candidateToken`, or `avatarClientToken`.
+Current default outcome without credentials: `sdk_mode_deferred` or a safe blocked reason. With `SPATIALREAL_SDK_MODE_WEB_ENABLED=true`, `SPATIALREAL_APP_ID`, `SPATIALREAL_AVATAR_ID`, and either `SPATIALREAL_API_KEY` or a manual `SPATIALREAL_SESSION_TOKEN`, `/api/interviews/{id}/avatar/session` returns SDK-shaped metadata (`sdkMode.mode=spatialreal-sdk-mode-web`, `transport=spatialreal-sdk-websocket`, `livekitRequired=false`) plus `client.spatialrealSdk` fields approved for browser use. The API-key path calls SpatialReal Console `/v1/console/session-tokens` server-side with `X-Api-Key` and returns the resulting short-lived `sessionToken` to the browser. It must not return the API key, upstream error bodies, or LiveKit viewer-token fields such as `token`, `url`, `roomName`, `candidateToken`, or `avatarClientToken`.
 
 The browser dynamically imports `@spatialwalk/avatarkit`, calls `AvatarSDK.setSessionToken`, `AvatarSDK.initialize`, `AvatarManager.shared.load`, creates `new AvatarView`, mutes SDK playback, and feeds a PCM16 mono 16 kHz copy of OpenAI Realtime output through `AvatarController.send(pcm, false)`. On Realtime `response.done`, it sends one safe end marker. Realtime remains the audible interviewer voice owner, and MMM readiness remains authoritative before ordinary `response.create`.
 

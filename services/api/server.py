@@ -57,6 +57,14 @@ HASHIMOTO_STRATEGY_TIMEOUT_SECONDS = float(os.getenv("HASHIMOTO_STRATEGY_TIMEOUT
 MAX_REALTIME_INSTRUCTIONS_CHARS = 2_000
 MAX_REALTIME_PROMPT_FRAGMENT_CHARS = 900
 MAX_SDP_CHARS = 64_000
+SPATIALREAL_CONSOLE_HOSTS = {
+    "ap-northeast": "console.ap-northeast.spatialwalk.cloud",
+    "us-west": "console.us-west.spatialwalk.cloud",
+}
+try:
+    SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS = float(os.getenv("SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS", "10"))
+except ValueError:
+    SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS = 10.0
 
 # In-process scaffold store for G006. The persistence contract is represented by
 # services/api/db/schema.sql; a later M2 slice will wire this to Postgres.
@@ -490,7 +498,87 @@ def _avatar_sdk_mode_metadata(*, enabled: bool | None = None, status: str | None
     return metadata
 
 
-def _spatialreal_sdk_client_config() -> tuple[dict[str, object] | None, list[str]]:
+def _bounded_int_env(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)).strip())
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, minimum), maximum)
+
+
+def _spatialreal_region() -> str:
+    region = os.getenv("SPATIALREAL_REGION", "ap-northeast").strip().lower() or "ap-northeast"
+    return region if region in SPATIALREAL_CONSOLE_HOSTS else "ap-northeast"
+
+
+def _spatialreal_console_session_tokens_url() -> str:
+    override = (
+        os.getenv("SPATIALREAL_CONSOLE_API_HOST", "").strip()
+        or os.getenv("SPATIALREAL_CONSOLE_ENDPOINT", "").strip()
+    )
+    if override:
+        base = override.rstrip("/")
+        if base.endswith("/v1/console/session-tokens"):
+            return base
+        if base.endswith("/v1/console"):
+            return f"{base}/session-tokens"
+        return f"{base}/v1/console/session-tokens"
+
+    host = SPATIALREAL_CONSOLE_HOSTS[_spatialreal_region()]
+    return f"https://{host}/v1/console/session-tokens"
+
+
+def _spatialreal_session_expire_at() -> int:
+    # SpatialReal requires now < expireAt < now + 24h. Keep QA tokens short by default.
+    ttl_seconds = _bounded_int_env("SPATIALREAL_SESSION_TTL_SECONDS", 600, minimum=60, maximum=86_399)
+    return int(time.time()) + ttl_seconds
+
+
+def _spatialreal_broker_session_token() -> tuple[dict[str, object] | None, str | None]:
+    """Mint a browser-safe SpatialReal session token with the server-only API key."""
+    api_key = os.getenv("SPATIALREAL_API_KEY", "").strip()
+    if not api_key:
+        return None, "spatialreal_api_key_missing"
+
+    expire_at = _spatialreal_session_expire_at()
+    body = json.dumps({"expireAt": expire_at}).encode("utf-8")
+    request = urllib.request.Request(
+        _spatialreal_console_session_tokens_url(),
+        data=body,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Api-Key": api_key,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS) as response:
+            response_body = response.read(8192).decode("utf-8", "replace")
+        payload = json.loads(response_body)
+    except urllib.error.HTTPError as exc:
+        return None, f"spatialreal_session_token_http_{exc.code}"
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, OSError):
+        return None, "spatialreal_session_token_broker_failed"
+
+    if not isinstance(payload, dict):
+        return None, "spatialreal_session_token_broker_failed"
+    session_token = _safe_str(payload.get("sessionToken") or payload.get("token") or "", 4096)
+    if not session_token:
+        return None, "spatialreal_session_token_missing"
+    expire_at_value = payload.get("expireAt")
+    if not isinstance(expire_at_value, (int, str)):
+        expire_at_value = expire_at
+    return {
+        "sessionToken": session_token,
+        "sessionTokenExpiresAt": expire_at_value,
+        "tokenPolicy": "api-key-brokered-single-use-session-token",
+        "tokenSource": "server-side-spatialreal-api-key",
+        "consoleRegion": _spatialreal_region(),
+    }, None
+
+
+def _spatialreal_sdk_client_config() -> tuple[dict[str, object] | None, list[str], str | None]:
     app_id = os.getenv("SPATIALREAL_APP_ID", "").strip()
     avatar_id = os.getenv("SPATIALREAL_AVATAR_ID", "").strip()
     session_token = os.getenv("SPATIALREAL_SESSION_TOKEN", "").strip()
@@ -499,19 +587,32 @@ def _spatialreal_sdk_client_config() -> tuple[dict[str, object] | None, list[str
         name for name, value in (
             ("SPATIALREAL_APP_ID", app_id),
             ("SPATIALREAL_AVATAR_ID", avatar_id),
-            ("SPATIALREAL_SESSION_TOKEN", session_token),
         ) if not value
     ]
     if missing:
-        return None, missing
+        return None, missing, None
+
+    token_fields: dict[str, object]
+    if session_token:
+        token_fields = {
+            "sessionToken": session_token,
+            "tokenPolicy": "qa-only-manual-session-token",
+            "tokenSource": "manual-env-session-token",
+        }
+    else:
+        token_fields, broker_error = _spatialreal_broker_session_token()
+        if token_fields is None:
+            if broker_error == "spatialreal_api_key_missing":
+                return None, ["SPATIALREAL_SESSION_TOKEN_OR_SPATIALREAL_API_KEY"], None
+            return None, [], broker_error
+
     return {
         "appId": app_id,
         "avatarId": avatar_id,
-        "sessionToken": session_token,
         "environment": environment,
         "audioFormat": {"encoding": "pcm16", "channelCount": 1, "sampleRateHz": 16000},
-        "tokenPolicy": "qa-only-manual-session-token-or-api-brokered-short-lived-token",
-    }, []
+        **token_fields,
+    }, [], None
 
 
 def _readiness_payload(interview_id: str, turn_index: int) -> dict[str, object]:
@@ -2111,7 +2212,28 @@ def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[i
             provider="api-owned",
         )
 
-    client_config, missing = _spatialreal_sdk_client_config()
+    client_config, missing, broker_error = _spatialreal_sdk_client_config()
+    if broker_error:
+        return _return_with_latency(
+            502,
+            {
+                "interviewId": interview_id,
+                "provider": "spatialreal",
+                "ready": False,
+                "status": "blocked",
+                "reason": broker_error,
+                "sdkMode": _avatar_sdk_mode_metadata(enabled=True, status="blocked", outcome="sdk_mode_blocked_provider_token_broker", reason=broker_error),
+                "delivery": {
+                    "mode": "api-owned-avatar-session",
+                    "source": "api",
+                    "publicDirectAvatarRoutes": "blocked",
+                },
+            },
+            start,
+            "api.avatar_session.token_broker_failed",
+            session_id=interview_id,
+            provider="api-owned",
+        )
     if client_config is None:
         return _return_with_latency(
             409,

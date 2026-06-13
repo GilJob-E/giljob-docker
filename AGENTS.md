@@ -8,10 +8,10 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 ## Hard boundaries
 - Do not touch or migrate the legacy `/home/hoddukzoa/GilJob` tree. This repository/worktree represents GilJob v2.
 - Do not read-print, commit, or quote `.env` values. Use `.env.example` and variable names only.
-- Do not expose raw session tokens, report tokens, JWTs, LiveKit tokens, provider keys, or raw media in UI, logs, tests, docs, or examples.
+- Do not expose raw session tokens, report tokens, JWTs, LiveKit tokens, provider keys, or raw media in UI, logs, tests, docs, or examples. The only exception is the explicit `/api/interviews/{id}/avatar/session` contract returning a short-lived SpatialReal SDK `sessionToken`; never persist, log, or display that token.
 - Preserve the `LIVEKIT_INTERNAL_URL` / `LIVEKIT_PUBLIC_URL` split. Browser clients use the public URL; server-side token issuing uses the internal URL.
 - Preserve hash-only server storage for public tokens. Raw public tokens are returned once and must not be persisted.
-- Mark future work honestly. Local Whisper STT and the ai-engine voice/TTS runtime have been removed from the default architecture; OpenAI Realtime is the only live interviewer voice path on the realtime branch; do not reintroduce non-Realtime fallback LLM/TTS flows for the main interview loop. SpatialReal avatar metadata may be API-owned but is disabled/deferred unless separately verified; end-to-end avatar lip-sync to OpenAI Realtime audio is not implemented. Full Main LLM orchestration, production-grade multimodal analysis, and final report generation are not complete product features yet.
+- Mark future work honestly. Local Whisper STT and the ai-engine voice/TTS runtime have been removed from the default architecture; OpenAI Realtime is the only live interviewer voice path on the realtime branch; do not reintroduce non-Realtime fallback LLM/TTS flows for the main interview loop. SpatialReal SDK Mode Web may be API-owned and API-key-brokered, but production lip-sync to OpenAI Realtime audio is not claimed until kiostation browser proof verifies it. Full Main LLM orchestration, production-grade multimodal analysis, and final report generation are not complete product features yet.
 
 ## Source-of-truth documents
 - `README.md` for current product status, architecture summary, and run instructions.
@@ -22,8 +22,8 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 - `tests/contract/` for behavior and security contracts.
 
 ## Module map
-- `apps/web/`: browser UI, production interview routes, OpenAI Realtime WebRTC client flow, manual answer controls, visible/log redaction, and disabled/deferred avatar UI states.
-- `services/api/`: session/report token issuing, hash-only records, OpenAI Realtime session/call broker, Realtime turn/MMM sideband routes, API-owned disabled/deferred avatar metadata, and security contracts.
+- `apps/web/`: browser UI, production interview routes, OpenAI Realtime WebRTC client flow, manual answer controls, visible/log redaction, and SpatialReal SDK Mode Web UI states.
+- `services/api/`: session/report token issuing, hash-only records, OpenAI Realtime session/call broker, Realtime turn/MMM sideband routes, API-owned SpatialReal SDK token broker/metadata, and security contracts.
 - `services/analysis-engine/`: GilJobE-backed STT and multimodal analysis boundary; `server.py` builds GilJobE's HTTP app and adds `/realtime/turn-events` for sanitized Realtime MMM sideband ingress. This service remains the exact-turn MMM/RNAS source of truth.
 - `services/agent1/`: future multimodal placeholder; structured signal boundary only.
 - `infra/`: Docker Compose, Caddy, optional LiveKit/coturn media overlay files, Postgres, and single-server deployment wiring. The default runtime services are API, Web, analysis-engine, agent1, Postgres, and Redis profile only when enabled.
