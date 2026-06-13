@@ -258,7 +258,9 @@ class TurnResultsContractTest(unittest.TestCase):
         start = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_started"})
         self.assertTrue(start["accepted"])
         rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
-        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "prosody.window_metrics"})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.vad.speech_started", "detail": {"audioStartMs": 120, "rawAudioIncluded": False}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.vad.speech_stopped", "detail": {"audioEndMs": 1780, "rawAudioIncluded": False}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "prosody.window_metrics", "detail": {"energy": 0.3, "rawAudioIncluded": False}})
         rnas.ingest({
             "interviewId": "demo",
             "turnIndex": 1,
@@ -281,6 +283,10 @@ class TurnResultsContractTest(unittest.TestCase):
         self.assertTrue(ready["visionSignals"]["faceVisible"])
         self.assertIn("transcriptSignals", ready)
         self.assertIn("prosodySignals", ready)
+        self.assertEqual(ready["prosodySignals"]["status"], "timing_observed")
+        self.assertEqual(ready["prosodySignals"]["speechDurationMs"], 1660)
+        self.assertEqual(ready["prosodySignals"]["energyMean"], 0.3)
+        self.assertFalse(ready["prosodySignals"]["rawAudioIncluded"])
         self.assertIn("behavioralSignals", ready)
         self.assertIn("nextQuestionGuidance", ready)
         self.assertFalse(ready["rawTranscriptLogged"])

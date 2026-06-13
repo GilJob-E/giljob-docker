@@ -64,6 +64,11 @@ class _RnasSession:
         self.transcript_has_numbers = False
         self.transcript_specificity_score = 0.0
         self.prosody_marker_count = 0
+        self.prosody_vad_event_count = 0
+        self.prosody_audio_start_ms: int | float | None = None
+        self.prosody_audio_end_ms: int | float | None = None
+        self.prosody_speech_duration_ms: int | float | None = None
+        self.prosody_energy_samples: list[float] = []
         self.vision_marker_count = 0
         self.vision_frame_count = 0
         self.vision_frame_bytes = 0
@@ -240,13 +245,49 @@ class _EventOnlyRealtimeTurns:
                 sess.last_sentence_end_s = end_s
                 sess.transcript_observed = True
                 sentence_added = True
+        if kind in {"vad.speech_started", "analysis.vad.speech_started"}:
+            sess.prosody_observed = True
+            sess.prosody_marker_count += 1
+            sess.prosody_vad_event_count += 1
+            start_ms = _safe_signal_number(detail.get("audioStartMs"), maximum=24 * 60 * 60 * 1000)
+            if start_ms is not None:
+                sess.prosody_audio_start_ms = start_ms
+            sess.records.append({
+                "type": "prosody_vad_start",
+                "turnIndex": sess.turn_index,
+                "t": round(time.monotonic() - sess.started_at, 3),
+                "audioStartMs": start_ms,
+            })
+        if kind in {"vad.speech_stopped", "analysis.vad.speech_stopped"}:
+            sess.prosody_observed = True
+            sess.prosody_marker_count += 1
+            sess.prosody_vad_event_count += 1
+            end_ms = _safe_signal_number(detail.get("audioEndMs"), maximum=24 * 60 * 60 * 1000)
+            if end_ms is not None:
+                sess.prosody_audio_end_ms = end_ms
+                if sess.prosody_audio_start_ms is not None and end_ms >= sess.prosody_audio_start_ms:
+                    sess.prosody_speech_duration_ms = round(float(end_ms) - float(sess.prosody_audio_start_ms), 3)
+            sess.records.append({
+                "type": "prosody_vad_stop",
+                "turnIndex": sess.turn_index,
+                "t": round(time.monotonic() - sess.started_at, 3),
+                "audioEndMs": end_ms,
+                "speechDurationMs": sess.prosody_speech_duration_ms,
+            })
         if kind in {"prosody.window_metrics", "analysis.prosody.window_metrics"}:
             sess.prosody_observed = True
             sess.prosody_marker_count += 1
+            energy = _safe_signal_number(
+                detail.get("energy") or detail.get("rmsEnergy") or detail.get("energyMean"),
+                maximum=10_000,
+            )
+            if energy is not None:
+                sess.prosody_energy_samples.append(float(energy))
             sess.records.append({
                 "type": "prosody_marker",
                 "turnIndex": sess.turn_index,
                 "t": round(time.monotonic() - sess.started_at, 3),
+                "energy": energy,
             })
         if kind in {"vision.frame_metrics", "vision_metadata"}:
             sess.vision_observed = True
@@ -410,11 +451,24 @@ def _transcript_signals(sess: _RnasSession) -> dict[str, object]:
 
 
 def _prosody_signals(sess: _RnasSession) -> dict[str, object]:
-    return {
+    status = "timing_observed" if sess.prosody_speech_duration_ms is not None else ("lifecycle_observed" if sess.prosody_observed else "missing")
+    signals: dict[str, object] = {
         "observed": sess.prosody_observed,
-        "status": "lifecycle_observed" if sess.prosody_observed else "missing",
+        "status": status,
         "markerCount": sess.prosody_marker_count,
+        "vadEventCount": sess.prosody_vad_event_count,
+        "rawAudioIncluded": False,
     }
+    if sess.prosody_audio_start_ms is not None:
+        signals["audioStartMs"] = sess.prosody_audio_start_ms
+    if sess.prosody_audio_end_ms is not None:
+        signals["audioEndMs"] = sess.prosody_audio_end_ms
+    if sess.prosody_speech_duration_ms is not None:
+        signals["speechDurationMs"] = sess.prosody_speech_duration_ms
+    if sess.prosody_energy_samples:
+        signals["energyMean"] = round(sum(sess.prosody_energy_samples) / len(sess.prosody_energy_samples), 3)
+        signals["energySampleCount"] = len(sess.prosody_energy_samples)
+    return signals
 
 
 def _vision_signals(sess: _RnasSession) -> dict[str, object]:
