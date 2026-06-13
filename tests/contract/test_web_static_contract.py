@@ -56,7 +56,7 @@ class WebStaticContractTest(unittest.TestCase):
             "/interviews/new": ["Production flow · Step 1", "local-demo", "CV upload"],
             "/interviews/prod-demo_01/lobby": ["Production flow · Step 2", "Pre-join lobby", "Device check"],
             "/interviews/prod-demo_01/room": ["production-room-shell", "light-media-room-shell", "room-context-drawer", "avatar-surface", 'src="/app.js"'],
-            "/interviews/prod-demo_01/report": ["Production flow · Step 4", "리포트 placeholder", "Background analysis"],
+            "/interviews/prod-demo_01/report": ["Production flow · Step 4", "면접 리포트", "비언어 종합"],
         }
         for path, expected_strings in route_expectations.items():
             with self.subTest(path=path):

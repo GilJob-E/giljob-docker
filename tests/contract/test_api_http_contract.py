@@ -1424,6 +1424,76 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertIn("handle_path /api/*", caddyfile)
         self.assertNotIn("handle_path /ai/*", caddyfile)
 
+    def test_report_endpoint_returns_empty_turns_for_unknown_interview(self) -> None:
+        status, body = self._get("/api/interviews/unknown-interview-001/report")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data["interviewId"], "unknown-interview-001")
+        self.assertIsInstance(data["turns"], list)
+        self.assertEqual(len(data["turns"]), 0)
+        self.assertFalse(data["complete"])
+        self.assertIn("generatedAt", data)
+
+    def test_report_endpoint_rejects_invalid_interview_id(self) -> None:
+        status, body = self._get("/api/interviews/../etc/report")
+        self.assertIn(status, {400, 404})
+
+    def test_report_endpoint_rejects_internal_path(self) -> None:
+        status, _ = self._get("/api/internal/interviews/demo/report")
+        self.assertEqual(status, 404)
+
+    def test_report_endpoint_returns_stored_turns_from_in_memory_store(self) -> None:
+        from app.turn_store import get_turn_store, InMemoryTurnStore
+        import importlib
+        import app.turn_store as _ts_mod
+        old_store = _ts_mod._STORE
+        try:
+            store = InMemoryTurnStore()
+            _ts_mod._STORE = store
+            iid = "contract-report-test-001"
+            store.upsert_question(iid, 1, "자기소개를 해주세요.")
+            store.upsert_answer(iid, 1, "안녕하세요. 저는 김지원입니다.")
+            store.upsert_signals(iid, 1, {
+                "transcriptSignals": {"speech_rate_syllables_per_sec": 5.5, "pitch_hz": 220.0, "pause_count_long": 0},
+                "visionSignals": {"smile_ratio": 0.20, "gaze_off_ratio": 0.25, "blink_count": 1, "face_seen_ratio": 0.9},
+            })
+            status, body = self._get(f"/api/interviews/{iid}/report")
+            self.assertEqual(status, 200)
+            data = json.loads(body)
+            self.assertEqual(data["interviewId"], iid)
+            self.assertEqual(data["turnCount"], 1)
+            self.assertTrue(data["complete"])
+            turn = data["turns"][0]
+            self.assertEqual(turn["turnId"], 1)
+            self.assertEqual(turn["question"], "자기소개를 해주세요.")
+            self.assertEqual(turn["answer"], "안녕하세요. 저는 김지원입니다.")
+            metrics = turn.get("metrics", {})
+            vocal = metrics.get("vocal", {})
+            coverage = metrics.get("coverage", {})
+            self.assertAlmostEqual(vocal.get("speechRateSylPerSec", 0), 5.5, places=1)
+            self.assertTrue(coverage.get("visualMeasurable", False))
+            self.assertNotIn("transcript", body)
+        finally:
+            _ts_mod._STORE = old_store
+
+    def test_report_endpoint_redacts_raw_signals_from_response(self) -> None:
+        from app.turn_store import InMemoryTurnStore
+        import app.turn_store as _ts_mod
+        old_store = _ts_mod._STORE
+        try:
+            store = InMemoryTurnStore()
+            _ts_mod._STORE = store
+            iid = "contract-report-redact-001"
+            store.upsert_signals(iid, 1, {
+                "transcriptSignals": {"speech_rate_syllables_per_sec": 4.0},
+                "raw_transcript": "SECRET TEXT DO NOT EXPOSE",
+            })
+            _, body = self._get(f"/api/interviews/{iid}/report")
+            self.assertNotIn("SECRET TEXT DO NOT EXPOSE", body)
+            self.assertNotIn("raw_transcript", body)
+        finally:
+            _ts_mod._STORE = old_store
+
     def test_compose_removes_ai_engine_and_keeps_analysis_engine_internal_url(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
         self.assertNotIn("AI_ENGINE_INTERNAL_URL", compose)

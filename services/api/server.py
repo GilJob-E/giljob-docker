@@ -18,10 +18,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from app.token_contract import issue_session
+from app.turn_store import get_turn_store
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "api")
 PORT = int(os.getenv("SERVICE_PORT", "8000"))
@@ -46,6 +48,7 @@ REALTIME_VISION_EVENTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za
 REALTIME_MMM_READY_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/mmm-ready/?$")
 REALTIME_RESPONSE_CREATE_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/realtime/response/?$")
 COACH_FEEDBACK_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/coach-feedback/?$")
+REPORT_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/report/?$")
 MAX_TTS_TEXT_CHARS = 1_200
 MAX_REALTIME_EVENT_BYTES = int(os.getenv("MAX_REALTIME_EVENT_BYTES", "8192"))
 MAX_REALTIME_VISION_EVENT_BYTES = int(os.getenv("MAX_REALTIME_VISION_EVENT_BYTES", "65536"))
@@ -1732,6 +1735,10 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
     _log_latency_span("api.analysis.result.ready", 0, status=200, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
+    try:
+        get_turn_store().upsert_signals(interview_id, analysis_turn_index, result)
+    except Exception:  # noqa: BLE001 — best-effort, never block question generation
+        pass
     expected_hashimoto_turn_id = _hashimoto_turn_id(analysis_turn_index)
     strategy_start = time.perf_counter()
     hashimoto_strategy, hashimoto_source = _fetch_hashimoto_strategy(interview_id, expected_hashimoto_turn_id)
@@ -1822,6 +1829,15 @@ def record_realtime_turn_event(interview_id: str, turn_index: int, payload: dict
         state["transcript_completed"] = True
         if _contains_non_empty_transcript(payload):
             state["transcript_non_empty"] = True
+    if kind == "interviewer.question.completed":
+        question = _safe_str(
+            (payload.get("detail") or {}).get("question") or payload.get("question") or "", 2_000
+        )
+        if question:
+            try:
+                get_turn_store().upsert_question(interview_id, turn_index, question)
+            except Exception:  # noqa: BLE001 — best-effort, never block event ingress
+                pass
     if kind == "prosody.window_metrics":
         state["prosody_observed"] = True
     if kind == "vision.frame_metrics":
@@ -1842,6 +1858,12 @@ def record_realtime_turn_event(interview_id: str, turn_index: int, payload: dict
     }
     if kind in {"transcript.completed", "analysis.transcript.completed"}:
         public["hashimoto"] = _feed_hashimoto_turn(interview_id, turn_index, _transcript_from_realtime_event(payload))
+        transcript = _transcript_from_realtime_event(payload)
+        if transcript:
+            try:
+                get_turn_store().upsert_answer(interview_id, turn_index, transcript)
+            except Exception:  # noqa: BLE001 — best-effort, never block event ingress
+                pass
     return _return_with_latency(202, public, start, "api.realtime.turn_event.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
 
 
@@ -2302,6 +2324,114 @@ def synthesize_room_tts(interview_id: str, turn_index: int, payload: dict[str, A
         provider="openai-realtime",
     )
 
+def aggregate_turn_signals(result: dict[str, Any] | None) -> dict[str, object]:
+    """Flatten one realtime/turn-results payload into per-turn nonverbal summary.
+
+    Realtime shape (analysis-engine /realtime/turn-results):
+      transcriptSignals  — verbal metrics (speech_rate_syllables_per_sec, pitch_hz, pause_count_long)
+      visionSignals      — facial metrics (smile_ratio, gaze_off_ratio, blink_count)
+      prosodySignals     — prosody window metrics (speech_duration_ms)
+    """
+    if not isinstance(result, dict):
+        return {"visualMeasurable": False}
+
+    ts = result.get("transcriptSignals") or {}
+    vs = result.get("visionSignals") or {}
+
+    def _float(obj: object, *keys: str) -> float | None:
+        if not isinstance(obj, dict):
+            return None
+        for key in keys:
+            val = obj.get(key)
+            try:
+                return float(val)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                pass
+        return None
+
+    def _int(obj: object, *keys: str) -> int | None:
+        v = _float(obj, *keys)
+        return int(v) if v is not None else None
+
+    rate   = _float(ts, "speech_rate_syllables_per_sec", "speechRateSyllablesPerSec")
+    pitch  = _float(ts, "pitch_hz", "pitchHz")
+    pause  = _int(ts,   "pause_count_long", "pauseCountLong")
+    smile  = _float(vs, "smile_ratio", "smileRatio")
+    gaze   = _float(vs, "gaze_off_ratio", "gazeOffRatio")
+    blink  = _int(vs,   "blink_count", "blinkCount")
+
+    face_seen = _float(vs, "face_seen_ratio", "faceSeen") or 0.0
+    visual_measurable = face_seen > 0
+
+    out: dict[str, object] = {"visualMeasurable": visual_measurable}
+    if rate  is not None: out["rate"]  = round(rate,  2)
+    if pitch is not None: out["pitch"] = round(pitch, 1)
+    if pause is not None: out["pause"] = pause
+    if visual_measurable:
+        if smile is not None: out["smile"] = round(smile * 100, 1)
+        if gaze  is not None: out["gaze"]  = round(gaze  * 100, 1)
+        if blink is not None: out["blink"] = blink
+    return out
+
+
+def build_report(interview_id: str) -> dict[str, object]:
+    """Assemble per-turn Q&A + aggregated signals for the report page.
+
+    Output shape matches report.js expectations:
+      turn.metrics.vocal  — speechRateSylPerSec, pitchMeanHz, pauseCount
+      turn.metrics.visual — smileMean (0–1), gazeOffMean (0–1), blinkCount
+      turn.metrics.coverage.visualMeasurable — bool
+      turn.feedback.keyObservations — list[str]  (from candidateSafePromptFragment)
+    """
+    rows = get_turn_store().report_rows(interview_id)
+    turns: list[dict[str, object]] = []
+    for row in rows:
+        agg = aggregate_turn_signals(row.get("signals"))
+        visual_measurable = bool(agg.pop("visualMeasurable", False))
+
+        vocal: dict[str, object] = {}
+        if "rate"  in agg: vocal["speechRateSylPerSec"] = agg["rate"]
+        if "pitch" in agg: vocal["pitchMeanHz"]         = agg["pitch"]
+        if "pause" in agg: vocal["pauseCount"]          = agg["pause"]
+
+        visual: dict[str, object] = {}
+        if visual_measurable:
+            if "smile" in agg: visual["smileMean"]   = round((agg["smile"] or 0) / 100, 4)  # type: ignore[arg-type]
+            if "gaze"  in agg: visual["gazeOffMean"] = round((agg["gaze"]  or 0) / 100, 4)  # type: ignore[arg-type]
+            if "blink" in agg: visual["blinkCount"]  = agg["blink"]
+
+        turn: dict[str, object] = {
+            "turnId":   row["turnId"],
+            "question": row.get("question"),
+            "answer":   row.get("answer"),
+            "metrics": {
+                "vocal":    vocal,
+                "visual":   visual,
+                "coverage": {"visualMeasurable": visual_measurable},
+            },
+        }
+        raw = row.get("signals") or {}
+        fragment = raw.get("candidateSafePromptFragment")
+        raw_critique = (
+            fragment.get("text") if isinstance(fragment, dict) else fragment
+        ) if fragment else raw.get("critique")
+        critique = _safe_str(raw_critique, 2_000)
+        if critique:
+            turn["feedback"] = {"keyObservations": [critique]}
+        turns.append(turn)
+
+    complete = bool(turns) and all(
+        row.get("answer") and row.get("signals") for row in rows
+    )
+    return {
+        "interviewId": interview_id,
+        "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "complete": complete,
+        "turnCount": len(turns),
+        "turns": turns,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "GilJobV2API/0.2"
 
@@ -2366,6 +2496,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
         if self._reject_internal_path():
+            return
+        report_match = REPORT_ROUTE_PATTERN.fullmatch(self.path)
+        if report_match:
+            interview_id = report_match.group(1)
+            if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
+                self._json(400, {"error": "invalid_interview_id"})
+                return
+            self._json(200, build_report(interview_id))
             return
         coach_feedback_match = COACH_FEEDBACK_ROUTE_PATTERN.fullmatch(self.path)
         if coach_feedback_match:

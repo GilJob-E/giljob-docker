@@ -28,3 +28,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_interview_sessions_session_token_hash
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_interview_sessions_report_token_hash
     ON interview_sessions (report_token_hash);
+
+-- Per-turn Q&A persistence for report generation.
+-- Keyed by (session_id, turn_id); report endpoint joins with signals table.
+CREATE TABLE IF NOT EXISTS interview_turns (
+    session_id TEXT NOT NULL,
+    turn_id INTEGER NOT NULL,
+    question TEXT,
+    answer TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (session_id, turn_id),
+    CHECK (turn_id >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_interview_turns_session
+    ON interview_turns (session_id, turn_id);
+
+-- Per-turn analysis signals produced by the analysis-engine (GilJobE realtime/turn-results).
+-- signals JSONB holds the raw turn-results payload; aggregation happens at report build time.
+CREATE TABLE IF NOT EXISTS interview_turn_signals (
+    session_id TEXT NOT NULL,
+    turn_id INTEGER NOT NULL,
+    signals JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (session_id, turn_id),
+    CHECK (turn_id >= 1),
+    FOREIGN KEY (session_id, turn_id)
+        REFERENCES interview_turns (session_id, turn_id)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_interview_turn_signals_session
+    ON interview_turn_signals (session_id, turn_id);
