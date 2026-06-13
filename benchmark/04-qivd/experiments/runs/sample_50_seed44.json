@@ -1,0 +1,452 @@
+[
+  {
+    "video": "00001702.mp4",
+    "question": "What finger I show?",
+    "answer": "You are showing your thumb.",
+    "short_answer": "Thumb",
+    "timestamp": "00:05.0",
+    "category": "object detection",
+    "id": 3777
+  },
+  {
+    "video": "00002172.mp4",
+    "question": "How many thumbs are up?",
+    "answer": "Two.",
+    "short_answer": "2",
+    "timestamp": "00:03.8",
+    "category": "object counting",
+    "id": 8522
+  },
+  {
+    "video": "00002263.mp4",
+    "question": "Is the mirror behind me on the left or right?",
+    "answer": "The mirror behind you is on your right.",
+    "short_answer": "Right",
+    "timestamp": "00:03.4",
+    "category": "object referencing",
+    "id": 13335
+  },
+  {
+    "video": "00000491.mp4",
+    "question": "How many books am I holding?",
+    "answer": "You are holding two books.",
+    "short_answer": "2",
+    "timestamp": "00:03.1",
+    "category": "object counting",
+    "id": 7245
+  },
+  {
+    "video": "00000739.mp4",
+    "question": "What exercise is this called?",
+    "answer": "You are doing jumping jacks.",
+    "short_answer": "Jumping jacks",
+    "timestamp": "00:03.8",
+    "category": "action detection",
+    "id": 14030
+  },
+  {
+    "video": "00001583.mp4",
+    "question": "What is this thing called that I am holding?",
+    "answer": "You are holding a pair of sunglasses.",
+    "short_answer": "Sunglasses",
+    "timestamp": "00:04.1",
+    "category": "object referencing",
+    "id": 7135
+  },
+  {
+    "video": "00000943.mp4",
+    "question": "Is the door closed?",
+    "answer": "No, seeing the visible gap on the top of the door, I would say the door is not closed",
+    "short_answer": "No",
+    "timestamp": "00:05.3",
+    "category": "object attributes",
+    "id": 3622
+  },
+  {
+    "video": "00001212.mp4",
+    "question": "Do you like my cap?",
+    "answer": "Yes, it's a nice yellow cap with purple lettering.",
+    "short_answer": "NA",
+    "timestamp": "00:02.5",
+    "category": "subjective",
+    "id": 3527
+  },
+  {
+    "video": "00000124.mp4",
+    "question": "Which color is the shirt?",
+    "answer": "It's white.",
+    "short_answer": "White",
+    "timestamp": "00:04.6",
+    "category": "object attributes",
+    "id": 4589
+  },
+  {
+    "video": "00000941.mp4",
+    "question": "How many time do I touch my ears?",
+    "answer": "You touched each of ears once, a total of two times.",
+    "short_answer": "2",
+    "timestamp": "00:04.5",
+    "category": "action counting",
+    "id": 2946
+  },
+  {
+    "video": "00002375.mp4",
+    "question": "How many times did I wave my hand?",
+    "answer": "You waved your hand three times.",
+    "short_answer": "3",
+    "timestamp": "00:05.0",
+    "category": "action counting",
+    "id": 248
+  },
+  {
+    "video": "00000036.mp4",
+    "question": "Do I have my glasses on?",
+    "answer": "No, you are not wearing glasses right now.",
+    "short_answer": "No",
+    "timestamp": "00:03.8",
+    "category": "object referencing",
+    "id": 7902
+  },
+  {
+    "video": "00000423.mp4",
+    "question": "What color are my headphones?",
+    "answer": "Your headphones are black.",
+    "short_answer": "Black",
+    "timestamp": "00:03.4",
+    "category": "object attributes",
+    "id": 5610
+  },
+  {
+    "video": "00000657.mp4",
+    "question": "Is the TV behind me off?",
+    "answer": "Yes, it is off.",
+    "short_answer": "Yes",
+    "timestamp": "00:03.8",
+    "category": "object attributes",
+    "id": 13785
+  },
+  {
+    "video": "00002146.mp4",
+    "question": "What is this gesture?",
+    "answer": "That is a double thumbs up.",
+    "short_answer": "A double thumbs up",
+    "timestamp": "00:03.3",
+    "category": "action understanding",
+    "id": 8396
+  },
+  {
+    "video": "00002881.mp4",
+    "question": "Am I using this correctly?",
+    "answer": "No, a hairbrush is to comb your hair, not brush your teeth.",
+    "short_answer": "No",
+    "timestamp": "00:05.0",
+    "category": "action understanding",
+    "id": 5389
+  },
+  {
+    "video": "00001267.mp4",
+    "question": "What color are my glasses?",
+    "answer": "Your glasses have a black frame.",
+    "short_answer": "Black",
+    "timestamp": "00:03.7",
+    "category": "object attributes",
+    "id": 10288
+  },
+  {
+    "video": "00002903.mp4",
+    "question": "How many colored pencils am I holding in front of you?",
+    "answer": "You are holding five colored pencils in front of me.",
+    "short_answer": "5",
+    "timestamp": "00:04.7",
+    "category": "object counting",
+    "id": 13956
+  },
+  {
+    "video": "00002653.mp4",
+    "question": "Will you see this paper?",
+    "answer": "Yes, I see that you are holding a paper in your hands.",
+    "short_answer": "Yes",
+    "timestamp": "00:05.1",
+    "category": "object detection",
+    "id": 494
+  },
+  {
+    "video": "00001579.mp4",
+    "question": "Did I sit down?",
+    "answer": "yes, you did sit down for a moment. But you are standing up now.",
+    "short_answer": "Yes",
+    "timestamp": "00:05.0",
+    "category": "action detection",
+    "id": 8870
+  },
+  {
+    "video": "00002469.mp4",
+    "question": "Am I eating?",
+    "answer": "Yes, you are.",
+    "short_answer": "Yes",
+    "timestamp": "00:05.0",
+    "category": "action detection",
+    "id": 6469
+  },
+  {
+    "video": "00001688.mp4",
+    "question": "What is she doing?",
+    "answer": "She is playing with the pen you are holding.",
+    "short_answer": "Playing",
+    "timestamp": "00:05.2",
+    "category": "action detection",
+    "id": 4827
+  },
+  {
+    "video": "00002892.mp4",
+    "question": "What am I doing?",
+    "answer": "You are opening and closing the palm of your right hand.",
+    "short_answer": "Opening",
+    "timestamp": "00:05.0",
+    "category": "action detection",
+    "id": 3874
+  },
+  {
+    "video": "00002804.mp4",
+    "question": "Am I holding a book?",
+    "answer": "No, you're holding pink flowers.",
+    "short_answer": "No",
+    "timestamp": "00:04.4",
+    "category": "object referencing",
+    "id": 1860
+  },
+  {
+    "video": "00001361.mp4",
+    "question": "Which color is my hair?",
+    "answer": "Your hair is blonde.",
+    "short_answer": "Blonde",
+    "timestamp": "00:04.3",
+    "category": "object attributes",
+    "id": 583
+  },
+  {
+    "video": "00001494.mp4",
+    "question": "Is there someone behind me?",
+    "answer": "No, I cannot see anyone behind you.",
+    "short_answer": "No",
+    "timestamp": "00:02.8",
+    "category": "object referencing",
+    "id": 318
+  },
+  {
+    "video": "00000309.mp4",
+    "question": "What action am I doing with my hairs?",
+    "answer": "You are combing your hair.",
+    "short_answer": "Combing",
+    "timestamp": "00:04.6",
+    "category": "action detection",
+    "id": 7105
+  },
+  {
+    "video": "00001413.mp4",
+    "question": "Is my glass empty or full?",
+    "answer": "It is empty.",
+    "short_answer": "Empty",
+    "timestamp": "00:04.5",
+    "category": "object attributes",
+    "id": 6969
+  },
+  {
+    "video": "00001183.mp4",
+    "question": "What card am I holding?",
+    "answer": "You are holding the \"King of Hearts\" card.",
+    "short_answer": "King of Hearts",
+    "timestamp": "00:03.1",
+    "category": "object referencing",
+    "id": 9693
+  },
+  {
+    "video": "00002581.mp4",
+    "question": "What am I doing with my hands?",
+    "answer": "You are clapping.",
+    "short_answer": "Clapping",
+    "timestamp": "00:04.7",
+    "category": "action detection",
+    "id": 3657
+  },
+  {
+    "video": "00000667.mp4",
+    "question": "How many fingers am I holding up?",
+    "answer": "You're holding up four fingers.",
+    "short_answer": "4",
+    "timestamp": "00:04.7",
+    "category": "object counting",
+    "id": 14058
+  },
+  {
+    "video": "00000472.mp4",
+    "question": "What is this?",
+    "answer": "That is a desk clock.",
+    "short_answer": "A desk clock",
+    "timestamp": "00:02.6",
+    "category": "object detection",
+    "id": 8365
+  },
+  {
+    "video": "00002135.mp4",
+    "question": "How many times did I cry?",
+    "answer": "You clapped three times.",
+    "short_answer": "None",
+    "timestamp": "00:04.8",
+    "category": "action counting",
+    "id": 13344
+  },
+  {
+    "video": "00000293.mp4",
+    "question": "How often did I jump?",
+    "answer": "You jumped three times.",
+    "short_answer": "3",
+    "timestamp": "00:05.0",
+    "category": "action counting",
+    "id": 3553
+  },
+  {
+    "video": "00002458.mp4",
+    "question": "What am I holding in my hand?",
+    "answer": "You are holding a flower vase in your hands.",
+    "short_answer": "A flower vase",
+    "timestamp": "00:03.3",
+    "category": "object referencing",
+    "id": 13857
+  },
+  {
+    "video": "00000398.mp4",
+    "question": "Can you spell what is on my shirt?",
+    "answer": "Yes, the word on your shirt is spelled \"NEW YORK STATE.\"",
+    "short_answer": "NEW YORK STATE",
+    "timestamp": "00:03.9",
+    "category": "ocr",
+    "id": 5249
+  },
+  {
+    "video": "00001128.mp4",
+    "question": "Do you like my smile?",
+    "answer": "Yes, you have a very pretty smile.",
+    "short_answer": "NA",
+    "timestamp": "00:04.5",
+    "category": "subjective",
+    "id": 4718
+  },
+  {
+    "video": "00001317.mp4",
+    "question": "In what hand do I have an object?",
+    "answer": "You have an object in your left hand.",
+    "short_answer": "Left hand",
+    "timestamp": "00:03.8",
+    "category": "object referencing",
+    "id": 6326
+  },
+  {
+    "video": "00000454.mp4",
+    "question": "What am I doing?",
+    "answer": "You are fanning yourself.",
+    "short_answer": "Fanning",
+    "timestamp": "00:04.6",
+    "category": "action detection",
+    "id": 6437
+  },
+  {
+    "video": "00002616.mp4",
+    "question": "What animal is on my mug?",
+    "answer": "The mug has a cat on it.",
+    "short_answer": "Cat",
+    "timestamp": "00:03.4",
+    "category": "object referencing",
+    "id": 11435
+  },
+  {
+    "video": "00000149.mp4",
+    "question": "Do you see paintings on the walls?",
+    "answer": "No, there are no paintings on the walls.",
+    "short_answer": "No",
+    "timestamp": "00:03.2",
+    "category": "object referencing",
+    "id": 5983
+  },
+  {
+    "video": "00001437.mp4",
+    "question": "What gesture is this?",
+    "answer": "You are bowing, generally used as a greeting.",
+    "short_answer": "Bowing",
+    "timestamp": "00:06.2",
+    "category": "action understanding",
+    "id": 13137
+  },
+  {
+    "video": "00001609.mp4",
+    "question": "How many times did I open my mouth?",
+    "answer": "You opened your mouth twice.",
+    "short_answer": "2",
+    "timestamp": "00:04.5",
+    "category": "action counting",
+    "id": 3089
+  },
+  {
+    "video": "00000404.mp4",
+    "question": "How many hangers on my hand?",
+    "answer": "You have ten or more hangers in your hand. I can give a more precise count if I can get a better view.",
+    "short_answer": "10",
+    "timestamp": "00:04.7",
+    "category": "object counting",
+    "id": 8788
+  },
+  {
+    "video": "00001992.mp4",
+    "question": "Is this a mirror or a wall?",
+    "answer": "It is a wall.",
+    "short_answer": "Wall",
+    "timestamp": "00:04.3",
+    "category": "object detection",
+    "id": 3757
+  },
+  {
+    "video": "00001988.mp4",
+    "question": "What's the color of the wall?",
+    "answer": "The wall appears to be white.",
+    "short_answer": "White",
+    "timestamp": "00:02.9",
+    "category": "object attributes",
+    "id": 5310
+  },
+  {
+    "video": "00000797.mp4",
+    "question": "Do you see the heater on the background?",
+    "answer": "Yes, there is a white heater in the background.",
+    "short_answer": "Yes",
+    "timestamp": "00:04.2",
+    "category": "object referencing",
+    "id": 7447
+  },
+  {
+    "video": "00000789.mp4",
+    "question": "Did I take off my earphones?",
+    "answer": "Yes, you just took them off.",
+    "short_answer": "Yes",
+    "timestamp": "00:05.0",
+    "category": "action detection",
+    "id": 4648
+  },
+  {
+    "video": "00000546.mp4",
+    "question": "What am I touching?",
+    "answer": "You are touching your nose.",
+    "short_answer": "Your nose",
+    "timestamp": "00:03.4",
+    "category": "object referencing",
+    "id": 2129
+  },
+  {
+    "video": "00001081.mp4",
+    "question": "What is the color of the wall on my back?",
+    "answer": "The wall behind you appears to be white.",
+    "short_answer": "White",
+    "timestamp": "00:03.9",
+    "category": "object attributes",
+    "id": 8983
+  }
+]

@@ -29,13 +29,13 @@ services:
       SESSION_TOKEN_HASH_SECRET: ${SESSION_TOKEN_HASH_SECRET:?set SESSION_TOKEN_HASH_SECRET in .env before running compose}
       REPORT_TOKEN_HASH_SECRET: ${REPORT_TOKEN_HASH_SECRET:?set REPORT_TOKEN_HASH_SECRET in .env before running compose}
       LIVEKIT_REQUIRED: ${LIVEKIT_REQUIRED:-false}
+      LIVEKIT_MEDIA_OVERLAY_ENABLED: ${LIVEKIT_MEDIA_OVERLAY_ENABLED:-false}
       LIVEKIT_URL: ${LIVEKIT_URL:-}
       LIVEKIT_INTERNAL_URL: ${LIVEKIT_INTERNAL_URL:-}
       LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
       LIVEKIT_TOKEN_TTL_SECONDS: ${LIVEKIT_TOKEN_TTL_SECONDS:-7200}
-      AI_ENGINE_INTERNAL_URL: ${AI_ENGINE_INTERNAL_URL:-http://ai-engine:8100}
       ANALYSIS_ENGINE_INTERNAL_URL: ${ANALYSIS_ENGINE_INTERNAL_URL:-http://analysis-engine:8200}
       REALTIME_MMM_EVENT_LOG_PATH: ${REALTIME_MMM_EVENT_LOG_PATH:-/tmp/giljob-realtime-mmm-events.jsonl}
       REALTIME_MMM_FORWARD_ENABLED: ${REALTIME_MMM_FORWARD_ENABLED:-true}
@@ -43,6 +43,12 @@ services:
       GILJOBE_VISION: ${GILJOBE_VISION:-auto}
       GILJOBE_PROSODY: ${GILJOBE_PROSODY:-auto}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE: ${OPENAI_API_BASE:-https://api.openai.com/v1}
+      GEMINI_API_BASE: ${GEMINI_API_BASE:-https://generativelanguage.googleapis.com/v1beta}
+      COACH_GEMINI_API_KEY: ${COACH_GEMINI_API_KEY:-}
+      COACH_LLM_PROVIDER: ${COACH_LLM_PROVIDER:-fake}
+      COACH_LLM_MODEL: ${COACH_LLM_MODEL:-}
+      COACH_LLM_TIMEOUT_SECONDS: ${COACH_LLM_TIMEOUT_SECONDS:-15}
       OPENAI_REALTIME_API_BASE: ${OPENAI_REALTIME_API_BASE:-https://api.openai.com/v1}
       OPENAI_REALTIME_PRIMARY: ${OPENAI_REALTIME_PRIMARY:-true}
       OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime-2}
@@ -53,51 +59,12 @@ services:
       OPENAI_REALTIME_TIMEOUT_SECONDS: ${OPENAI_REALTIME_TIMEOUT_SECONDS:-15}
       OPENAI_REALTIME_CALL_BROKER_ENABLED: ${OPENAI_REALTIME_CALL_BROKER_ENABLED:-true}
       OPENAI_REALTIME_SAFETY_SALT: ${OPENAI_REALTIME_SAFETY_SALT:-giljob-realtime-v1}
+      SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED: ${SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED:-false}
       MAX_REALTIME_EVENT_BYTES: ${MAX_REALTIME_EVENT_BYTES:-8192}
     expose:
       - "8000"
     depends_on:
       - postgres
-
-  ai-engine:
-    build: ../services/ai-engine
-    environment:
-      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_API_BASE: ${OPENAI_API_BASE:-https://api.openai.com/v1}
-      COACH_GEMINI_API_KEY: ${COACH_GEMINI_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_API_BASE: ${GEMINI_API_BASE:-https://generativelanguage.googleapis.com/v1beta}
-      COACH_LLM_PROVIDER: ${COACH_LLM_PROVIDER:-fake}
-      COACH_LLM_MODEL: ${COACH_LLM_MODEL:-}
-      COACH_LLM_TIMEOUT_SECONDS: ${COACH_LLM_TIMEOUT_SECONDS:-15}
-      VOICE_PROVIDER: ${VOICE_PROVIDER:-fake}
-      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
-      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
-      ELEVENLABS_TTS_MODEL: ${ELEVENLABS_TTS_MODEL:-eleven_flash_v2_5}
-      ELEVENLABS_OUTPUT_FORMAT: ${ELEVENLABS_OUTPUT_FORMAT:-mp3_22050_32}
-      TTS_PROVIDER_FAILURE_FALLBACK: ${TTS_PROVIDER_FAILURE_FALLBACK:-}
-      AVATAR_PROVIDER: ${AVATAR_PROVIDER:-disabled}
-      SPATIALREAL_API_KEY: ${SPATIALREAL_API_KEY:-}
-      SPATIALREAL_APP_ID: ${SPATIALREAL_APP_ID:-}
-      SPATIALREAL_AVATAR_ID: ${SPATIALREAL_AVATAR_ID:-}
-      SPATIALREAL_CONSOLE_ENDPOINT: ${SPATIALREAL_CONSOLE_ENDPOINT:-}
-      SPATIALREAL_INGRESS_ENDPOINT: ${SPATIALREAL_INGRESS_ENDPOINT:-}
-      SPATIALREAL_REGION: ${SPATIALREAL_REGION:-ap-northeast}
-      SPATIALREAL_SESSION_TTL_SECONDS: ${SPATIALREAL_SESSION_TTL_SECONDS:-900}
-      AVATAR_PROVIDER_FAILURE_FALLBACK: ${AVATAR_PROVIDER_FAILURE_FALLBACK:-}
-      SPATIALREAL_AUDIO_SAMPLE_RATE: ${SPATIALREAL_AUDIO_SAMPLE_RATE:-16000}
-      SPATIALREAL_AUDIO_CHANNEL_COUNT: ${SPATIALREAL_AUDIO_CHANNEL_COUNT:-1}
-      SPATIALREAL_RTC_EGRESS_ENABLED: ${SPATIALREAL_RTC_EGRESS_ENABLED:-false}
-      SPATIALREAL_RTC_LIVEKIT_URL: ${SPATIALREAL_RTC_LIVEKIT_URL:-}
-      SPATIALREAL_RTC_PUBLISHER_ID_PREFIX: ${SPATIALREAL_RTC_PUBLISHER_ID_PREFIX:-spatialreal-avatar}
-      SPATIALREAL_RTC_IDLE_TIMEOUT_SECONDS: ${SPATIALREAL_RTC_IDLE_TIMEOUT_SECONDS:-30}
-      SPATIALREAL_RTC_SETTLE_SECONDS: ${SPATIALREAL_RTC_SETTLE_SECONDS:-1.0}
-      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-}
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
-    expose:
-      - "8100"
 
   analysis-engine:
     build: ../services/analysis-engine
@@ -105,7 +72,7 @@ services:
       SERVICE_NAME: analysis-engine
       SERVICE_PORT: 8200
       GILJOBE_GIT_URL: ${GILJOBE_GIT_URL:-https://github.com/GilJob-E/GilJobE.git}
-      GILJOBE_GIT_REF: ${GILJOBE_GIT_REF:-5ba7249}
+      GILJOBE_GIT_REF: ${GILJOBE_GIT_REF:-a26045d}
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://giljob-v2-gemma-e4b:8000}
       ANALYSIS_ENGINE_ENABLE_SUBSCRIBER: ${ANALYSIS_ENGINE_ENABLE_SUBSCRIBER:-false}
       # Objective grounding lanes (vision/prosody); deps+models are baked into the image.
@@ -114,6 +81,14 @@ services:
       # Realtime flow default: external consumes API sideband transcripts (sentence lane).
       # Set internal only for legacy LiveKit/Gemma STT grid testing.
       GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}
+      # Deployment defaults per 2026-06-12 decisions (GilJobE library defaults stay conservative):
+      # eval off = content judgement delegated to the next-question LLM via turnHandoff
+      # (stop->turn_end 1.24s->0.03s); 3fps buffer + nv cap 24 = denser nv reads at ~zero cost
+      # and covers sub-second sentences that starve at the 1fps library default
+      # (validated together in qa/runs/2026-06-12-nv3fps-evaloff).
+      GILJOBE_EVAL_GRID: ${GILJOBE_EVAL_GRID:-off}
+      GILJOBE_FRAME_FPS: ${GILJOBE_FRAME_FPS:-3}
+      GILJOBE_NV_FRAME_CAP: ${GILJOBE_NV_FRAME_CAP:-24}
       LIVEKIT_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
       LIVEKIT_SESSION_ID: ${LIVEKIT_SESSION_ID:-local-demo}
       LIVEKIT_IDENTITY: ${LIVEKIT_IDENTITY:-giljobe-analysis}
@@ -124,7 +99,6 @@ services:
       - "8200"
     depends_on:
       - api
-      - ai-engine
 
   agent1:
     build: ../services/agent1

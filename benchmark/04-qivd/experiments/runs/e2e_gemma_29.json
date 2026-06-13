@@ -1,0 +1,263 @@
+[
+  {
+    "video": "00002632.mp4",
+    "cat": "action detection",
+    "q": "Is it OK sign?",
+    "ref": "Yes",
+    "ans": "Yes.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00000459.mp4",
+    "cat": "object attributes",
+    "q": "Which color are the curtains?",
+    "ref": "White",
+    "ans": "White.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00000103.mp4",
+    "cat": "object attributes",
+    "q": "Is it long or short?",
+    "ref": "Long",
+    "ans": "It's short.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00001130.mp4",
+    "cat": "object detection",
+    "q": "What is this?",
+    "ref": "A lighter",
+    "ans": "He is lighting a cigarette.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00001007.mp4",
+    "cat": "object referencing",
+    "q": "What's this thing behind me?",
+    "ref": "Television",
+    "ans": "A TV and some speakers.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00000918.mp4",
+    "cat": "object referencing",
+    "q": "Do I have curtains on my window or not?",
+    "ref": "Yes",
+    "ans": "No.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00000574.mp4",
+    "cat": "action detection",
+    "q": "What I am doing with the cards?",
+    "ref": "Shuffling",
+    "ans": "He is doing a card trick.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00000422.mp4",
+    "cat": "object referencing",
+    "q": "Do I wear glasses?",
+    "ref": "Yes",
+    "ans": "Yes, she wears glasses.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00002784.mp4",
+    "cat": "action detection",
+    "q": "Am I doing nothing?",
+    "ref": "Yes",
+    "ans": "She is standing in a room.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00002242.mp4",
+    "cat": "object referencing",
+    "q": "What am I drinking?",
+    "ref": "Coffee or tea",
+    "ans": "He is drinking from a mug.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00000358.mp4",
+    "cat": "action detection",
+    "q": "What am I doing?",
+    "ref": "Clapping",
+    "ans": "He is clapping.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00002427.mp4",
+    "cat": "object referencing",
+    "q": "What I'm holding for me in my left hand?",
+    "ref": "A mug",
+    "ans": "A mug.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00001734.mp4",
+    "cat": "action detection",
+    "q": "Can you see I'm dancing?",
+    "ref": "Yes",
+    "ans": "Yes, she is dancing.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00000131.mp4",
+    "cat": "object referencing",
+    "q": "What can you see in this paint?",
+    "ref": "A boat",
+    "ans": "A banana.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00000123.mp4",
+    "cat": "object referencing",
+    "q": "What am I holding in my hands?",
+    "ref": "Scissors",
+    "ans": "Scissors.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00000385.mp4",
+    "cat": "object referencing",
+    "q": "What hand am I holding this piece of paper in?",
+    "ref": "Right",
+    "ans": "His left hand.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00000899.mp4",
+    "cat": "action detection",
+    "q": "Did I just clap?",
+    "ref": "1",
+    "ans": "Yes, he did.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00000956.mp4",
+    "cat": "action attributes",
+    "q": "On which side did I move? Left or right?",
+    "ref": "Left",
+    "ans": "He is not moving.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00002077.mp4",
+    "cat": "action detection",
+    "q": "Did I do an action?",
+    "ref": "No",
+    "ans": "No.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00002475.mp4",
+    "cat": "object attributes",
+    "q": "What color is this ball?",
+    "ref": "Black",
+    "ans": "It is black.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00000109.mp4",
+    "cat": "object referencing",
+    "q": "Which side of me is the ladder on?",
+    "ref": "Left",
+    "ans": "The ladder is on the right side.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00002307.mp4",
+    "cat": "action attributes",
+    "q": "Am I walking in circles?",
+    "ref": "No",
+    "ans": "No, he is not.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00000818.mp4",
+    "cat": "object referencing",
+    "q": "Where is the wood statue?",
+    "ref": "Right",
+    "ans": "On the dresser.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00002674.mp4",
+    "cat": "action detection",
+    "q": "What am I doing?",
+    "ref": "Removing",
+    "ans": "He is holding a lampshade above his head.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00002885.mp4",
+    "cat": "object referencing",
+    "q": "Is there any pink colored luggage on my wardrobe?",
+    "ref": "No",
+    "ans": "Yes, there is.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00002241.mp4",
+    "cat": "action detection",
+    "q": "What am I doing with my right hand?",
+    "ref": "Waving",
+    "ans": "He is waving.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00001724.mp4",
+    "cat": "object referencing",
+    "q": "How many plants are behind me?",
+    "ref": "No",
+    "ans": "None.",
+    "norm": false,
+    "pass": false
+  },
+  {
+    "video": "00000906.mp4",
+    "cat": "object referencing",
+    "q": "What am I holding with my right hand?",
+    "ref": "A glass",
+    "ans": "A glass.",
+    "norm": true,
+    "pass": true
+  },
+  {
+    "video": "00001845.mp4",
+    "cat": "action detection",
+    "q": "What am I doing?",
+    "ref": "Rotating paper sheets",
+    "ans": "He is holding a light.",
+    "norm": false,
+    "pass": false
+  }
+]

@@ -16,7 +16,7 @@ class RemoteVerificationAndAvatarBoundaryContractTest(unittest.TestCase):
         self.assertIn("ssh \"$REMOTE_HOST\"", script)
         self.assertIn("npm ci --ignore-scripts --no-audit --no-fund", script)
         self.assertIn("node --check apps/web/static/app.js", script)
-        self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py", script)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py", script)
         self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v", script)
         self.assertIn("git diff --cached --check", script)
         self.assertIn("never sources or prints .env values", script)
@@ -28,16 +28,12 @@ class RemoteVerificationAndAvatarBoundaryContractTest(unittest.TestCase):
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         avatar_runbook = (REPO_ROOT / "docs" / "runbooks" / "tts-avatar-contract.md").read_text(encoding="utf-8")
         app_js = (REPO_ROOT / "apps" / "web" / "static" / "app.js").read_text(encoding="utf-8")
-        ai_engine = (REPO_ROOT / "services" / "ai-engine" / "server.py").read_text(encoding="utf-8")
-
         self.assertIn("OpenAI Realtime primary mode", readme)
-        self.assertIn("SpatialReal 서버 SDK egress는 post-TTS WAV/PCM audio", readme)
         self.assertIn("SPATIALREAL_RTC_EGRESS_ENABLED=false", avatar_runbook)
         self.assertIn("No interviewer/avatar audio publication", avatar_runbook)
-        self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/tts", app_js)
-        self.assertIn("interviewerAudio.play", app_js)
-        self.assertIn("SPATIALREAL_RTC_EGRESS_ENABLED", ai_engine)
-        self.assertIn("audio_payload", ai_engine)
+        self.assertNotIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/tts", app_js)
+        self.assertIn("legacy TTS fallback removed", app_js)
+        self.assertNotIn("source\": \"ai-engine", app_js)
 
         combined_claim_surface = "\n".join([readme, avatar_runbook])
         forbidden_claims = [
@@ -49,6 +45,17 @@ class RemoteVerificationAndAvatarBoundaryContractTest(unittest.TestCase):
         for phrase in forbidden_claims:
             with self.subTest(phrase=phrase):
                 self.assertNotIn(phrase, combined_claim_surface)
+
+    def test_avatar_contract_no_longer_depends_on_ai_engine_runtime(self) -> None:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        avatar_runbook = (REPO_ROOT / "docs" / "runbooks" / "tts-avatar-contract.md").read_text(encoding="utf-8")
+        app_js = (REPO_ROOT / "apps" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+        combined = "\n".join([readme, avatar_runbook, app_js])
+        self.assertNotIn("source=ai-engine", combined)
+        self.assertNotIn("services/ai-engine/server.py", combined)
+        self.assertNotIn("/tts/synthesize", combined)
+        self.assertNotIn("ai-engine /avatar/session", avatar_runbook)
+        self.assertNotIn("http://ai-engine:8100/avatar/session", avatar_runbook)
 
 
 if __name__ == "__main__":

@@ -2,8 +2,9 @@
 # contract (server/http_app.py: /subscriber/start|stop, /signals, /healthz, /readyz).
 # services/analysis-engine/server.py builds that GilJobE app and adds GilJob v2's
 # sanitized Realtime MMM ingress route: POST /realtime/turn-events.
-# Pin the integration source so Docker builds are reproducible. 5ba7249 includes the
-# objective grounding lanes (vision MediaPipe + audio prosody), the NV-lane late-frame
+# Pin the integration source so Docker builds are reproducible. a26045d includes the
+# objective grounding lanes (vision MediaPipe Face+Pose+Hands + audio prosody — Hands
+# carries finger-count segments on the turn_handoff fragment), the NV-lane late-frame
 # catch-up fix, and the external-transcript sentence lane for the Realtime flow.
 # With GILJOBE_TRANSCRIPT_SOURCE=external, GilJobE consumes API sideband events,
 # avoids the 3s Gemma STT grid, and emits per-sentence transcript/prosody/vision/
@@ -11,4 +12,4 @@
 # The [vision,prosody] extras install lane dependencies (mediapipe /
 # praat-parselmouth+scipy); the lanes self-disable without them.
 # Licence note: praat-parselmouth is GPL-3 — revisit before any public image distribution.
-giljobe[vision,prosody] @ git+https://github.com/GilJob-E/GilJobE.git@5ba7249
+giljobe[vision,prosody] @ git+https://github.com/GilJob-E/GilJobE.git@a26045d

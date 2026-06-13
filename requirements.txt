@@ -1,5 +1,4 @@
 # Root development/test dependency aggregate for GilJob v2.
 # Docker images install service-specific requirements from services/*/requirements.txt.
 -r services/api/requirements.txt
--r services/ai-engine/requirements.txt
 -r services/analysis-engine/requirements.txt

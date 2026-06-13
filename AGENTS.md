@@ -3,7 +3,7 @@
 This file is the canonical repository-level contract for coding agents working on GilJob v2. Follow any deeper `AGENTS.md` file for module-specific overrides.
 
 ## Product intent
-GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-container Docker Compose deployment. The current implementation is intentionally a scaffold: Caddy ingress, production interview routes, API session/token contracts, self-hosted LiveKit media, an OpenAI Realtime-only interviewer voice boundary, a GilJobE-backed analysis-engine boundary, and SpatialReal avatar session/RTC integration work. The former local Whisper STT service has been removed; transcription belongs to the GilJobE analysis-engine boundary.
+GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-container Docker Compose deployment. The current implementation is intentionally a scaffold: Caddy ingress, production interview routes, API session/token contracts, an OpenAI Realtime-only interviewer voice boundary, a GilJobE-backed analysis-engine boundary, and disabled/deferred SpatialReal avatar metadata. LiveKit is optional legacy/media-overlay infrastructure, not the default Realtime/MMM path. The former local Whisper STT and ai-engine voice service have been removed from the default runtime; transcription and multimodal readiness belong to the GilJobE analysis-engine boundary.
 
 ## Hard boundaries
 - Do not touch or migrate the legacy `/home/hoddukzoa/GilJob` tree. This repository/worktree represents GilJob v2.
@@ -11,7 +11,7 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 - Do not expose raw session tokens, report tokens, JWTs, LiveKit tokens, provider keys, or raw media in UI, logs, tests, docs, or examples.
 - Preserve the `LIVEKIT_INTERNAL_URL` / `LIVEKIT_PUBLIC_URL` split. Browser clients use the public URL; server-side token issuing uses the internal URL.
 - Preserve hash-only server storage for public tokens. Raw public tokens are returned once and must not be persisted.
-- Mark future work honestly. Local Whisper STT has been removed; OpenAI Realtime is the only live interviewer voice path on the realtime branch; do not reintroduce non-Realtime fallback LLM/TTS flows for the main interview loop. SpatialReal session/RTC boundaries exist, but end-to-end avatar lip-sync to OpenAI Realtime audio is not implemented; current RTC egress is post-TTS compatibility only and still depends on a public LiveKit/WebRTC media path. Full Main LLM orchestration, production-grade multimodal analysis, and final report generation are not complete product features yet.
+- Mark future work honestly. Local Whisper STT and the ai-engine voice/TTS runtime have been removed from the default architecture; OpenAI Realtime is the only live interviewer voice path on the realtime branch; do not reintroduce non-Realtime fallback LLM/TTS flows for the main interview loop. SpatialReal avatar metadata may be API-owned but is disabled/deferred unless separately verified; end-to-end avatar lip-sync to OpenAI Realtime audio is not implemented. Full Main LLM orchestration, production-grade multimodal analysis, and final report generation are not complete product features yet.
 
 ## Source-of-truth documents
 - `README.md` for current product status, architecture summary, and run instructions.
@@ -22,12 +22,11 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 - `tests/contract/` for behavior and security contracts.
 
 ## Module map
-- `apps/web/`: browser UI, production interview routes, LiveKit client join, manual answer controls, visible/log redaction.
-- `services/api/`: session/report token issuing, hash-only records, LiveKit token issuing, API security contracts.
-- `services/ai-engine/`: internal compatibility adapters for keyless route smoke, optional ElevenLabs TTS experiments, and SpatialReal post-TTS egress; not the live interviewer voice path, not full STT/avatar/report orchestration, and not the OpenAI Realtime session broker.
-- `services/analysis-engine/`: GilJobE-backed STT and multimodal analysis boundary; `server.py` builds GilJobE's HTTP app and adds `/realtime/turn-events` for sanitized Realtime MMM sideband ingress.
+- `apps/web/`: browser UI, production interview routes, OpenAI Realtime WebRTC client flow, manual answer controls, visible/log redaction, and disabled/deferred avatar UI states.
+- `services/api/`: session/report token issuing, hash-only records, OpenAI Realtime session/call broker, Realtime turn/MMM sideband routes, API-owned disabled/deferred avatar metadata, and security contracts.
+- `services/analysis-engine/`: GilJobE-backed STT and multimodal analysis boundary; `server.py` builds GilJobE's HTTP app and adds `/realtime/turn-events` for sanitized Realtime MMM sideband ingress. This service remains the exact-turn MMM/RNAS source of truth.
 - `services/agent1/`: future multimodal placeholder; structured signal boundary only.
-- `infra/`: Docker Compose, Caddy, LiveKit, coturn, Postgres, and single-server deployment wiring.
+- `infra/`: Docker Compose, Caddy, optional LiveKit/coturn media overlay files, Postgres, and single-server deployment wiring. The default runtime services are API, Web, analysis-engine, agent1, Postgres, and Redis profile only when enabled.
 - `tests/`: contract and integration test guidance.
 - `docs/`: ADRs, runbooks, planning artifacts, and rendered architecture assets.
 - `packages/shared/`: shared schemas/contracts only; avoid premature abstractions.
@@ -45,7 +44,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v
 git diff --check
 ```
 
-Run Docker Compose or browser smoke only when the change affects runtime wiring or LiveKit behavior.
+Run Docker Compose or browser smoke only on the approved remote runtime (kiostation) when the change affects runtime wiring; do not run local Docker in this workspace.
 
 ## Reporting
 Report changed files, verification evidence, and any known gaps. Keep user-facing discussion Korean when the user works in Korean, but keep `AGENTS.md` and `CLAUDE.md` prose in English.

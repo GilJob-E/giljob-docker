@@ -1,0 +1,421 @@
+{
+  "type": "sentence_table_probe",
+  "sentences": [
+    {
+      "text": "안녕하십니까?",
+      "t": [
+        0.0,
+        0.8
+      ],
+      "dur_s": 0.8,
+      "speech": {
+        "pause_before_s": 0.1,
+        "rate_syl_per_s": 7.5,
+        "note": "1초 미만/분석 불가 — 프로소디 생략"
+      },
+      "visual": {
+        "windows": 1,
+        "face_frames": 2,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.016,
+        "smile_ratio": 0.0,
+        "brow_down_mean": 0.0,
+        "mouth_press_mean": 0.018,
+        "gaze_off_mean": 0.167,
+        "yaw_std_deg": 0.01,
+        "pitch_std_deg": 0.06,
+        "lip_motion": 0.00464,
+        "blink_count": 0,
+        "smile_max": 0.027,
+        "pose_frames": 2,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0009,
+        "head_sway": 0.001,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.2,
+        "notes": [
+          "미소 없음, 시선 이탈 및 머리 움직임 매우 적음"
+        ]
+      }
+    },
+    {
+      "text": "지원자 이나래입니다.",
+      "t": [
+        1.1,
+        2.5
+      ],
+      "dur_s": 1.4,
+      "speech": {
+        "pause_before_s": 0.1,
+        "rate_syl_per_s": 6.4,
+        "articulation_rate_syl_per_s": 5.4,
+        "pitch_sd_semitone": 3.89,
+        "pdq": 0.228,
+        "voiced_ratio": 0.872,
+        "junctures_within": 1,
+        "longest_pause_s": 0.1,
+        "energy_end_delta_db": -1.35
+      },
+      "visual": {
+        "windows": 1,
+        "face_frames": 2,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.016,
+        "smile_ratio": 0.0,
+        "brow_down_mean": 0.0,
+        "mouth_press_mean": 0.018,
+        "gaze_off_mean": 0.167,
+        "yaw_std_deg": 0.01,
+        "pitch_std_deg": 0.06,
+        "lip_motion": 0.00464,
+        "blink_count": 0,
+        "smile_max": 0.027,
+        "pose_frames": 2,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0009,
+        "head_sway": 0.001,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.2,
+        "notes": [
+          "미소 없음, 시선 이탈 및 머리 움직임 매우 적음"
+        ]
+      }
+    },
+    {
+      "text": "저는 그때 동기들에게 \"자문 대체 언제 사냐는\" 얘기를 자주 들었습니다.",
+      "t": [
+        2.7,
+        7.3
+      ],
+      "dur_s": 4.6,
+      "speech": {
+        "pause_before_s": 0.11,
+        "rate_syl_per_s": 6.1,
+        "articulation_rate_syl_per_s": 6.33,
+        "pitch_sd_semitone": 3.49,
+        "pdq": 0.2158,
+        "voiced_ratio": 0.807,
+        "junctures_within": 3,
+        "longest_pause_s": 0.13,
+        "energy_end_delta_db": -0.97
+      },
+      "visual": {
+        "windows": 2,
+        "face_frames": 5,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.006,
+        "smile_ratio": 0.0,
+        "brow_down_mean": 0.001,
+        "mouth_press_mean": 0.008,
+        "gaze_off_mean": 0.232,
+        "yaw_std_deg": 0.03,
+        "pitch_std_deg": 0.18,
+        "lip_motion": 0.00391,
+        "blink_count": 0,
+        "smile_max": 0.027,
+        "pose_frames": 5,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0025,
+        "head_sway": 0.0006,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.2,
+        "notes": [
+          "미소 없음, 시선 이탈 및 머리 움직임 매우 적음",
+          "시선 이탈 평균이 낮고, 미소나 입술 움직임이 거의 관측되지 않음"
+        ]
+      }
+    },
+    {
+      "text": "그 이유는 왕복 네 시간에 아카는데도 주말 아르바이트에 한 번도 지각하지 않아.",
+      "t": [
+        7.5,
+        11.9
+      ],
+      "dur_s": 4.4,
+      "speech": {
+        "pause_before_s": 0.1,
+        "rate_syl_per_s": 7.3,
+        "articulation_rate_syl_per_s": 7.09,
+        "pitch_sd_semitone": 4.11,
+        "pdq": 0.2463,
+        "voiced_ratio": 0.785,
+        "junctures_within": 3,
+        "longest_pause_s": 0.1,
+        "energy_end_delta_db": 0.31
+      },
+      "visual": {
+        "windows": 1,
+        "face_frames": 2,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.662,
+        "smile_ratio": 1.0,
+        "brow_down_mean": 0.087,
+        "mouth_press_mean": 0.033,
+        "gaze_off_mean": 0.332,
+        "yaw_std_deg": 0.05,
+        "pitch_std_deg": 0.15,
+        "lip_motion": 0.00299,
+        "blink_count": 0,
+        "smile_max": 0.705,
+        "pose_frames": 2,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0008,
+        "head_sway": 0.0014,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.3,
+        "notes": [
+          "미소는 있으나, 시선 이탈이 약간 관찰됨"
+        ]
+      }
+    },
+    {
+      "text": "또 상속 장학금도 계속 받았기 때문입니다.",
+      "t": [
+        12.0,
+        14.4
+      ],
+      "dur_s": 2.4,
+      "speech": {
+        "pause_before_s": 0.17,
+        "rate_syl_per_s": 7.1,
+        "articulation_rate_syl_per_s": 5.42,
+        "pitch_sd_semitone": 6.03,
+        "pdq": 0.3633,
+        "voiced_ratio": 0.623,
+        "junctures_within": 0,
+        "longest_pause_s": null,
+        "energy_end_delta_db": -2.5
+      },
+      "visual": {
+        "windows": 1,
+        "face_frames": 2,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.0,
+        "smile_ratio": 0.0,
+        "brow_down_mean": 0.003,
+        "mouth_press_mean": 0.005,
+        "gaze_off_mean": 0.473,
+        "yaw_std_deg": 0.33,
+        "pitch_std_deg": 0.17,
+        "lip_motion": 0.0264,
+        "blink_count": 0,
+        "smile_max": 0.0,
+        "pose_frames": 2,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0057,
+        "head_sway": 0.0005,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.2,
+        "notes": [
+          "시선 이탈 평균이 0.473으로 관찰됨"
+        ]
+      }
+    },
+    {
+      "text": "이런데 그번에 공정계산 공무전에 나갔을 때는 생산 속도를 자신 6% 단축시키는 걸 선 했고 대상도 수당할 수 있었습니다.",
+      "t": [
+        14.7,
+        22.9
+      ],
+      "dur_s": 8.2,
+      "speech": {
+        "pause_before_s": 0.12,
+        "rate_syl_per_s": 5.7,
+        "articulation_rate_syl_per_s": 5.87,
+        "pitch_sd_semitone": 4.28,
+        "pdq": 0.2565,
+        "voiced_ratio": 0.642,
+        "junctures_within": 3,
+        "longest_pause_s": 0.13,
+        "energy_end_delta_db": -1.37
+      },
+      "visual": {
+        "windows": 2,
+        "face_frames": 4,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.0,
+        "smile_ratio": 0.0,
+        "brow_down_mean": 0.02,
+        "mouth_press_mean": 0.007,
+        "gaze_off_mean": 0.322,
+        "yaw_std_deg": 0.24,
+        "pitch_std_deg": 0.15,
+        "lip_motion": 0.01427,
+        "blink_count": 0,
+        "smile_max": 0.0,
+        "pose_frames": 4,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0029,
+        "head_sway": 0.0008,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.2,
+        "notes": [
+          "시선 이탈 평균이 0.473으로 관찰됨",
+          "미소 없음, 시선 이탈 미미, 자세 안정적"
+        ]
+      }
+    },
+    {
+      "text": "현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 를 진행해서 공정 최적화에 도움을 줄 수 있었습니다.",
+      "t": [
+        23.1,
+        29.9
+      ],
+      "dur_s": 6.8,
+      "speech": {
+        "pause_before_s": 0.16,
+        "rate_syl_per_s": 6.5,
+        "articulation_rate_syl_per_s": 6.3,
+        "pitch_sd_semitone": 5.12,
+        "pdq": 0.3093,
+        "voiced_ratio": 0.65,
+        "junctures_within": 2,
+        "longest_pause_s": 0.15,
+        "energy_end_delta_db": 0.5
+      },
+      "visual": {
+        "windows": 2,
+        "face_frames": 5,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.201,
+        "smile_ratio": 0.6,
+        "brow_down_mean": 0.018,
+        "mouth_press_mean": 0.025,
+        "gaze_off_mean": 0.374,
+        "yaw_std_deg": 0.31,
+        "pitch_std_deg": 0.52,
+        "lip_motion": 0.00287,
+        "blink_count": 1,
+        "smile_max": 0.405,
+        "pose_frames": 5,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0007,
+        "head_sway": 0.0014,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.25,
+        "notes": [
+          "미소 없음, 시선 이탈 미미, 자세 안정적",
+          "미소는 있으나 시선 이탈이 관찰됨"
+        ]
+      }
+    },
+    {
+      "text": "앞으로 SK 하이닉스에서도 차세대 메모리 매 효율적으로 양산하는 데 기여하고 싶습니다.",
+      "t": [
+        30.0,
+        35.2
+      ],
+      "dur_s": 5.2,
+      "speech": {
+        "pause_before_s": 0.15,
+        "rate_syl_per_s": 6.7,
+        "articulation_rate_syl_per_s": 5.54,
+        "pitch_sd_semitone": 5.15,
+        "pdq": 0.3152,
+        "voiced_ratio": 0.678,
+        "junctures_within": 5,
+        "longest_pause_s": 0.16,
+        "energy_end_delta_db": -1.65
+      },
+      "visual": {
+        "windows": 1,
+        "face_frames": 5,
+        "face_seen_ratio": 0.0,
+        "pose_frames": 5,
+        "pose_seen_ratio": 0.0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.0,
+        "notes": [
+          "얼굴 미검출로 비언어 신호 관찰 불가"
+        ]
+      }
+    },
+    {
+      "text": "감사합니다.",
+      "t": [
+        35.4,
+        35.9
+      ],
+      "dur_s": 0.5,
+      "speech": {
+        "pause_before_s": 0.17,
+        "rate_syl_per_s": 10.0,
+        "note": "1초 미만/분석 불가 — 프로소디 생략"
+      },
+      "visual": {
+        "windows": 1,
+        "face_frames": 5,
+        "face_seen_ratio": 0.0,
+        "pose_frames": 5,
+        "pose_seen_ratio": 0.0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.0,
+        "notes": [
+          "얼굴 미검출로 비언어 신호 관찰 불가"
+        ]
+      }
+    }
+  ],
+  "meta": {
+    "n_sentences": 9,
+    "silence_runs": 36,
+    "caveat": "시간=글자 보간 근사(±1s급) — 프로덕션은 휴지 스냅/단어 타임스탬프"
+  }
+}

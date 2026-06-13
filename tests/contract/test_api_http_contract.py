@@ -18,21 +18,26 @@ sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 import server as api_server  # noqa: E402
 from server import Handler, SESSION_HASH_STORE  # noqa: E402
 
-DEFAULT_AI_ENGINE_INTERNAL_URL = api_server.AI_ENGINE_INTERNAL_URL
 DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL = api_server.ANALYSIS_ENGINE_INTERNAL_URL
 
 LIVEKIT_ENV_NAMES = (
     "LIVEKIT_REQUIRED",
+    "LIVEKIT_MEDIA_OVERLAY_ENABLED",
     "LIVEKIT_URL",
     "LIVEKIT_INTERNAL_URL",
     "LIVEKIT_PUBLIC_URL",
     "LIVEKIT_API_KEY",
     "LIVEKIT_API_SECRET",
-    "AI_ENGINE_INTERNAL_URL",
     "OPENAI_API_KEY",
+    "OPENAI_API_BASE",
     "OPENAI_REALTIME_API_BASE",
     "OPENAI_REALTIME_CALL_BROKER_ENABLED",
     "OPENAI_REALTIME_SAFETY_SALT",
+    "GEMINI_API_BASE",
+    "COACH_GEMINI_API_KEY",
+    "COACH_LLM_PROVIDER",
+    "COACH_LLM_MODEL",
+    "COACH_LLM_TIMEOUT_SECONDS",
     "REALTIME_MMM_EVENT_LOG_PATH",
     "REALTIME_MMM_FORWARD_ENABLED",
     "REALTIME_MMM_RESULT_TIMEOUT_SECONDS",
@@ -48,7 +53,6 @@ class ApiHttpContractTest(unittest.TestCase):
         SESSION_HASH_STORE.clear()
         api_server.REALTIME_TURN_STATE.clear()
         api_server.REALTIME_RESPONSE_COMMANDS.clear()
-        api_server.AI_ENGINE_INTERNAL_URL = DEFAULT_AI_ENGINE_INTERNAL_URL
         api_server.ANALYSIS_ENGINE_INTERNAL_URL = DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL
         self._old_livekit_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
         for name in self._old_livekit_env:
@@ -67,7 +71,6 @@ class ApiHttpContractTest(unittest.TestCase):
         SESSION_HASH_STORE.clear()
         api_server.REALTIME_TURN_STATE.clear()
         api_server.REALTIME_RESPONSE_COMMANDS.clear()
-        api_server.AI_ENGINE_INTERNAL_URL = DEFAULT_AI_ENGINE_INTERNAL_URL
         api_server.ANALYSIS_ENGINE_INTERNAL_URL = DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL
         for name, value in self._old_livekit_env.items():
             if value is None:
@@ -94,41 +97,6 @@ class ApiHttpContractTest(unittest.TestCase):
                 return res.status, res.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode("utf-8")
-
-    def _start_fake_ai_engine(self, response_payload: dict[str, object], *, status: int = 200) -> list[dict[str, object]]:
-        captured: list[dict[str, object]] = []
-
-        class FakeAiEngineHandler(BaseHTTPRequestHandler):
-            def do_POST(inner_self) -> None:  # noqa: N802 - stdlib callback name
-                length = int(inner_self.headers.get("Content-Length", "0") or "0")
-                raw = inner_self.rfile.read(length) if length else b""
-                captured.append({
-                    "path": inner_self.path,
-                    "body": raw.decode("utf-8"),
-                })
-                body = json.dumps(response_payload).encode("utf-8")
-                inner_self.send_response(status)
-                inner_self.send_header("Content-Type", "application/json")
-                inner_self.send_header("Content-Length", str(len(body)))
-                inner_self.end_headers()
-                inner_self.wfile.write(body)
-
-            def log_message(inner_self, format: str, *args: object) -> None:
-                return None
-
-        fake_server = ThreadingHTTPServer(("127.0.0.1", 0), FakeAiEngineHandler)
-        fake_thread = threading.Thread(target=fake_server.serve_forever, daemon=True)
-        fake_thread.start()
-
-        def cleanup() -> None:
-            fake_server.shutdown()
-            fake_server.server_close()
-            fake_thread.join(timeout=2)
-
-        self.addCleanup(cleanup)
-        host, port = fake_server.server_address
-        api_server.AI_ENGINE_INTERNAL_URL = f"http://{host}:{port}"
-        return captured
 
     def _start_fake_analysis_engine(self, *, status: int = 202, result_payload: dict[str, object] | None = None, result_status: int = 200) -> list[dict[str, object]]:
         captured: list[dict[str, object]] = []
@@ -190,7 +158,7 @@ class ApiHttpContractTest(unittest.TestCase):
                 report_token = public["reportToken"]
                 self.assertNotEqual(session_token, report_token)
                 self.assertEqual(public["livekit"]["tokenStatus"], "not_configured")
-                self.assertEqual(public["livekit"]["deferredReason"], "livekit_credentials_missing")
+                self.assertEqual(public["livekit"]["deferredReason"], "livekit_media_overlay_disabled")
                 self.assertEqual(public["livekit"]["publicUrl"], None)
                 self.assertNotIn("Hash", body)
                 self.assertNotIn("hash", body)
@@ -210,6 +178,66 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(public["roomName"], "giljob-session-local-demo")
         self.assertEqual(set(SESSION_HASH_STORE), {"local-demo"})
 
+    def test_create_session_realtime_metadata_includes_safe_experimental_avatar_bridge_sibling(self) -> None:
+        status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"local-demo"}')
+        self.assertEqual(status, 201, body)
+        payload = json.loads(body)
+        self.assertIn("realtime", payload)
+        self.assertIn("realtimeAvatarBridge", payload)
+        bridge = payload["realtimeAvatarBridge"]
+
+        self.assertEqual(bridge["mode"], "experimental-openai-realtime-audio-to-avatar")
+        self.assertEqual(bridge["status"], "blocked")
+        self.assertFalse(bridge["enabled"])
+        self.assertEqual(bridge["directProviderRoutes"], "blocked")
+        self.assertEqual(bridge["controlBoundary"], "api-metadata-and-browser-livekit-publication")
+        self.assertEqual(bridge["requiresFeatureFlag"], "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED")
+        self.assertFalse(bridge["providerSecretsExposed"])
+        self.assertFalse(bridge["rawMediaExposed"])
+        self.assertFalse(bridge["rawTranscriptExposed"])
+        self.assertIn("experimental", bridge["description"].lower())
+        self.assertIn("blocked", bridge["blockedOutcome"].lower())
+
+        serialized = json.dumps(payload, ensure_ascii=False)
+        forbidden = [
+            "secret-openai-key",
+            "SPATIALREAL_API_KEY",
+            "OPENAI_API_KEY",
+            "client_secret",
+            "server_secret",
+            "raw media bytes",
+            "raw candidate",
+            "v=0",
+        ]
+        for marker in forbidden:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, serialized)
+
+    def test_create_session_default_path_is_realtime_metadata_without_livekit_token(self) -> None:
+        status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"local-demo"}')
+        self.assertEqual(status, 201, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["sessionId"], "local-demo")
+        self.assertIn("realtime", payload)
+        self.assertEqual(payload["realtime"]["enabled"], True)
+        self.assertEqual(payload["realtime"]["mode"], "primary")
+        self.assertEqual(payload["realtime"]["browserWebrtcAttach"], "api-call-broker")
+        self.assertEqual(payload["realtime"]["directProviderRoutes"], "blocked")
+        self.assertIn("/api/interviews/local-demo/realtime/session", payload["realtime"]["sessionEndpoint"])
+        self.assertIn("/api/interviews/local-demo/realtime/call", payload["realtime"]["callEndpoint"])
+        self.assertIn("/api/interviews/local-demo/turns/{turnIndex}/mmm-ready", payload["realtime"]["mmmReadyEndpoint"])
+        livekit = payload["livekit"]
+        self.assertEqual(livekit["tokenStatus"], "not_configured")
+        self.assertIsNone(livekit["candidateToken"])
+        self.assertIsNone(livekit["url"])
+        self.assertIsNone(livekit["publicUrl"])
+        self.assertEqual(livekit["deferredReason"], "livekit_media_overlay_disabled")
+        self.assertNotIn("livekitRequired", payload)
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        for forbidden in ("LIVEKIT_API_SECRET", "OPENAI_API_KEY", "client_secret", "server_secret", "v=0", "raw candidate"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, serialized)
+
     def test_create_session_rejects_unsafe_interview_id(self) -> None:
         status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"../local-demo"}')
         self.assertEqual(status, 400)
@@ -227,42 +255,40 @@ class ApiHttpContractTest(unittest.TestCase):
 
 
 
-    def test_next_question_route_proxies_ai_engine_without_secret_leak(self) -> None:
-        captured = self._start_fake_ai_engine({
-            "interviewId": "local-demo",
-            "turnIndex": 1,
-            "questionId": "q_local-demo_0001",
-            "question": "지원한 직무와 연결되는 경험을 설명해 주세요.",
-            "provider": "fake",
-            "providerStatus": "fake",
-            "answerTurn": {"boundary": "manual_button"},
-        })
+    def test_api_source_has_no_ai_engine_internal_url_or_upstream_routes(self) -> None:
+        source = (REPO_ROOT / "services" / "api" / "server.py").read_text(encoding="utf-8")
+        self.assertNotIn("AI_ENGINE_INTERNAL_URL", source)
+        self.assertNotIn("/interview/next-question", source)
+        self.assertNotIn("/tts/synthesize", source)
+        self.assertNotIn('"source": "ai-engine"', source)
+
+    def test_next_question_route_is_deprecated_realtime_only_without_ai_engine_upstream(self) -> None:
         status, body = self._post(
             "/api/interviews/local-demo/turns/1/question",
             json.dumps({"lastAnswer": "아직 이전 답변 없음"}).encode("utf-8"),
         )
-        self.assertEqual(status, 200, body)
+        self.assertEqual(status, 410, body)
         payload = json.loads(body)
+        self.assertEqual(payload["error"], "deprecated_ai_engine_removed")
+        self.assertEqual(payload["reason"], "realtime_only")
         self.assertEqual(payload["interviewId"], "local-demo")
         self.assertEqual(payload["turnIndex"], 1)
-        self.assertEqual(payload["delivery"]["mode"], "api-mediated-question")
-        self.assertEqual(captured[0]["path"], "/interview/next-question")
-        upstream_payload = json.loads(str(captured[0]["body"]))
-        self.assertEqual(upstream_payload["interviewId"], "local-demo")
-        self.assertEqual(upstream_payload["turnIndex"], 1)
-        self.assertNotIn("ELEVENLABS_API_KEY", body)
+        self.assertNotIn("ai-engine", body)
+        self.assertNotIn("AI_ENGINE_INTERNAL_URL", body)
 
-    def test_next_question_route_accepts_caddy_stripped_path_and_bad_id_fails(self) -> None:
-        self._start_fake_ai_engine({"interviewId": "local-demo", "turnIndex": 2, "question": "다음 질문입니다."})
+    def test_next_question_route_accepts_caddy_stripped_path_as_deprecated_and_bad_id_fails(self) -> None:
         status, body = self._post("/interviews/local-demo/turns/2/question", b"{}")
-        self.assertEqual(status, 200, body)
-        self.assertEqual(json.loads(body)["turnIndex"], 2)
+        self.assertEqual(status, 410, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "deprecated_ai_engine_removed")
+        self.assertEqual(payload["reason"], "realtime_only")
+        self.assertEqual(payload["turnIndex"], 2)
 
         status, body = self._post("/api/interviews/../turns/1/question", b"{}")
         self.assertEqual(status, 404, body)
         self.assertEqual(json.loads(body)["error"], "not_found")
 
-    def test_realtime_turn_events_forward_transcript_only_on_internal_analysis_engine_hop(self) -> None:
+    def test_realtime_turn_events_forward_start_end_transcript_prosody_to_analysis_engine(self) -> None:
         captured = self._start_fake_analysis_engine(status=202)
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "true"
         with tempfile.NamedTemporaryFile(delete=False) as event_log:
@@ -270,65 +296,109 @@ class ApiHttpContractTest(unittest.TestCase):
         self.addCleanup(lambda: pathlib.Path(event_log_path).unlink(missing_ok=True))
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = event_log_path
         os.environ["GILJOBE_VISION"] = "off"
-        os.environ["GILJOBE_PROSODY"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "on"
 
+        events = [
+            {"type": "turn.answer_started"},
+            {"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}},
+            {"type": "transcript.completed", "transcript": "bounded candidate answer", "detail": {"transcript": "bounded candidate answer", "itemId": "item-1"}},
+            {"type": "analysis.vad.speech_started", "detail": {"audioStartMs": 120, "rawAudioIncluded": False}},
+            {"type": "analysis.vad.speech_stopped", "detail": {"audioEndMs": 1780, "rawAudioIncluded": False}},
+            {"type": "prosody.window_metrics", "detail": {"energy": 0.3, "rawAudioIncluded": False}},
+        ]
+        for event in events:
+            status, body = self._post(
+                "/api/interviews/local-demo/turns/1/events",
+                json.dumps(event).encode("utf-8"),
+            )
+            self.assertEqual(status, 202, body)
+            payload = json.loads(body)
+            self.assertTrue(payload["ingress"]["analysisEngine"]["attempted"])
+            self.assertEqual(payload["ingress"]["analysisEngine"]["status"], 202)
+            self.assertEqual(payload["ingress"]["analysisEngine"]["endpoint"], "/realtime/turn-events")
+
+        self.assertEqual([entry["path"] for entry in captured], ["/realtime/turn-events"] * 6)
+        forwarded = [json.loads(str(entry["body"])) for entry in captured]
+        self.assertEqual([entry["eventKind"] for entry in forwarded], [
+            "turn.answer_started",
+            "turn.answer_ended",
+            "transcript.completed",
+            "analysis.vad.speech_started",
+            "analysis.vad.speech_stopped",
+            "prosody.window_metrics",
+        ])
+        transcript_forward = forwarded[2]
+        self.assertEqual(transcript_forward["source"], "api-sideband")
+        self.assertEqual(transcript_forward["sessionId"], "local-demo")
+        self.assertFalse(transcript_forward["rawTranscriptLogged"])
+        self.assertFalse(transcript_forward["rawMediaAccepted"])
+        self.assertEqual(transcript_forward["detail"], {"transcript": "bounded candidate answer", "itemId": "item-1"})
+        vad_start_forward = forwarded[3]
+        self.assertEqual(vad_start_forward["detail"], {"audioStartMs": 120, "rawAudioIncluded": False})
+        vad_stop_forward = forwarded[4]
+        self.assertEqual(vad_stop_forward["detail"], {"audioEndMs": 1780, "rawAudioIncluded": False})
+        prosody_forward = forwarded[5]
+        self.assertEqual(prosody_forward["detail"], {"energy": 0.3, "rawAudioIncluded": False})
+        persisted = pathlib.Path(event_log_path).read_text()
+        self.assertNotIn("bounded candidate answer", persisted)
+
+    def test_realtime_vision_events_forward_to_analysis_engine(self) -> None:
+        captured = self._start_fake_analysis_engine(status=202)
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "true"
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         status, body = self._post(
-            "/api/interviews/local-demo/turns/1/events",
+            "/api/interviews/local-demo/turns/1/vision-events",
             json.dumps({
-                "type": "transcript.completed",
-                "transcript": "bounded candidate answer",
-                "detail": {"transcript": "bounded candidate answer", "itemId": "item-1"},
+                "type": "vision.frame_metrics",
+                "detail": {
+                    "visionSignals": {"cameraEnabled": True, "faceVisible": True, "frameAvailable": True},
+                    "visionFrame": {
+                        "schemaVersion": "2026-06-13.internal-vision-frame.v1",
+                        "encoding": "image/jpeg;base64",
+                        "width": 2,
+                        "height": 2,
+                        "byteLength": 4,
+                        "data": "ZmFrZQ==",
+                    },
+                },
             }).encode("utf-8"),
         )
         self.assertEqual(status, 202, body)
         payload = json.loads(body)
+        self.assertTrue(payload["internalVisionFrameForwarded"])
         self.assertTrue(payload["ingress"]["analysisEngine"]["attempted"])
-        self.assertEqual(payload["ingress"]["analysisEngine"]["status"], 202)
-        self.assertEqual(payload["ingress"]["analysisEngine"]["endpoint"], "/realtime/turn-events")
         self.assertEqual(captured[0]["path"], "/realtime/turn-events")
         forwarded = json.loads(str(captured[0]["body"]))
-        self.assertEqual(forwarded["source"], "api-sideband")
-        self.assertEqual(forwarded["sessionId"], "local-demo")
-        self.assertFalse(forwarded["rawTranscriptLogged"])
-        self.assertFalse(forwarded["rawMediaAccepted"])
-        self.assertEqual(forwarded["detail"], {"transcript": "bounded candidate answer", "itemId": "item-1"})
-        persisted = pathlib.Path(event_log_path).read_text()
-        self.assertNotIn("bounded candidate answer", body)
-        self.assertNotIn("bounded candidate answer", persisted)
+        self.assertEqual(forwarded["eventKind"], "vision.frame_metrics")
+        self.assertEqual(forwarded["sourceRoute"], "vision-events")
+        self.assertTrue(forwarded["detail"]["visionSignals"]["faceVisible"])
+        self.assertEqual(forwarded["detail"]["visionFrame"]["encoding"], "image/jpeg;base64")
+        self.assertEqual(forwarded["detail"]["visionFrame"]["data"], "ZmFrZQ==")
+        self.assertNotIn("visionFrame", payload)
 
-    def test_coach_feedback_reads_turn_handoff_without_exposing_raw_analysis(self) -> None:
+    def test_coach_feedback_reads_exact_turn_result_without_exposing_raw_analysis(self) -> None:
         analysis = self._start_fake_analysis_engine(result_payload={
-            "sessionId": "local-demo",
-            "recordCount": 8,
-            "turnHandoff": {
-                "prompt_block": [
-                    "raw transcript must not leak",
-                    "candidate looked away during key point",
-                ],
-                "meta": {
-                    "coverage": {
-                        "transcript": True,
-                        "vision": True,
-                        "prosody": True,
-                    },
+            "result": {
+                "schemaVersion": "2026-06-13.rnas-turn-result.v2",
+                "status": "ready",
+                "sessionId": "local-demo",
+                "turnIndex": 1,
+                "confidence": 0.86,
+                "latencyMs": 412,
+                "candidatePromptFragment": "raw transcript must not leak",
+                "candidateSafePromptFragment": {
+                    "text": "다음 답변에서는 프로젝트 맥락과 본인 기여를 더 구체적으로 확인하세요.",
+                    "containsRawTranscript": False,
+                    "containsRawMedia": False,
                 },
-            },
-            "rawTranscriptLogged": False,
-            "rawMediaAccepted": False,
-        })
-        coach_llm = self._start_fake_ai_engine({
-            "interviewId": "local-demo",
-            "turnIndex": 1,
-            "provider": "fake",
-            "providerStatus": "fake",
-            "model": "fake-coach",
-            "coachFeedback": {
-                "ready": True,
-                "summary": "LLM coach summary",
-                "answerEvaluation": "LLM answer evaluation",
-                "multimodalEvaluation": "LLM multimodal evaluation",
-                "bullets": ["LLM bullet one", "LLM bullet two"],
-            },
+                "transcriptSignals": {"status": "sentence_observed", "specificityScore": 0.58},
+                "visionSignals": {"status": "frame_observed", "faceVisible": True},
+                "prosodySignals": {"status": "timing_observed", "speechDurationMs": 1660},
+                "behavioralSignals": {"engagement": "steady"},
+                "coverage": {"speech": 6, "visual": 8, "nv": 8},
+                "rawTranscriptLogged": False,
+                "rawMediaAccepted": False,
+            }
         })
 
         status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
@@ -339,85 +409,33 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["turnIndex"], 1)
         self.assertEqual(payload["status"], "ready")
         self.assertEqual(payload["delivery"]["mode"], "api-mediated-coach-feedback")
+        self.assertEqual(payload["delivery"]["analysisEndpoint"], "/realtime/turn-results")
+        self.assertFalse(payload["delivery"]["rawAnalysisReturned"])
         self.assertTrue(payload["coachFeedback"]["ready"])
-        self.assertEqual(payload["coachFeedback"]["summary"], "LLM coach summary")
-        self.assertEqual(payload["coachFeedback"]["answerEvaluation"], "LLM answer evaluation")
-        self.assertEqual(payload["coachFeedback"]["multimodalEvaluation"], "LLM multimodal evaluation")
-        self.assertEqual(payload["coachFeedback"]["bullets"], ["LLM bullet one", "LLM bullet two"])
+        self.assertIn("summary", payload["coachFeedback"])
+        self.assertIn("answerEvaluation", payload["coachFeedback"])
+        self.assertIn("multimodalEvaluation", payload["coachFeedback"])
+        self.assertIsInstance(payload["coachFeedback"]["bullets"], list)
         self.assertEqual(payload["coachLlm"]["provider"], "fake")
         self.assertEqual(payload["coachLlm"]["providerStatus"], "fake")
         self.assertEqual(payload["coachLlm"]["model"], "fake-coach")
-        self.assertTrue(payload["analysis"]["turnHandoffPresent"])
-        self.assertEqual(payload["analysis"]["promptBlockLineCount"], 2)
-        self.assertEqual(payload["analysis"]["coverage"], {"prosody": True, "transcript": True, "vision": True})
+        self.assertEqual(payload["analysis"]["endpoint"], "/realtime/turn-results")
+        self.assertEqual(payload["analysis"]["resultStatus"], "ready")
+        self.assertEqual(payload["analysis"]["coverage"], {"nv": 8, "speech": 6, "visual": 8})
         self.assertEqual(analysis[-1]["method"], "GET")
-        self.assertIn("/signals?sessionId=local-demo", analysis[-1]["path"])
-        self.assertEqual(coach_llm[-1]["path"], "/coach/feedback")
-        coach_request = json.loads(str(coach_llm[-1]["body"]))
-        self.assertEqual(coach_request["interviewId"], "local-demo")
-        self.assertEqual(coach_request["turnIndex"], 1)
-        self.assertEqual(coach_request["turnHandoff"]["prompt_block"][0], "raw transcript must not leak")
-        self.assertNotIn('"turnHandoff":', body)
-        self.assertNotIn("prompt_block", body)
+        self.assertIn("/realtime/turn-results?interviewId=local-demo&turnIndex=1", analysis[-1]["path"])
+        self.assertNotIn('"candidatePromptFragment":', body)
         self.assertNotIn("raw transcript must not leak", body)
-        self.assertNotIn("candidate looked away during key point", body)
+        self.assertNotIn("candidateSafePromptFragment", body)
+        self.assertNotIn("ai-engine", body)
 
-    def test_coach_feedback_reports_actual_handoff_coverage_keys(self) -> None:
-        self._start_fake_analysis_engine(result_payload={
-            "sessionId": "local-demo",
-            "recordCount": 9,
-            "turnHandoff": {
-                "type": "turn_handoff",
-                "schema_version": 2,
-                "prompt_block": [
-                    "[음성 전달 실측치]",
-                    "- 발화 속도: 조음 6.18 음절/초",
-                ],
-                "transcript": "안녕하십니까. 프로젝트 경험을 설명드리겠습니다.",
-                "sentences": [{"text": "안녕하십니까."}],
-                "speech": {"duration_s": 33.55},
-                "visual": {"face_seen_ratio": 1.0},
-                "nonverbal": {"states": {"neutral": 4}},
-                "meta": {
-                    "coverage": {
-                        "speech": 6,
-                        "visual": 8,
-                        "nv": 8,
-                    },
-                },
-            },
-            "rawTranscriptLogged": False,
-            "rawMediaAccepted": False,
-        })
-        self._start_fake_ai_engine({
-            "interviewId": "local-demo",
-            "turnIndex": 1,
-            "provider": "fake",
-            "providerStatus": "fake",
-            "model": "fake-coach",
-            "coachFeedback": {
-                "ready": True,
-                "summary": "LLM coach summary",
-                "answerEvaluation": "LLM answer evaluation",
-                "multimodalEvaluation": "LLM multimodal evaluation",
-                "bullets": [],
-            },
-        })
-
-        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
-
-        self.assertEqual(status, 200, body)
-        payload = json.loads(body)
-        self.assertEqual(payload["analysis"]["promptBlockLineCount"], 2)
-        self.assertEqual(payload["analysis"]["coverage"], {"nv": True, "speech": True, "visual": True})
-        self.assertNotIn("프로젝트 경험을 설명", body)
-        self.assertNotIn("prompt_block", body)
-
-    def test_coach_feedback_is_pending_until_turn_handoff_exists(self) -> None:
+    def test_coach_feedback_is_pending_until_exact_turn_result_is_ready(self) -> None:
         captured = self._start_fake_analysis_engine(result_payload={
-            "sessionId": "local-demo",
-            "recordCount": 3,
-            "turnHandoff": None,
+            "result": {
+                "status": "pending",
+                "sessionId": "local-demo",
+                "turnIndex": 1,
+            }
         })
 
         status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
@@ -426,10 +444,101 @@ class ApiHttpContractTest(unittest.TestCase):
         payload = json.loads(body)
         self.assertEqual(payload["status"], "pending")
         self.assertFalse(payload["coachFeedback"]["ready"])
-        self.assertFalse(payload["analysis"]["turnHandoffPresent"])
+        self.assertEqual(payload["coachFeedback"]["reason"], "analysis_result_not_ready")
+        self.assertFalse(payload["coachLlm"]["attempted"])
+        self.assertEqual(payload["analysis"]["endpoint"], "/realtime/turn-results")
         self.assertEqual(captured[-1]["method"], "GET")
-        self.assertIn("/signals?sessionId=local-demo", captured[-1]["path"])
-        self.assertNotIn('"turnHandoff":', body)
+        self.assertIn("/realtime/turn-results?interviewId=local-demo&turnIndex=1", captured[-1]["path"])
+        self.assertNotIn('"candidatePromptFragment":', body)
+
+    def test_coach_feedback_rejects_wrong_turn_result_as_pending(self) -> None:
+        self._start_fake_analysis_engine(result_payload={
+            "result": {
+                "status": "ready",
+                "sessionId": "local-demo",
+                "turnIndex": 2,
+                "candidateSafePromptFragment": {"text": "다른 턴 결과입니다."},
+                "rawTranscriptLogged": False,
+                "rawMediaAccepted": False,
+            }
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["status"], "pending")
+        self.assertEqual(payload["coachFeedback"]["reason"], "exact_turn_analysis_result_required")
+        self.assertFalse(payload["coachLlm"]["attempted"])
+        self.assertNotIn("다른 턴 결과입니다", body)
+
+    def test_gemini_coach_feedback_calls_provider_without_key_or_raw_leak(self) -> None:
+        os.environ["COACH_LLM_PROVIDER"] = "gemini"
+        os.environ["COACH_LLM_MODEL"] = "gemini-test-model"
+        os.environ["COACH_GEMINI_API_KEY"] = "secret-gemini-key"
+        captured: list[urllib.request.Request] = []
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({
+                    "candidates": [{
+                        "content": {
+                            "parts": [{
+                                "text": json.dumps({
+                                    "summary": "멀티모달 신호를 함께 본 코칭입니다.",
+                                    "answerEvaluation": "답변은 구체성이 조금 더 필요합니다.",
+                                    "multimodalEvaluation": "시선과 발화 흐름은 안정적입니다.",
+                                    "bullets": ["핵심 성과를 수치로 덧붙이세요."],
+                                })
+                            }]
+                        }
+                    }]
+                }).encode("utf-8")
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> FakeResponse:
+            captured.append(request)
+            self.assertIn("generativelanguage.googleapis.com", request.full_url)
+            upstream_body = request.data.decode("utf-8")
+            self.assertIn("다음 답변에서는 근거를 확인하세요.", upstream_body)
+            self.assertNotIn("raw transcript must not leak", upstream_body)
+            return FakeResponse()
+
+        result = {
+            "schemaVersion": "2026-06-13.rnas-turn-result.v2",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidatePromptFragment": "raw transcript must not leak",
+            "candidateSafePromptFragment": {
+                "text": "다음 답변에서는 근거를 확인하세요.",
+                "containsRawTranscript": False,
+                "containsRawMedia": False,
+            },
+            "coverage": {"speech": 6, "visual": 8, "nv": 8},
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        }
+
+        with patch("server.urllib.request.urlopen", side_effect=fake_urlopen):
+            status, payload = api_server._gemini_coach_feedback(api_server._coach_llm_settings(), result, "local-demo", 1)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["provider"], "gemini")
+        self.assertEqual(payload["providerStatus"], "provider")
+        self.assertEqual(payload["model"], "gemini-test-model")
+        self.assertEqual(payload["coachFeedback"]["summary"], "멀티모달 신호를 함께 본 코칭입니다.")
+        self.assertEqual(captured[0].headers.get("X-goog-api-key"), "secret-gemini-key")
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("secret-gemini-key", serialized)
+        self.assertNotIn("raw transcript must not leak", serialized)
 
 
     def test_realtime_response_create_allows_bootstrap_first_question_without_mmm_gate(self) -> None:
@@ -462,7 +571,7 @@ class ApiHttpContractTest(unittest.TestCase):
 
         status, body = self._post(
             "/api/interviews/local-demo/turns/2/realtime/response",
-            json.dumps({"analysisResult": {"status": "ready", "candidatePromptFragment": "경험의 구체성을 자연스럽게 확인하세요."}}).encode("utf-8"),
+            json.dumps({"analysisResult": {"status": "ready", "sessionId": "local-demo", "turnIndex": 1, "candidatePromptFragment": "경험의 구체성을 자연스럽게 확인하세요."}}).encode("utf-8"),
         )
         self.assertEqual(status, 409, body)
         payload = json.loads(body)
@@ -478,7 +587,15 @@ class ApiHttpContractTest(unittest.TestCase):
         analysis = self._start_fake_analysis_engine(result_payload={
             "schemaVersion": "2026-06-12.mmm-result.v1",
             "status": "ready",
-            "candidatePromptFragment": "이전 답변의 협업 경험을 바탕으로 갈등 해결 과정을 한 가지 더 물어보세요.",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidateSafePromptFragment": {
+                "schemaVersion": "2026-06-12.candidate-safe-prompt-fragment.v1",
+                "text": "이전 답변의 협업 경험을 바탕으로 갈등 해결 과정을 한 가지 더 물어보세요.",
+                "containsRawTranscript": False,
+                "containsRawMedia": False,
+                "containsSecrets": False,
+            },
             "confidence": 0.82,
             "latencyMs": 740,
             "rawTranscriptLogged": False,
@@ -509,11 +626,111 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["analysisResult"]["schemaVersion"], "2026-06-12.mmm-result.v1")
         self.assertEqual(analysis[-1]["method"], "GET")
         self.assertIn("/realtime/turn-results", analysis[-1]["path"])
+        self.assertIn("interviewId=local-demo", analysis[-1]["path"])
+        self.assertIn("turnIndex=1", analysis[-1]["path"])
         self.assertNotIn("raw text must not be returned", body)
         for forbidden in ("MMM", "analysis-engine", "backend", "readiness gate"):
             self.assertNotIn(forbidden, payload["sideband"]["command"]["response"]["instructions"])
 
+    def test_realtime_response_create_rejects_wrong_or_stale_turn_analysis_result(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        analysis = self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+            "status": "ready",
+            "turnIndex": 2,
+            "candidatePromptFragment": "STALE_GUIDANCE_SHOULD_NOT_BE_USED",
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_stale_or_wrong_turn")
+        self.assertEqual(payload["analysisTurnIndex"], 1)
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "exact_turn_analysis_required"})
+        self.assertIn("turnIndex=1", analysis[-1]["path"])
+        self.assertNotIn("STALE_GUIDANCE_SHOULD_NOT_BE_USED", body)
+
     def test_realtime_response_create_rejects_unsafe_analysis_fragment(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidatePromptFragment": "Use MMM backend readiness gate details.",
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_not_usable")
+        self.assertEqual(payload["responseCreate"]["created"], False)
+        self.assertNotIn("Use MMM backend readiness gate details", body)
+
+    def test_realtime_response_create_rejects_structured_fragment_with_raw_flags(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidateSafePromptFragment": {
+                "schemaVersion": "2026-06-12.candidate-safe-prompt-fragment.v1",
+                "text": "raw-flagged fragment must not be used",
+                "containsRawTranscript": True,
+                "containsRawMedia": False,
+                "containsSecrets": False,
+            },
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_not_usable")
+        self.assertEqual(payload["responseCreate"]["created"], False)
+        self.assertNotIn("raw-flagged fragment must not be used", body)
+
+
+    def test_realtime_response_create_ignores_inline_analysis_and_requires_engine_result(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
         os.environ["GILJOBE_VISION"] = "off"
@@ -529,14 +746,109 @@ class ApiHttpContractTest(unittest.TestCase):
 
         status, body = self._post(
             "/api/interviews/local-demo/turns/2/realtime/response",
-            json.dumps({"analysisResult": {"status": "ready", "candidatePromptFragment": "Use MMM backend readiness gate details."}}).encode("utf-8"),
+            json.dumps({"analysisResult": {"status": "ready", "sessionId": "local-demo", "turnIndex": 1, "candidatePromptFragment": "inline result must be ignored"}}).encode("utf-8"),
         )
         self.assertEqual(status, 409, body)
         payload = json.loads(body)
-        self.assertEqual(payload["error"], "analysis_result_not_usable")
-        self.assertEqual(payload["responseCreate"]["created"], False)
-        self.assertNotIn("Use MMM backend readiness gate details", body)
+        self.assertEqual(payload["error"], "analysis_result_unavailable")
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "structured_analysis_required"})
+        self.assertNotIn("inline result must be ignored", body)
 
+    def test_realtime_response_create_rejects_wrong_turn_analysis_result(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 2,
+            "candidatePromptFragment": "wrong turn fragment must not be used",
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_not_usable")
+        self.assertEqual(payload["responseCreate"]["reason"], "candidate_safe_ready_result_required")
+        self.assertNotIn("wrong turn fragment must not be used", body)
+
+
+    def test_realtime_response_create_rejects_wrong_turn_analysis_result(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 2,
+            "candidatePromptFragment": "wrong turn fragment must not be used",
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_not_usable")
+        self.assertEqual(payload["responseCreate"]["reason"], "candidate_safe_ready_result_required")
+        self.assertNotIn("wrong turn fragment must not be used", body)
+
+
+
+    def test_realtime_response_create_rejects_wrong_turn_analysis_result(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"))
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"))
+
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/2/realtime/response",
+            json.dumps({"analysisResult": {"status": "ready", "interviewId": "local-demo", "turnIndex": 99, "candidatePromptFragment": "이전 답변을 바탕으로 구체 사례를 물어보세요."}}).encode("utf-8"),
+        )
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_wrong_turn")
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "exact_turn_analysis_result_required"})
+
+    def test_mmm_ready_requires_exact_turn_analysis_result_acceptance(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"))
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"))
+        self._start_fake_analysis_engine(result_payload={"result": {"status": "pending", "reason": "no_exact_turn_result"}})
+
+        with urllib.request.urlopen(self.base_url + "/api/interviews/local-demo/turns/1/mmm-ready", timeout=5) as res:
+            body = res.read().decode("utf-8")
+        payload = json.loads(body)
+        self.assertFalse(payload["full_mmm_ready"])
+        self.assertEqual(payload["reason"], "analysis_result_not_ready")
+        self.assertEqual(payload["analysisEngine"]["endpoint"], "/realtime/turn-results")
 
     def test_realtime_session_broker_uses_server_key_and_disables_auto_response(self) -> None:
         os.environ["OPENAI_API_KEY"] = "secret-openai-key"
@@ -643,191 +955,87 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertNotIn("secret-openai-key", body)
 
 
-    def test_question_broker_redacts_upstream_provider_failure_markers(self) -> None:
+    def test_legacy_question_route_does_not_expose_provider_failure_markers(self) -> None:
         marker = "UPSTREAM_PROVIDER_DIAGNOSTIC_MARKER"
-        self._start_fake_ai_engine({
-            "error": "llm_provider_failed",
-            "provider": "ai-engine",
-            "message": marker,
-            "model": "fake-interviewer",
-        }, status=502)
         status, body = self._post(
             "/api/interviews/local-demo/turns/1/question",
-            json.dumps({"lastAnswer": "없음"}).encode("utf-8"),
+            json.dumps({"lastAnswer": marker}).encode("utf-8"),
         )
-        self.assertEqual(status, 502, body)
+        self.assertEqual(status, 410, body)
         payload = json.loads(body)
-        self.assertEqual(payload["message"], "provider request failed")
-        self.assertEqual(payload["delivery"]["mode"], "api-mediated-question")
+        self.assertEqual(payload["error"], "deprecated_ai_engine_removed")
+        self.assertEqual(payload["reason"], "realtime_only")
         self.assertNotIn(marker, body)
+        self.assertNotIn("ai-engine", body)
 
-    def test_tts_broker_redacts_upstream_provider_failure_markers(self) -> None:
-        marker = "UPSTREAM_PROVIDER_DIAGNOSTIC_MARKER"
-        self._start_fake_ai_engine({
-            "error": "tts_provider_failed",
-            "provider": "elevenlabs",
-            "message": marker,
-            "audio": {"base64": marker},
-        }, status=502)
+    def test_legacy_tts_route_is_deprecated_realtime_only_without_ai_engine_upstream(self) -> None:
         status, body = self._post(
             "/api/interviews/local-demo/turns/1/tts",
-            json.dumps({"text": "질문"}).encode("utf-8"),
+            json.dumps({"text": "첫 질문입니다."}).encode("utf-8"),
         )
-        self.assertEqual(status, 502, body)
+        self.assertEqual(status, 410, body)
         payload = json.loads(body)
-        self.assertEqual(payload["message"], "provider request failed")
-        self.assertEqual(payload["delivery"]["mode"], "api-mediated-base64")
-        self.assertNotIn(marker, body)
+        self.assertEqual(payload["error"], "deprecated_ai_engine_removed")
+        self.assertEqual(payload["reason"], "realtime_only")
+        self.assertEqual(payload["interviewId"], "local-demo")
+        self.assertEqual(payload["turnIndex"], 1)
+        self.assertNotIn("ai-engine", body)
+        self.assertNotIn("AI_ENGINE_INTERNAL_URL", body)
 
-    def test_avatar_broker_redacts_upstream_provider_failure_markers(self) -> None:
-        marker = "UPSTREAM_PROVIDER_DIAGNOSTIC_MARKER"
-        self._start_fake_ai_engine({
-            "error": "avatar_provider_failed",
-            "provider": "spatialreal",
-            "message": marker,
-            "client": {"sessionToken": marker},
-        }, status=502)
-        status, body = self._post(
-            "/api/interviews/local-demo/avatar/session",
-            json.dumps({"reason": "room-join"}).encode("utf-8"),
-        )
-        self.assertEqual(status, 502, body)
-        payload = json.loads(body)
-        self.assertEqual(payload["message"], "provider request failed")
-        self.assertEqual(payload["delivery"]["mode"], "api-mediated-spatialreal-session")
-        self.assertEqual(payload["ready"], False)
-        self.assertNotIn(marker, body)
-        self.assertNotIn("sessionToken", body)
-
-    def test_avatar_session_route_proxies_ai_engine_without_secret_leak(self) -> None:
+    def test_avatar_session_route_is_api_owned_or_disabled_never_ai_engine_sourced(self) -> None:
         os.environ["SPATIALREAL_API_KEY"] = "secret-spatialreal-key"
-        captured = self._start_fake_ai_engine({
-            "interviewId": "local-demo",
-            "provider": "spatialreal",
-            "ready": True,
-            "status": "session_issued",
-            "client": {
-                "appId": "app-123",
-                "avatarId": "avatar-456",
-                "sessionToken": "sr-session-token",
-                "audioFormat": {"channelCount": 1, "sampleRate": 16000, "sampleEncoding": "pcm_s16le"},
-            },
-        })
         status, body = self._post(
             "/api/interviews/local-demo/avatar/session",
             json.dumps({"reason": "session-created"}).encode("utf-8"),
         )
-        self.assertEqual(status, 200, body)
+        self.assertIn(status, {200, 202, 410}, body)
         payload = json.loads(body)
         self.assertEqual(payload["interviewId"], "local-demo")
-        self.assertEqual(payload["status"], "session_issued")
-        self.assertEqual(payload["delivery"]["mode"], "api-mediated-spatialreal-session")
-        client = payload["client"]
-        self.assertIn("livekit", client)
-        self.assertEqual(client["livekit"]["tokenStatus"], "not_configured")
-        self.assertIsNone(client["livekit"]["avatarClientToken"])
-        self.assertEqual(captured[0]["path"], "/avatar/session")
-        upstream_payload = json.loads(str(captured[0]["body"]))
-        self.assertEqual(upstream_payload["interviewId"], "local-demo")
-        self.assertNotIn("secret-spatialreal-key", body)
-        self.assertNotIn("SPATIALREAL_API_KEY", body)
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn("secret-spatialreal-key", serialized)
+        self.assertNotIn("SPATIALREAL_API_KEY", serialized)
+        self.assertNotIn("ai-engine", serialized)
+        delivery = payload.get("delivery")
+        if isinstance(delivery, dict):
+            self.assertNotEqual(delivery.get("source"), "ai-engine")
+        if payload.get("error") == "deprecated_ai_engine_removed":
+            self.assertEqual(payload.get("reason"), "realtime_only")
+        else:
+            self.assertIn(payload.get("status"), {"disabled", "deferred", "session_issued", "not_configured"})
 
     def test_avatar_session_route_accepts_caddy_stripped_path_and_bad_id_fails(self) -> None:
-        self._start_fake_ai_engine({"provider": "disabled", "ready": False, "status": "disabled", "reason": "avatar_provider_disabled"})
         status, body = self._post("/interviews/local-demo/avatar/session", b"{}")
-        self.assertEqual(status, 200, body)
-        self.assertEqual(json.loads(body)["status"], "disabled")
+        self.assertIn(status, {200, 202, 410}, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["interviewId"], "local-demo")
+        self.assertNotIn("ai-engine", body)
 
         status, body = self._post("/api/interviews/../avatar/session", b"{}")
         self.assertEqual(status, 404, body)
         self.assertEqual(json.loads(body)["error"], "not_found")
 
-    def test_room_tts_route_proxies_ai_engine_without_secret_leak(self) -> None:
-        os.environ["ELEVENLABS_API_KEY"] = "secret-elevenlabs-key"
-
-        class _FakeAiTtsResponse:
-            status = 200
-            def __enter__(self):
-                return self
-            def __exit__(self, *args: object) -> None:
-                return None
-            def read(self) -> bytes:
-                return json.dumps({
-                    "sessionId": "local-demo",
-                    "turnId": "q_local-demo_0001",
-                    "status": "ok",
-                    "audio": {
-                        "provider": "fake",
-                        "contentType": "audio/wav",
-                        "codec": "wav",
-                        "sampleRate": 16000,
-                        "channels": 1,
-                        "byteLength": 8044,
-                        "requestId": "tts_local-demo-q_local-demo_0001-fake",
-                        "base64": "UklGRg==",
-                    },
-                }).encode("utf-8")
-
-        captured = self._start_fake_ai_engine(json.loads(_FakeAiTtsResponse().read().decode("utf-8")))
-        status, body = self._post(
-            "/api/interviews/local-demo/turns/1/tts",
-            json.dumps({"text": "첫 질문입니다."}).encode("utf-8"),
-        )
-        self.assertEqual(status, 200, body)
-        payload = json.loads(body)
-        self.assertEqual(payload["interviewId"], "local-demo")
-        self.assertEqual(payload["turnIndex"], 1)
-        self.assertEqual(payload["audio"]["provider"], "fake")
-        self.assertEqual(payload["delivery"], {
-            "mode": "api-mediated-base64",
-            "source": "ai-engine",
-            "publicDirectTtsRoutes": "blocked",
-        })
-        self.assertEqual(captured[0]["path"], "/tts/synthesize")
-        upstream_payload = json.loads(str(captured[0]["body"]))
-        self.assertEqual(upstream_payload["sessionId"], "local-demo")
-        self.assertEqual(upstream_payload["turnId"], "q_local-demo_0001")
-        self.assertNotIn("secret-elevenlabs-key", body)
-        self.assertNotIn("ELEVENLABS_API_KEY", body)
-
-    def test_room_tts_route_accepts_caddy_stripped_path(self) -> None:
-        class _FakeAiTtsResponse:
-            status = 200
-            def __enter__(self):
-                return self
-            def __exit__(self, *args: object) -> None:
-                return None
-            def read(self) -> bytes:
-                return b'{"status":"ok","audio":{"provider":"fake","base64":"UklGRg=="}}'
-
-        self._start_fake_ai_engine(json.loads(_FakeAiTtsResponse().read().decode("utf-8")))
+    def test_room_tts_route_accepts_caddy_stripped_path_as_deprecated(self) -> None:
         status, body = self._post(
             "/interviews/local-demo/turns/2/tts",
             json.dumps({"text": "다음 질문입니다."}).encode("utf-8"),
         )
-        self.assertEqual(status, 200, body)
-        self.assertEqual(json.loads(body)["turnIndex"], 2)
+        self.assertEqual(status, 410, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "deprecated_ai_engine_removed")
+        self.assertEqual(payload["reason"], "realtime_only")
+        self.assertEqual(payload["turnIndex"], 2)
 
-    def test_room_tts_route_fails_closed_without_text_or_bad_id(self) -> None:
-        status, body = self._post("/api/interviews/local-demo/turns/1/tts", b'{"text":""}')
-        self.assertEqual(status, 400, body)
-        self.assertEqual(json.loads(body)["error"], "missing_text")
-
+    def test_room_tts_route_fails_closed_for_bad_id_before_deprecated_response(self) -> None:
         status, body = self._post("/api/interviews/../turns/1/tts", json.dumps({"text": "질문"}).encode("utf-8"))
         self.assertEqual(status, 404, body)
         self.assertEqual(json.loads(body)["error"], "not_found")
 
-    def test_room_tts_route_sanitizes_upstream_network_failure(self) -> None:
-        os.environ["ELEVENLABS_API_KEY"] = "secret-elevenlabs-key"
-        api_server.AI_ENGINE_INTERNAL_URL = "http://127.0.0.1:9"
-        status, body = self._post(
-            "/api/interviews/local-demo/turns/1/tts",
-            json.dumps({"text": "질문"}).encode("utf-8"),
-        )
-        self.assertEqual(status, 502, body)
-        payload = json.loads(body)
-        self.assertEqual(payload["error"], "tts_provider_failed")
-        self.assertNotIn("secret-elevenlabs-key", body)
+    def test_room_tts_route_does_not_depend_on_upstream_network(self) -> None:
+        with patch("server.urllib.request.urlopen", side_effect=AssertionError("legacy ai-engine upstream must not be called")):
+            status, payload = api_server.synthesize_room_tts("local-demo", 1, {"text": "질문"})
+        self.assertEqual(status, 410)
+        self.assertEqual(payload["error"], "deprecated_ai_engine_removed")
+        self.assertEqual(payload["reason"], "realtime_only")
 
     def test_caddy_keeps_public_tts_blocked_but_allows_api_tts_route(self) -> None:
         caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text()
@@ -840,10 +1048,13 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertIn("handle_path /api/*", caddyfile)
         self.assertNotIn("handle_path /ai/*", caddyfile)
 
-    def test_compose_wires_api_to_ai_engine_internal_url(self) -> None:
+    def test_compose_removes_ai_engine_and_keeps_analysis_engine_internal_url(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
-        self.assertIn("AI_ENGINE_INTERNAL_URL", compose)
-        self.assertIn("http://ai-engine:8100", compose)
+        self.assertNotIn("AI_ENGINE_INTERNAL_URL", compose)
+        self.assertNotIn("http://ai-engine:8100", compose)
+        self.assertNotIn("ai-engine:", compose)
+        self.assertIn("ANALYSIS_ENGINE_INTERNAL_URL", compose)
+        self.assertIn("http://analysis-engine:8200", compose)
 
 
 if __name__ == "__main__":

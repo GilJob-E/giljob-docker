@@ -1,0 +1,77 @@
+{
+  "readyTurnIndex": "0",
+  "probed": {
+    "0": {
+      "result": {
+        "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+        "status": "ready",
+        "sessionId": "qa-audio-test-final-2",
+        "turnIndex": 0,
+        "candidatePromptFragment": "음성 실측: 조음 0.7음절/s(보통 5.8~6.9) · 유성 비율 2%(무성 우세 — 속삭임형 발성, F0 신뢰 낮음) · 쉼(0.25s 이상) 0회 · 음량 전반 대비 후반 +7.8dB. 시각 실측: 미소 평균 0.022 · 시선 이탈 0.169. 비언어 상태: neutral 100%. 주목 구간: (0~5초) 에너지 +7.8dB. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+        "coverage": {
+          "speech": 1,
+          "visual": 1,
+          "nv": 1
+        },
+        "rawTranscriptLogged": false,
+        "rawMediaAccepted": false
+      },
+      "rawTranscriptLogged": false,
+      "rawMediaAccepted": false
+    },
+    "1": {
+      "result": {
+        "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+        "status": "ready",
+        "sessionId": "qa-audio-test-final-2",
+        "turnIndex": 1,
+        "candidatePromptFragment": "음성 실측: 조음 0.7음절/s(보통 5.8~6.9) · 유성 비율 2%(무성 우세 — 속삭임형 발성, F0 신뢰 낮음) · 쉼(0.25s 이상) 0회 · 음량 전반 대비 후반 +7.8dB. 시각 실측: 미소 평균 0.022 · 시선 이탈 0.169. 비언어 상태: neutral 100%. 주목 구간: (0~5초) 에너지 +7.8dB. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+        "coverage": {
+          "speech": 1,
+          "visual": 1,
+          "nv": 1
+        },
+        "rawTranscriptLogged": false,
+        "rawMediaAccepted": false
+      },
+      "rawTranscriptLogged": false,
+      "rawMediaAccepted": false
+    },
+    "2": {
+      "result": {
+        "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+        "status": "ready",
+        "sessionId": "qa-audio-test-final-2",
+        "turnIndex": 2,
+        "candidatePromptFragment": "음성 실측: 조음 0.7음절/s(보통 5.8~6.9) · 유성 비율 2%(무성 우세 — 속삭임형 발성, F0 신뢰 낮음) · 쉼(0.25s 이상) 0회 · 음량 전반 대비 후반 +7.8dB. 시각 실측: 미소 평균 0.022 · 시선 이탈 0.169. 비언어 상태: neutral 100%. 주목 구간: (0~5초) 에너지 +7.8dB. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+        "coverage": {
+          "speech": 1,
+          "visual": 1,
+          "nv": 1
+        },
+        "rawTranscriptLogged": false,
+        "rawMediaAccepted": false
+      },
+      "rawTranscriptLogged": false,
+      "rawMediaAccepted": false
+    },
+    "3": {
+      "result": {
+        "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+        "status": "ready",
+        "sessionId": "qa-audio-test-final-2",
+        "turnIndex": 3,
+        "candidatePromptFragment": "음성 실측: 조음 0.7음절/s(보통 5.8~6.9) · 유성 비율 2%(무성 우세 — 속삭임형 발성, F0 신뢰 낮음) · 쉼(0.25s 이상) 0회 · 음량 전반 대비 후반 +7.8dB. 시각 실측: 미소 평균 0.022 · 시선 이탈 0.169. 비언어 상태: neutral 100%. 주목 구간: (0~5초) 에너지 +7.8dB. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+        "coverage": {
+          "speech": 1,
+          "visual": 1,
+          "nv": 1
+        },
+        "rawTranscriptLogged": false,
+        "rawMediaAccepted": false
+      },
+      "rawTranscriptLogged": false,
+      "rawMediaAccepted": false
+    }
+  }
+}

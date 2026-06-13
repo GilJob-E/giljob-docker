@@ -8,9 +8,9 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
-PINNED_GILJOBE_REF = "5ba7249"
+PINNED_GILJOBE_REF = "a26045d"
 # Superseded pins must not resurface anywhere a stale copy could mislead operators.
-OLD_GILJOBE_REFS = ("b769120", "88a4df5", "e0671f5")
+OLD_GILJOBE_REFS = ("f817f81", "b769120", "88a4df5", "e0671f5", "5ba7249")
 
 
 def load_analysis_engine_wrapper():
@@ -64,7 +64,9 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("candidateSafePromptFragment", wrapper)
         self.assertIn("class _EventOnlyRealtimeTurns", wrapper)
         self.assertIn("_install_event_only_realtime_fallback", wrapper)
-        self.assertIn("eventOnlyFallback", wrapper)
+        self.assertIn("realtimeNativeAnalysisSession", wrapper)
+        self.assertIn("_active_by_key", wrapper)
+        self.assertIn("_finalized_by_key", wrapper)
         self.assertIn("2026-06-12.per-turn-mmm-result.v1", wrapper)
         self.assertIn("2026-06-12.candidate-safe-prompt-fragment.v1", wrapper)
         dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
@@ -117,6 +119,7 @@ class AnalysisEngineContractTest(unittest.TestCase):
         for payload in (
             {"detail": {"transcript": "bounded candidate answer"}},
             {"detail": {"text": "bounded candidate answer", "itemId": "item-1"}},
+            {"detail": {"visionFrame": {"encoding": "image/jpeg;base64", "data": "ZmFrZQ==", "byteLength": 4}}},
         ):
             self.assertFalse(module._contains_forbidden_raw_field(payload), payload)
 
@@ -148,6 +151,9 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("GILJOBE_VISION_MODELS_DIR=/app/models", dockerfile)
         self.assertIn("face_landmarker.task", dockerfile)
         self.assertIn("pose_landmarker.task", dockerfile)
+        # Hands lane (GilJobE a26045d): finger-count segments ride the turn_handoff
+        # fragment; without the baked model the lane silently self-disables.
+        self.assertIn("hand_landmarker.task", dockerfile)
         # MediaPipe C bindings dlopen GLES/EGL even for CPU inference (verified in-container);
         # dropping these silently disables the vision lane at runtime.
         self.assertIn("libegl1", dockerfile)
@@ -158,6 +164,11 @@ class AnalysisEngineContractTest(unittest.TestCase):
             # Realtime sentence lane: transcript-source toggle must stay wired and default to sideband.
             self.assertIn("GILJOBE_TRANSCRIPT_SOURCE", text)
         self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}", compose)
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        self.assertIn("from giljobe.analysis.grounding import maybe_vision_grounder", wrapper)
+        self.assertIn("_analyze_internal_vision_frame", wrapper)
+        self.assertIn("faceSeenRatio", wrapper)
+        self.assertIn("poseSeenRatio", wrapper)
 
     def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
@@ -199,11 +210,12 @@ class AnalysisEngineContractTest(unittest.TestCase):
 
     def test_root_docs_and_verification_no_longer_reference_deleted_wrapper(self) -> None:
         root_readme = (REPO_ROOT / "README.md").read_text()
-        root_agents = (REPO_ROOT / "AGENTS.md").read_text()
+        verification_runbook = (REPO_ROOT / "docs" / "runbooks" / "verification.md").read_text()
+        analysis_agents = (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text()
         self.assertIn("services/analysis-engine/server.py", root_readme)
-        self.assertIn("docker build -q services/analysis-engine", root_readme)
-        self.assertIn("services/analysis-engine/", root_agents)
-        self.assertIn("/realtime/turn-events", root_agents)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py", verification_runbook)
+        self.assertIn("/realtime/turn-events", analysis_agents)
+        self.assertIn("analysis-engine", analysis_agents)
 
     def test_no_raw_secret_or_media_examples_in_analysis_docs(self) -> None:
         docs = "\n".join(
@@ -241,12 +253,113 @@ class TurnResultsContractTest(unittest.TestCase):
         # 구 핀 강등(ImportError → None) + 턴 미완결 pending — API 409 게이트와 정합
         self.assertIn("render_prompt_fragment = None", wrapper)
         self.assertIn('"status": "pending"', wrapper)
-        # 활성 세션 폴백 금지 — interviewId 정확 일치만(타 인터뷰 결과 누출 방지)
-        self.assertIn("service.signals(interview_id)", wrapper)
+        # 활성/last/session-wide 폴백 금지 — exact turn-keyed RNAS storage only.
+        self.assertIn("rnas.turn_result(interview_id, turn_index)", wrapper)
+        self.assertIn("no_exact_turn_result", wrapper)
         self.assertNotIn("service.signals(None)", wrapper)
+        # exact-turn RNAS: stale/wrong turn handoffs must degrade to pending
+        self.assertIn("_turn_handoff_matches_requested_turn", wrapper)
+        self.assertIn("requested_turn_index", wrapper)
+
+    def test_realtime_native_analysis_session_is_exact_turn_keyed_and_requires_all_lanes(self) -> None:
+        module = load_analysis_engine_wrapper()
+        rnas = module._EventOnlyRealtimeTurns()
+        start = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_started"})
+        self.assertTrue(start["accepted"])
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.vad.speech_started", "detail": {"audioStartMs": 120, "rawAudioIncluded": False}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.vad.speech_stopped", "detail": {"audioEndMs": 1780, "rawAudioIncluded": False}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "prosody.window_metrics", "detail": {"energy": 0.3, "rawAudioIncluded": False}})
+        rnas.ingest({
+            "interviewId": "demo",
+            "turnIndex": 1,
+            "eventKind": "vision.frame_metrics",
+            "detail": {
+                "visionSignals": {"cameraEnabled": True, "faceVisible": True, "personVisible": True, "averageLuma": 80, "frameAvailable": True},
+                "visionFrame": {"encoding": "image/jpeg;base64", "data": "ZmFrZQ==", "byteLength": 4, "width": 2, "height": 2},
+            },
+        })
+        end = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_ended"})
+        self.assertTrue(end["accepted"])
+        ready = rnas.turn_result("demo", 1)
+        self.assertEqual(ready["status"], "ready")
+        self.assertEqual(ready["turnIndex"], 1)
+        self.assertIn("candidatePromptFragment", ready)
+        self.assertEqual(ready["schemaVersion"], "2026-06-13.rnas-turn-result.v2")
+        self.assertIn("candidateSafePromptFragment", ready)
+        self.assertEqual(ready["visionSignals"]["status"], "frame_observed")
+        self.assertEqual(ready["visionSignals"]["sampledFrameCount"], 1)
+        self.assertTrue(ready["visionSignals"]["faceVisible"])
+        self.assertTrue(ready["visionSignals"]["personVisible"])
+        self.assertEqual(ready["visionSignals"]["objectiveVisionStatus"], "frame_decode_failed")
+        self.assertIn("카메라 신호상 후보자 얼굴", ready["nextQuestionGuidance"])
+        self.assertNotIn("MMM", ready["nextQuestionGuidance"])
+        self.assertIn("transcriptSignals", ready)
+        self.assertIn("prosodySignals", ready)
+        self.assertEqual(ready["prosodySignals"]["status"], "timing_observed")
+        self.assertEqual(ready["prosodySignals"]["speechDurationMs"], 1660)
+        self.assertEqual(ready["prosodySignals"]["energyMean"], 0.3)
+        self.assertFalse(ready["prosodySignals"]["rawAudioIncluded"])
+        self.assertIn("behavioralSignals", ready)
+        self.assertIn("nextQuestionGuidance", ready)
+        self.assertFalse(ready["rawTranscriptLogged"])
+        self.assertEqual(rnas.turn_result("demo", 2)["reason"], "no_exact_turn_result")
+        self.assertEqual(rnas.turn_result("other", 1)["reason"], "no_exact_turn_result")
+
+    def test_realtime_guidance_can_ack_camera_face_visibility_without_claiming_direct_video(self) -> None:
+        module = load_analysis_engine_wrapper()
+        guidance = module._next_question_guidance(
+            {"observed": True, "specificityScore": 0.4, "hasNumbers": False, "questionLike": True},
+            {
+                "observed": True,
+                "sampledFrameCount": 1,
+                "faceVisible": True,
+                "personVisible": True,
+                "objectiveVisionStatus": "analyzed",
+            },
+        )
+        self.assertIn("카메라 신호상 후보자 얼굴이 프레임 안에 확인", guidance)
+        self.assertIn("후보자가 화면 확인을 물으면", guidance)
+        self.assertIn("영상을 직접 본다고 말하거나", guidance)
+        self.assertNotIn("MMM", guidance)
+        self.assertNotIn("직접 봤", guidance)
+
+    def test_realtime_native_analysis_session_missing_lane_stays_pending(self) -> None:
+        module = load_analysis_engine_wrapper()
+        rnas = module._EventOnlyRealtimeTurns()
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_started"})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_ended"})
+        pending = rnas.turn_result("demo", 1)
+        self.assertEqual(pending["status"], "pending")
+        self.assertIn(pending["reason"], {"missing_prosody", "missing_vision"})
 
     def test_turn_results_loads_with_legacy_pin_mocks(self) -> None:
         # giljobe.emit.handoff가 없는(구 핀) 모킹 환경에서도 래퍼 로드는 성공해야 한다
         module = load_analysis_engine_wrapper()
         self.assertTrue(hasattr(module, "_realtime_turn_results"))
         self.assertIsNone(module.render_prompt_fragment)
+
+    def test_turn_results_exact_turn_guard_rejects_wrong_stale_or_ambiguous_handoff(self) -> None:
+        module = load_analysis_engine_wrapper()
+        handoff = {"meta": {"turnIndex": 3, "coverage": {"transcript": True}}}
+        payload = {"sessionId": "local-demo", "turnHandoff": handoff}
+
+        self.assertTrue(module._turn_handoff_matches_requested_turn(payload, handoff, 3))
+        self.assertFalse(module._turn_handoff_matches_requested_turn(payload, handoff, 2))
+        self.assertFalse(module._turn_handoff_matches_requested_turn({"turnHandoff": {"meta": {}}}, {"meta": {}}, 3))
+
+    def test_turn_results_exact_turn_guard_accepts_record_backed_event_only_fallback(self) -> None:
+        module = load_analysis_engine_wrapper()
+        handoff = {"meta": {"coverage": {"transcript": True}}}
+        payload = {
+            "sessionId": "local-demo",
+            "turnHandoff": handoff,
+            "records": [
+                {"type": "sentence", "turnIndex": 4},
+                {"type": "turn_end", "turnIndex": 4},
+            ],
+        }
+
+        self.assertTrue(module._turn_handoff_matches_requested_turn(payload, handoff, 4))
+        self.assertFalse(module._turn_handoff_matches_requested_turn(payload, handoff, 5))

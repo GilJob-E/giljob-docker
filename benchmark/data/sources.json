@@ -1,0 +1,145 @@
+{
+  "updated_at": "2026-06-11",
+  "selected_benchmarks": [
+    1,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "storage_policy": {
+    "tracked": [
+      "benchmark/data/README.md",
+      "benchmark/data/sources.json",
+      "benchmark/data/.gitignore"
+    ],
+    "ignored": [
+      "benchmark/data/raw/",
+      "benchmark/data/repos/",
+      "benchmark/data/cache/",
+      "benchmark/data/downloads/"
+    ]
+  },
+  "sources": [
+    {
+      "benchmark_id": 1,
+      "name": "FD-bench V1 Turn-taking latency",
+      "kind": "git_repo",
+      "url": "https://github.com/DanielLin94144/Full-Duplex-Bench.git",
+      "local_path": "benchmark/data/repos/full-duplex-bench",
+      "expected_paths": [
+        "v1_v1.5/dataset",
+        "v1_v1.5/evaluation",
+        "v1_v1.5/get_transcript"
+      ],
+      "status": "acquired",
+      "raw_data_path": "benchmark/data/raw/fd-bench-v1-v1_5",
+      "downloaded_files": [
+        "v1.0/candor_pause_handling.zip",
+        "v1.0/candor_turn_taking.zip",
+        "v1.0/icc_backchannel.zip",
+        "v1.0/synthetic_pause_handling.zip",
+        "v1.0/synthetic_user_interruption.zip",
+        "v1.5/background_speech.zip",
+        "v1.5/talking_to_other.zip",
+        "v1.5/user_backchannel.zip",
+        "v1.5/user_interruption.zip"
+      ]
+    },
+    {
+      "benchmark_id": 4,
+      "name": "QIVD / Qualcomm Interactive Video Dataset",
+      "kind": "qualcomm_developer_download",
+      "url": "https://www.qualcomm.com/developer/software/qualcomm-interactive-video-dataset-qivd/downloads",
+      "local_path": "benchmark/data/raw/qivd",
+      "expected_paths": [],
+      "status": "acquired",
+      "notes": "Official Qualcomm QIVD data acquired from Qualcomm Developer download page. Extracted labels.json and 2,900 mp4 files under benchmark/data/raw/qivd/.",
+      "download_urls": [
+        "https://softwarecenter.qualcomm.com/api/download/software/dataset/AIDataset/QIVD/videos.zip",
+        "https://softwarecenter.qualcomm.com/api/download/software/dataset/AIDataset/QIVD/annotations.zip"
+      ],
+      "raw_data_path": "benchmark/data/raw/qivd",
+      "downloaded_files": [
+        "videos.zip",
+        "annotations.zip",
+        "labels.json",
+        "videos/*.mp4"
+      ]
+    },
+    {
+      "benchmark_id": 5,
+      "name": "Audio MultiChallenge",
+      "kind": "git_repo_plus_hf_dataset",
+      "url": "https://github.com/XiaomiMiMo/MiMo-Audio-Eval.git",
+      "hf_dataset": "XiaomiMiMo/MiMo-Audio-Evalset",
+      "local_path": "benchmark/data/repos/mimo-audio-eval",
+      "expected_paths": [
+        "download_data.py",
+        "eval_scripts"
+      ],
+      "status": "acquired",
+      "notes": "Standalone official Audio MultiChallenge data URL was not found. MiMo-Audio-Eval explicitly supports MultiChallenge Audio and downloads its evalset from Hugging Face.",
+      "raw_data_path": "benchmark/data/raw/mimo-audio-evalset/multi_challenge"
+    },
+    {
+      "benchmark_id": 6,
+      "name": "BigBench Audio",
+      "kind": "git_repo_plus_hf_dataset",
+      "url": "https://github.com/XiaomiMiMo/MiMo-Audio-Eval.git",
+      "hf_dataset": "XiaomiMiMo/MiMo-Audio-Evalset",
+      "local_path": "benchmark/data/repos/mimo-audio-eval",
+      "expected_paths": [
+        "download_data.py",
+        "eval_scripts",
+        "slm_eval/datasets/bigbench_audio.py"
+      ],
+      "status": "acquired",
+      "notes": "Thinking Machines cites Artificial Analysis metrics; public methodology/data remains unclear. MiMo-Audio-Eval explicitly supports Big Bench Audio and downloads its evalset from Hugging Face.",
+      "raw_data_path": "benchmark/data/raw/bigbench-audio"
+    },
+    {
+      "benchmark_id": 7,
+      "name": "IFEval VoiceBench",
+      "kind": "huggingface_dataset",
+      "hf_dataset": "hlt-lab/voicebench",
+      "hf_subset": "ifeval",
+      "local_path": "benchmark/data/raw/voicebench-ifeval",
+      "expected_paths": [
+        "dataset_info.json",
+        "data"
+      ],
+      "status": "acquired",
+      "downloaded_files": [
+        "test-00000-of-00001.parquet"
+      ]
+    },
+    {
+      "benchmark_id": 8,
+      "name": "IFEval Text",
+      "kind": "git_sparse_checkout",
+      "url": "https://github.com/google-research/google-research.git",
+      "local_path": "benchmark/data/repos/google-research",
+      "expected_paths": [
+        "instruction_following_eval/data/input_data.jsonl",
+        "instruction_following_eval/evaluation_main.py"
+      ],
+      "status": "acquired"
+    },
+    {
+      "benchmark_id": 9,
+      "name": "HarmBench",
+      "kind": "git_repo",
+      "url": "https://github.com/centerforaisafety/HarmBench.git",
+      "local_path": "benchmark/data/repos/harmbench",
+      "expected_paths": [
+        "data",
+        "generate_completions.py",
+        "evaluate_completions.py"
+      ],
+      "status": "acquired"
+    }
+  ]
+}

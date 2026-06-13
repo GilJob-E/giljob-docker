@@ -10,7 +10,6 @@ DOC_PAIRS = [
     pathlib.Path("."),
     pathlib.Path("apps/web"),
     pathlib.Path("services/api"),
-    pathlib.Path("services/ai-engine"),
     pathlib.Path("services/analysis-engine"),
     pathlib.Path("services/agent1"),
     pathlib.Path("infra"),
@@ -24,9 +23,9 @@ PATH_SPECIFIC_TERMS = {
     "AGENTS.md": ["single-server", "multi-container", "LIVEKIT_INTERNAL_URL", "LIVEKIT_PUBLIC_URL"],
     "apps/web/AGENTS.md": ["DESIGN.md", "manual button", "right sidebar", "redaction", "raw token"],
     "services/api/AGENTS.md": ["hash-only", "raw token", "LIVEKIT_INTERNAL_URL", "LIVEKIT_PUBLIC_URL"],
-    "services/ai-engine/AGENTS.md": ["Realtime-only", "VOICE_PROVIDER=fake", "VOICE_PROVIDER=elevenlabs"],
+    "services/analysis-engine/AGENTS.md": ["GilJobE", "STT and multimodal", "source of truth", "Do not add the Main LLM loop", "avatar/TTS"],
     "services/agent1/AGENTS.md": ["future multimodal placeholder", "structured signal", "raw media"],
-    "infra/AGENTS.md": ["Caddy", "LiveKit", "coturn", "direct media", "/ai/*", "broker routes", "Direct public"],
+    "infra/AGENTS.md": ["Caddy", "LiveKit", "coturn", "direct media", "/ai/*", "broker routes", "direct public"],
     "tests/AGENTS.md": ["tests/contract", "tests/integration", "path-specific"],
     "docs/AGENTS.md": ["architecture.noml", "generated", "English"],
     "packages/shared/AGENTS.md": ["shared contracts", "premature abstractions"],
@@ -37,7 +36,7 @@ RUNBOOK_SPECIFIC_TERMS = {
     "docs/runbooks/verification.md": [
         "ssh hoddukzoa@kiostation",
         "node --check apps/web/static/app.js",
-        "py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py",
+        "py_compile services/api/server.py services/analysis-engine/server.py",
         "python3 -m unittest discover -s tests/contract -v",
         "git diff --check",
         "Do not use `/home/hoddukzoa/GilJob`",
@@ -51,12 +50,10 @@ RUNBOOK_SPECIFIC_TERMS = {
         "browser-join",
     ],
     "docs/runbooks/tts-avatar-contract.md": [
-        "VOICE_PROVIDER=fake",
+        "Legacy question/TTS routes return deprecated_ai_engine_removed",
         "Gemini TTS fallback is removed",
-        "TTS_PROVIDER_FAILURE_FALLBACK",
-        "AVATAR_PROVIDER=disabled",
-        "AVATAR_PROVIDER_FAILURE_FALLBACK=disabled",
-        "post-TTS publisher only",
+        "Avatar metadata is API-owned",
+        "disabled/deferred",
         "does not ingest OpenAI Realtime remote audio",
         "No OpenAI Realtime remote-audio injection into SpatialReal",
         "Do not downgrade `livekit-client`",
@@ -70,7 +67,7 @@ RUNBOOK_SPECIFIC_TERMS = {
 
 REMOTE_VERIFICATION_COMMANDS = [
     "node --check apps/web/static/app.js",
-    "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py",
+    "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py",
     "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v",
     "git diff --check",
 ]
@@ -135,17 +132,43 @@ class AgentDocsContractTest(unittest.TestCase):
     def test_env_example_keeps_openai_realtime_primary_and_scopes_gemini_to_coach_feedback(self) -> None:
         body = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
         self.assertIn("OPENAI_REALTIME_PRIMARY=true", body)
-        self.assertIn("LLM_PROVIDER=fake", body)
+        self.assertIn("REALTIME_MMM_FORWARD_ENABLED=true", body)
         self.assertIn("COACH_LLM_PROVIDER=fake", body)
         self.assertIn("COACH_LLM_MODEL=", body)
         self.assertIn("COACH_LLM_TIMEOUT_SECONDS=15", body)
         self.assertIn("COACH_GEMINI_API_KEY=", body)
         self.assertIn("GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta", body)
-        self.assertIn("REALTIME_MMM_FORWARD_ENABLED=true", body)
+        self.assertNotIn("AI_ENGINE_INTERNAL_URL", body)
+        self.assertNotIn("services/ai-engine", body)
         self.assertIsNone(re.search(r"(?m)^GEMINI_API_KEY=", body))
         self.assertIsNone(re.search(r"(?m)^GEMINI_MODEL=", body))
         self.assertIsNone(re.search(r"(?m)^GEMINI_TTS_MODEL=", body))
         self.assertIsNone(re.search(r"(?m)^OPENAI_REALTIME_PRIMARY=false$", body))
+
+    def test_default_runtime_contracts_do_not_reference_ai_engine_service(self) -> None:
+        checked_paths = [
+            REPO_ROOT / ".env.example",
+            REPO_ROOT / "infra" / "docker-compose.yml",
+            REPO_ROOT / "docs" / "runbooks" / "verification.md",
+            REPO_ROOT / "scripts" / "kiostation-verify-archive.sh",
+        ]
+        forbidden_terms = [
+            "AI_ENGINE_INTERNAL_URL",
+            "http://ai-engine:8100",
+            "services/ai-engine/server.py",
+        ]
+        for path in checked_paths:
+            body = path.read_text(encoding="utf-8")
+            for term in forbidden_terms:
+                with self.subTest(path=str(path.relative_to(REPO_ROOT)), term=term):
+                    self.assertNotIn(term, body)
+
+    def test_analysis_engine_remains_core_default_runtime_boundary(self) -> None:
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn("analysis-engine", compose)
+        self.assertIn("ANALYSIS_ENGINE_INTERNAL_URL", compose)
+        self.assertIn("http://analysis-engine:8200", compose)
+        self.assertNotRegex(compose, r"analysis-engine:[\s\S]*?depends_on:[\s\S]*?ai-engine")
 
     def test_agent_docs_do_not_include_raw_secret_shapes(self) -> None:
         for path in self.agent_doc_paths():
@@ -161,7 +184,7 @@ class AgentDocsContractTest(unittest.TestCase):
         for phrase in FORBIDDEN_IMPLEMENTED_CLAIMS:
             with self.subTest(phrase=phrase):
                 self.assertNotIn(phrase, combined)
-        self.assertIn("not complete product features yet", (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertIn("not complete product features yet", (REPO_ROOT / "services" / "analysis-engine" / "AGENTS.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

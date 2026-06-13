@@ -1,0 +1,231 @@
+{
+  "type": "sentence_table_probe",
+  "sentences": [
+    {
+      "text": "굿모닝 마이 네임 이즈 아니쉬 I am a third year graduate from Manipal University.",
+      "t": [
+        0.0,
+        5.9
+      ],
+      "dur_s": 5.9,
+      "speech": {
+        "pause_before_s": 0.41,
+        "rate_text_syl_per_s": 2.0,
+        "speech_rate_syl_per_s": 3.73,
+        "articulation_rate_syl_per_s": 5.53,
+        "pitch_sd_semitone": 2.25,
+        "pdq": 0.1341,
+        "voiced_ratio": 0.483,
+        "junctures_within": 6,
+        "longest_pause_s": 0.91,
+        "energy_end_delta_db": 1.14
+      },
+      "visual": {
+        "windows": 1,
+        "face_frames": 2,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.001,
+        "smile_ratio": 0.0,
+        "brow_down_mean": 0.1,
+        "mouth_press_mean": 0.007,
+        "gaze_off_mean": 0.47,
+        "yaw_std_deg": 0.09,
+        "pitch_std_deg": 0.13,
+        "lip_motion": 0.00465,
+        "blink_count": 0,
+        "smile_max": 0.001,
+        "pose_frames": 2,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0027,
+        "head_sway": 0.0015,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.2,
+        "notes": [
+          "미소 없음, 시선 이탈 평균 0.47로 약간의 불안정성 관찰"
+        ]
+      }
+    },
+    {
+      "text": "I prefer am pursuing computer science engineering with the artificial intelligence and machine learning I feel that this combination of artificial intelligence and designs have fueled my passion for full stack development and machine in general in which I've created a lot of projects.",
+      "t": [
+        6.0,
+        20.9
+      ],
+      "dur_s": 14.9,
+      "speech": {
+        "pause_before_s": 0.25,
+        "rate_text_syl_per_s": null,
+        "speech_rate_syl_per_s": 5.37,
+        "articulation_rate_syl_per_s": 6.61,
+        "pitch_sd_semitone": 2.42,
+        "pdq": 0.1509,
+        "voiced_ratio": 0.565,
+        "junctures_within": 12,
+        "longest_pause_s": 0.79,
+        "energy_end_delta_db": -0.09
+      },
+      "visual": {
+        "windows": 2,
+        "face_frames": 4,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.101,
+        "smile_ratio": 0.25,
+        "brow_down_mean": 0.165,
+        "mouth_press_mean": 0.008,
+        "gaze_off_mean": 0.269,
+        "yaw_std_deg": 0.17,
+        "pitch_std_deg": 0.44,
+        "lip_motion": 0.00907,
+        "blink_count": 0,
+        "smile_max": 0.402,
+        "pose_frames": 4,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0003,
+        "head_sway": 0.0034,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.25,
+        "notes": [
+          "시선 이탈 평균이 낮고, 자세 흔들림이 적어 비교적 안정적이나, 미소나 활발한 제스처는 관찰되지 않음",
+          "시선 이탈 평균이 0.301로 관찰됨"
+        ]
+      }
+    },
+    {
+      "text": "I worked as a machine learning intern at TechNook for a month in which i developed a few projects like drowsiness detection and our sentiment analysis projects and also i have worked I'm a web developer intern in the IT triple club of my college.",
+      "t": [
+        21.0,
+        33.0
+      ],
+      "dur_s": 12.0,
+      "speech": {
+        "pause_before_s": 0.69,
+        "rate_text_syl_per_s": null,
+        "speech_rate_syl_per_s": 4.67,
+        "articulation_rate_syl_per_s": 6.3,
+        "pitch_sd_semitone": 2.35,
+        "pdq": 0.1474,
+        "voiced_ratio": 0.52,
+        "junctures_within": 19,
+        "longest_pause_s": 0.38,
+        "energy_end_delta_db": -1.2
+      },
+      "visual": {
+        "windows": 1,
+        "face_frames": 2,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.001,
+        "smile_ratio": 0.0,
+        "brow_down_mean": 0.429,
+        "mouth_press_mean": 0.006,
+        "gaze_off_mean": 0.352,
+        "yaw_std_deg": 0.26,
+        "pitch_std_deg": 0.48,
+        "lip_motion": 0.02216,
+        "blink_count": 0,
+        "smile_max": 0.002,
+        "pose_frames": 2,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0002,
+        "head_sway": 0.0037,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.2,
+        "notes": [
+          "시선 이탈 평균이 높고 미소나 입술 움직임이 거의 없음"
+        ]
+      }
+    },
+    {
+      "text": "for more than six months now that i've been developing a lot of websites and basically managing a team of six eight six which are basically with in which are aim is to 개발 웹사이트를 모든 다가오는 이벤트와 관련하여 개발하세요.",
+      "t": [
+        33.0,
+        44.9
+      ],
+      "dur_s": 11.9,
+      "speech": {
+        "pause_before_s": 0.41,
+        "rate_text_syl_per_s": 2.2,
+        "speech_rate_syl_per_s": 4.71,
+        "articulation_rate_syl_per_s": 5.75,
+        "pitch_sd_semitone": 2.02,
+        "pdq": 0.1215,
+        "voiced_ratio": 0.522,
+        "junctures_within": 9,
+        "longest_pause_s": 0.51,
+        "energy_end_delta_db": -2.79
+      },
+      "visual": {
+        "windows": 2,
+        "face_frames": 3,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.0,
+        "smile_ratio": 0.0,
+        "brow_down_mean": 0.19,
+        "mouth_press_mean": 0.014,
+        "gaze_off_mean": 0.22,
+        "yaw_std_deg": 0.51,
+        "pitch_std_deg": 0.19,
+        "lip_motion": 0.00319,
+        "blink_count": 0,
+        "smile_max": 0.0,
+        "pose_frames": 2,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0007,
+        "head_sway": 0.0007,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "states": [
+          "neutral"
+        ],
+        "intensity_mean": 0.2,
+        "notes": [
+          "시선 이탈이 약간 관찰됨",
+          "시선 이탈이 약간 관찰됨"
+        ]
+      }
+    },
+    {
+      "text": "like that.",
+      "t": [
+        45.0,
+        45.5
+      ],
+      "dur_s": 0.5,
+      "speech": {
+        "pause_before_s": 0.54,
+        "rate_text_syl_per_s": null,
+        "note": "1초 미만/분석 불가 — 프로소디 생략"
+      },
+      "visual": null,
+      "nonverbal": null
+    }
+  ],
+  "meta": {
+    "n_sentences": 5,
+    "silence_runs": 57,
+    "caveat": "시간=글자 보간 근사(±1s급) — 프로덕션은 휴지 스냅/단어 타임스탬프"
+  }
+}

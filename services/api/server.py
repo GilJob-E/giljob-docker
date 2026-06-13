@@ -27,7 +27,6 @@ from app.token_contract import issue_session
 SERVICE_NAME = os.getenv("SERVICE_NAME", "api")
 PORT = int(os.getenv("SERVICE_PORT", "8000"))
 MAX_JSON_BODY_BYTES = int(os.getenv("MAX_JSON_BODY_BYTES", "65536"))
-AI_ENGINE_INTERNAL_URL = os.getenv("AI_ENGINE_INTERNAL_URL", "http://ai-engine:8100").rstrip("/")
 ANALYSIS_ENGINE_INTERNAL_URL = os.getenv("ANALYSIS_ENGINE_INTERNAL_URL", "http://analysis-engine:8200").rstrip("/")
 OPENAI_REALTIME_API_BASE = os.getenv("OPENAI_REALTIME_API_BASE", "https://api.openai.com/v1").rstrip("/")
 OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-2")
@@ -36,7 +35,7 @@ OPENAI_REALTIME_TRANSCRIPTION_MODEL = os.getenv("OPENAI_REALTIME_TRANSCRIPTION_M
 OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE = os.getenv("OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE", "ko").strip()
 OPENAI_REALTIME_TRANSCRIPTION_DELAY = os.getenv("OPENAI_REALTIME_TRANSCRIPTION_DELAY", "low").strip()
 OPENAI_REALTIME_TIMEOUT_SECONDS = float(os.getenv("OPENAI_REALTIME_TIMEOUT_SECONDS", "15"))
-COACH_LLM_TIMEOUT_SECONDS = float(os.getenv("COACH_LLM_TIMEOUT_SECONDS", "8"))
+COACH_LLM_TIMEOUT_SECONDS = float(os.getenv("COACH_LLM_TIMEOUT_SECONDS", "15"))
 INTERVIEW_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 TTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/tts/?$")
 AVATAR_SESSION_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/avatar/session/?$")
@@ -50,6 +49,8 @@ REALTIME_RESPONSE_CREATE_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-
 COACH_FEEDBACK_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/coach-feedback/?$")
 MAX_TTS_TEXT_CHARS = 1_200
 MAX_REALTIME_EVENT_BYTES = int(os.getenv("MAX_REALTIME_EVENT_BYTES", "8192"))
+MAX_REALTIME_VISION_EVENT_BYTES = int(os.getenv("MAX_REALTIME_VISION_EVENT_BYTES", "65536"))
+MAX_REALTIME_VISION_FRAME_BYTES = int(os.getenv("MAX_REALTIME_VISION_FRAME_BYTES", "49152"))
 REALTIME_MMM_EVENT_LOG_PATH = os.getenv("REALTIME_MMM_EVENT_LOG_PATH", "/tmp/giljob-realtime-mmm-events.jsonl")
 REALTIME_MMM_FORWARD_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_FORWARD_TIMEOUT_SECONDS", "2"))
 REALTIME_MMM_RESULT_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_RESULT_TIMEOUT_SECONDS", "1.2"))
@@ -146,7 +147,7 @@ def _safe_sdp(value: object, max_len: int = MAX_SDP_CHARS) -> str:
 
 
 def _redact_provider_error(text: str) -> str:
-    for name in ("ELEVENLABS_API_KEY", "SPATIALREAL_API_KEY", "LIVEKIT_API_SECRET"):
+    for name in ("ELEVENLABS_API_KEY", "SPATIALREAL_API_KEY", "LIVEKIT_API_SECRET", "OPENAI_API_KEY", "COACH_GEMINI_API_KEY", "GEMINI_API_KEY"):
         value = os.getenv(name, "").strip()
         if value:
             text = text.replace(value, "<redacted>")
@@ -235,6 +236,31 @@ def _contains_non_empty_transcript(payload: dict[str, Any]) -> bool:
 
 def _env_enabled(name: str, default: str = "true") -> bool:
     return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "off", "disabled"}
+
+
+def _avatar_bridge_metadata() -> dict[str, object]:
+    enabled = _env_enabled("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", "false")
+    return {
+        "enabled": enabled,
+        "browserAudioBridgeEnabled": enabled,
+        "mode": "experimental-openai-realtime-audio-to-avatar",
+        "status": "enabled" if enabled else "blocked",
+        "directProviderRoutes": "blocked",
+        "controlBoundary": "api-metadata-and-browser-livekit-publication",
+        "requiresFeatureFlag": "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED",
+        "providerSecretsExposed": False,
+        "rawMediaExposed": False,
+        "rawTranscriptExposed": False,
+        "sourceTrack": "openai-realtime-remote-audio",
+        "target": "spatialreal-avatarplayer-publishAudio",
+        "experimental": True,
+        "defaultEnabled": False,
+        "tokenHidden": True,
+        "rawMediaLogged": False,
+        "requiresKiostationBrowserProof": True,
+        "description": "Experimental browser bridge probe from OpenAI Realtime remote audio to SpatialReal AvatarPlayer; disabled by default.",
+        "blockedOutcome": "blocked until the server flag is enabled and kiostation browser QA verifies bridge support.",
+    }
 
 
 def _readiness_payload(interview_id: str, turn_index: int) -> dict[str, object]:
@@ -343,12 +369,13 @@ def _forward_realtime_mmm_record(record: dict[str, object]) -> dict[str, object]
 
 
 def _sideband_detail_for_engine(payload: dict[str, Any]) -> dict[str, object] | None:
-    """Forward-only transcript detail for the analysis engine's sentence lane.
+    """Forward-only transcript/prosody detail for the analysis engine lanes.
 
     The durable JSONL record stays metadata-only (rawTranscriptLogged: False) and the
-    public response never echoes text; the transcript travels only over the internal
-    forward hop (REALTIME_MMM_FORWARD_ENABLED) — the engine is the transcript authority
-    and never logs raw text either. Only known keys pass through, length-capped.
+    public response never echoes text or raw audio. Candidate transcript text and
+    bounded VAD/prosody metrics travel only over the internal forward hop
+    (REALTIME_MMM_FORWARD_ENABLED), where analysis-engine is the authority. Only
+    known keys pass through, length-capped or range-clamped.
     """
     detail = payload.get("detail")
     if not isinstance(detail, dict):
@@ -360,7 +387,104 @@ def _sideband_detail_for_engine(payload: dict[str, Any]) -> dict[str, object] | 
     item_id = detail.get("itemId")
     if isinstance(item_id, str) and item_id:
         out["itemId"] = item_id[:120]
+    for key in ("audioStartMs", "audioEndMs", "energy", "rmsEnergy", "energyMean"):
+        value = _bounded_number(detail.get(key), minimum=0, maximum=24 * 60 * 60 * 1000)
+        if value is not None:
+            out[key] = value
+    if detail.get("rawAudioIncluded") is False:
+        out["rawAudioIncluded"] = False
     return out or None
+
+
+def _bounded_number(value: object, *, minimum: float | None = None, maximum: float | None = None) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if minimum is not None and number < minimum:
+        return None
+    if maximum is not None and number > maximum:
+        return None
+    return int(number) if number.is_integer() else round(number, 3)
+
+
+def _sideband_vision_detail_for_engine(payload: dict[str, Any]) -> tuple[dict[str, object] | None, str | None]:
+    """Forward-only visual signals/frame detail for the analysis engine.
+
+    Durable API records remain metadata-only. A low-resolution image sample, when
+    present, is sent only on the internal API→analysis-engine hop so the engine can
+    derive visual signals before returning a candidate-safe prompt fragment.
+    """
+    detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else {}
+    top_video = payload.get("video") if isinstance(payload.get("video"), dict) else {}
+    out: dict[str, object] = {}
+    signals: dict[str, object] = {"schemaVersion": "2026-06-13.vision-signals.v1"}
+
+    def copy_bool(source: dict[str, Any], source_key: str, target_key: str | None = None) -> None:
+        value = source.get(source_key)
+        if isinstance(value, bool):
+            signals[target_key or source_key] = value
+
+    def copy_num(source: dict[str, Any], source_key: str, target_key: str | None = None, *, maximum: float | None = None) -> None:
+        value = _bounded_number(source.get(source_key), minimum=0, maximum=maximum)
+        if value is not None:
+            signals[target_key or source_key] = value
+
+    def copy_str(source: dict[str, Any], source_key: str, target_key: str | None = None) -> None:
+        value = _safe_str(source.get(source_key), 120)
+        if value:
+            signals[target_key or source_key] = value
+
+    for source in (top_video, detail):
+        copy_bool(source, "cameraEnabled")
+        copy_num(source, "width", maximum=4096)
+        copy_num(source, "height", maximum=4096)
+        copy_num(source, "readyState", maximum=4)
+        copy_bool(source, "faceVisible")
+        copy_bool(source, "personVisible")
+        copy_str(source, "visualQuality")
+        copy_str(source, "frameDroppedReason")
+        copy_num(source, "averageLuma", maximum=255)
+        copy_num(source, "darkPixelRatio", maximum=1)
+
+    nested_signals = detail.get("visionSignals") if isinstance(detail.get("visionSignals"), dict) else {}
+    for key in ("cameraEnabled", "frameAvailable", "faceVisible", "personVisible"):
+        copy_bool(nested_signals, key)
+    for key, maximum in (("width", 4096), ("height", 4096), ("averageLuma", 255), ("darkPixelRatio", 1)):
+        copy_num(nested_signals, key, maximum=maximum)
+    for key in ("visualQuality", "frameDroppedReason"):
+        copy_str(nested_signals, key)
+
+    frame = detail.get("visionFrame")
+    if isinstance(frame, dict):
+        encoding = _safe_str(frame.get("encoding"), 40).lower()
+        data = frame.get("data")
+        byte_length = _bounded_number(frame.get("byteLength"), minimum=1, maximum=MAX_REALTIME_VISION_FRAME_BYTES)
+        if encoding and encoding != "image/jpeg;base64":
+            return None, "unsupported_vision_frame_encoding"
+        if data is not None:
+            if not isinstance(data, str) or not data.strip():
+                return None, "invalid_vision_frame"
+            if len(data.encode("utf-8")) > MAX_REALTIME_VISION_FRAME_BYTES * 2:
+                return None, "vision_frame_too_large"
+            out["visionFrame"] = {
+                "schemaVersion": _safe_str(frame.get("schemaVersion") or "2026-06-13.internal-vision-frame.v1", 80),
+                "encoding": encoding or "image/jpeg;base64",
+                "width": _bounded_number(frame.get("width"), minimum=1, maximum=4096),
+                "height": _bounded_number(frame.get("height"), minimum=1, maximum=4096),
+                "byteLength": byte_length,
+                "data": data,
+                "internalOnly": True,
+                "notLogged": True,
+            }
+            signals["frameAvailable"] = True
+            if byte_length is not None:
+                signals["frameByteLength"] = byte_length
+
+    if len(signals) > 1:
+        out["visionSignals"] = signals
+    return (out or None), None
 
 
 def _record_realtime_mmm_ingress(
@@ -431,6 +555,105 @@ def _readiness_payload_with_durable_fallback(interview_id: str, turn_index: int)
         return durable
     return in_process
 
+def _readiness_payload_with_analysis_result(interview_id: str, turn_index: int) -> dict[str, object]:
+    readiness = _readiness_payload_with_durable_fallback(interview_id, turn_index)
+    payload = dict(readiness)
+    if not readiness.get("full_mmm_ready"):
+        response_create = {"owner": "api", "created": False, "reason": "full_mmm_required_for_prior_answer"}
+        payload["responseCreate"] = response_create
+        payload["mmmDebug"] = _mmm_debug_envelope(
+            interview_id,
+            turn_index,
+            analysis_turn_index=turn_index,
+            readiness=readiness,
+            response_create=response_create,
+        )
+        return payload
+
+    result, source = _fetch_analysis_result(interview_id, turn_index)
+    failure = _analysis_result_gate_failure(result, interview_id, turn_index)
+    payload["analysisEngine"] = source
+    if failure:
+        reason = failure[0]
+        response_reason = failure[1]
+        payload["ready"] = False
+        payload["full_mmm_ready"] = False
+        payload["degraded"] = True
+        payload["state"] = "analysis_result_not_ready"
+        payload["reason"] = reason
+        payload["reasonCodes"] = [reason]
+        response_create = {"owner": "api", "created": False, "reason": response_reason}
+        payload["responseCreate"] = response_create
+        payload["mmmDebug"] = _mmm_debug_envelope(
+            interview_id,
+            turn_index,
+            analysis_turn_index=turn_index,
+            readiness=payload,
+            analysis_engine=source,
+            response_create=response_create,
+            analysis_result=result,
+        )
+        return payload
+
+    if result is not None and not _analysis_result_turn_matches(result, interview_id, turn_index):
+        reason = "analysis_result_stale_or_wrong_turn"
+        response_create = {"owner": "api", "created": False, "reason": "exact_turn_analysis_required"}
+        payload["ready"] = False
+        payload["full_mmm_ready"] = False
+        payload["degraded"] = True
+        payload["state"] = "analysis_result_not_ready"
+        payload["reason"] = reason
+        payload["reasonCodes"] = [reason]
+        payload["responseCreate"] = response_create
+        payload["mmmDebug"] = _mmm_debug_envelope(
+            interview_id,
+            turn_index,
+            analysis_turn_index=turn_index,
+            readiness=payload,
+            analysis_engine=source,
+            response_create=response_create,
+            analysis_result=result,
+        )
+        return payload
+
+    fragment = _candidate_safe_fragment_from_result(result or {})
+    if not fragment or bool((result or {}).get("rawTranscriptLogged", False)) or bool((result or {}).get("rawMediaAccepted", False)):
+        reason = "analysis_result_not_usable"
+        response_create = {"owner": "api", "created": False, "reason": "candidate_safe_ready_result_required"}
+        payload["ready"] = False
+        payload["full_mmm_ready"] = False
+        payload["degraded"] = True
+        payload["state"] = "analysis_result_not_ready"
+        payload["reason"] = reason
+        payload["reasonCodes"] = [reason]
+        payload["responseCreate"] = response_create
+        payload["mmmDebug"] = _mmm_debug_envelope(
+            interview_id,
+            turn_index,
+            analysis_turn_index=turn_index,
+            readiness=payload,
+            analysis_engine=source,
+            response_create=response_create,
+            analysis_result=result,
+        )
+        return payload
+
+    analysis_summary = _analysis_result_public_summary(result or {})
+    response_create = {"owner": "api", "created": True, "commandType": "response.create"}
+    debug_response_create = {**response_create, "reason": "candidate_safe_ready_result_available"}
+    payload["analysisResult"] = analysis_summary
+    payload["responseCreate"] = response_create
+    payload["mmmDebug"] = _mmm_debug_envelope(
+        interview_id,
+        turn_index,
+        analysis_turn_index=turn_index,
+        readiness=readiness,
+        analysis_engine=source,
+        response_create=debug_response_create,
+        analysis_result=result,
+    )
+    return payload
+
 
 _CANDIDATE_PROMPT_FORBIDDEN_RE = re.compile(
     r"\b(?:MMM|analysis-engine|backend|sideband|readiness\s*gate|raw\s*rubric|provider\s*internal|server-only)\b",
@@ -451,8 +674,51 @@ def _candidate_safe_fragment(value: object) -> str:
     return fragment
 
 
+_PUBLIC_ANALYSIS_FORBIDDEN_KEYS = {
+    "transcript",
+    "text",
+    "data",
+    "visionFrame",
+    "rawMedia",
+    "audio",
+    "video",
+    "sdp",
+    "token",
+    "client_secret",
+    "apiKey",
+}
+
+
+def _safe_public_analysis_object(value: object, *, max_depth: int = 3) -> object:
+    if max_depth <= 0:
+        return None
+    if isinstance(value, dict):
+        out: dict[str, object] = {}
+        for key, nested in value.items():
+            key_str = _safe_str(key, 80)
+            if not key_str or key_str in _PUBLIC_ANALYSIS_FORBIDDEN_KEYS:
+                continue
+            safe_nested = _safe_public_analysis_object(nested, max_depth=max_depth - 1)
+            if safe_nested is not None:
+                out[key_str] = safe_nested
+        return out
+    if isinstance(value, list):
+        return [
+            item
+            for item in (_safe_public_analysis_object(item, max_depth=max_depth - 1) for item in value[:8])
+            if item is not None
+        ]
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        return _safe_str(value, 300)
+    return None
+
+
 def _analysis_result_public_summary(result: dict[str, Any]) -> dict[str, object]:
-    return {
+    summary: dict[str, object] = {
         "schemaVersion": _safe_str(result.get("schemaVersion") or result.get("schema_version"), 80),
         "status": _safe_str(result.get("status"), 40),
         "confidence": result.get("confidence") if isinstance(result.get("confidence"), (int, float)) else None,
@@ -460,6 +726,71 @@ def _analysis_result_public_summary(result: dict[str, Any]) -> dict[str, object]
         "rawTranscriptLogged": bool(result.get("rawTranscriptLogged", False)),
         "rawMediaAccepted": bool(result.get("rawMediaAccepted", False)),
     }
+    for key in ("transcriptSignals", "visionSignals", "prosodySignals", "behavioralSignals", "coverage"):
+        value = result.get(key)
+        if isinstance(value, dict):
+            summary[key] = _safe_public_analysis_object(value)
+    return summary
+
+
+def _safe_analysis_engine_debug(source: dict[str, object] | None) -> dict[str, object]:
+    source = source or {}
+    return {
+        "attempted": bool(source.get("attempted", False)),
+        "endpoint": _safe_str(source.get("endpoint"), 120),
+        "status": source.get("status") if isinstance(source.get("status"), int) else None,
+        "source": _safe_str(source.get("source"), 80),
+        "error": _safe_str(source.get("error"), 120),
+        "reason": _safe_str(source.get("reason"), 120),
+    }
+
+
+def _safe_readiness_debug(readiness: dict[str, object] | None) -> dict[str, object]:
+    readiness = readiness or {}
+    reason_codes = readiness.get("reasonCodes") if isinstance(readiness.get("reasonCodes"), list) else []
+    lanes = readiness.get("lanes") if isinstance(readiness.get("lanes"), dict) else {}
+    return {
+        "ready": bool(readiness.get("ready", readiness.get("full_mmm_ready", False))),
+        "full_mmm_ready": bool(readiness.get("full_mmm_ready", False)),
+        "state": _safe_str(readiness.get("state"), 80),
+        "reason": _safe_str(readiness.get("reason"), 120),
+        "reasonCodes": [_safe_str(reason, 120) for reason in reason_codes],
+        "lanes": lanes,
+        "source": _safe_str(readiness.get("source"), 80),
+    }
+
+
+def _mmm_debug_envelope(
+    interview_id: str,
+    turn_index: int,
+    *,
+    analysis_turn_index: int | None,
+    readiness: dict[str, object] | None = None,
+    analysis_engine: dict[str, object] | None = None,
+    response_create: dict[str, object] | None = None,
+    analysis_result: dict[str, Any] | None = None,
+) -> dict[str, object]:
+    response_create = response_create or {}
+    envelope: dict[str, object] = {
+        "schemaVersion": "2026-06-12.safe-mmm-debug.v1",
+        "interviewId": interview_id,
+        "turnIndex": turn_index,
+        "analysisTurnIndex": analysis_turn_index,
+        "readiness": _safe_readiness_debug(readiness),
+        "analysisEngine": _safe_analysis_engine_debug(analysis_engine),
+        "responseCreate": {
+            "created": bool(response_create.get("created", False)),
+            "reason": _safe_str(response_create.get("reason"), 120),
+            "commandType": _safe_str(response_create.get("commandType"), 80),
+            "owner": _safe_str(response_create.get("owner"), 80),
+        },
+        "rawTranscriptLogged": False,
+        "rawMediaAccepted": False,
+        "secretsExposed": False,
+    }
+    if analysis_result is not None:
+        envelope["analysisResult"] = _analysis_result_public_summary(analysis_result)
+    return envelope
 
 
 def _extract_analysis_result(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -467,8 +798,17 @@ def _extract_analysis_result(payload: dict[str, Any]) -> dict[str, Any] | None:
         value = payload.get(key)
         if isinstance(value, dict):
             return value
-    if payload.get("schemaVersion") or payload.get("schema_version") or payload.get("candidatePromptFragment"):
+    if payload.get("schemaVersion") or payload.get("schema_version") or payload.get("candidatePromptFragment") or payload.get("candidateSafePromptFragment"):
         return payload
+    return None
+
+
+def _analysis_result_gate_failure(result: dict[str, Any] | None, interview_id: str, turn_index: int) -> tuple[str, str] | None:
+    if result is None:
+        return ("analysis_result_unavailable", "structured_analysis_required")
+    status = _safe_str(result.get("status"), 40)
+    if status != "ready":
+        return ("analysis_result_not_ready", "ready_analysis_result_required")
     return None
 
 
@@ -493,64 +833,54 @@ def _fetch_analysis_result(interview_id: str, turn_index: int) -> tuple[dict[str
     return _extract_analysis_result(parsed), {"attempted": True, "status": status, "endpoint": "/realtime/turn-results"}
 
 
-def _analysis_signals_query(interview_id: str) -> str:
-    return urllib.parse.urlencode({"sessionId": interview_id})
-
-
-def _fetch_analysis_signals(interview_id: str) -> tuple[dict[str, Any] | None, dict[str, object]]:
-    endpoint = f"{ANALYSIS_ENGINE_INTERNAL_URL}/signals?{_analysis_signals_query(interview_id)}"
-    request = urllib.request.Request(endpoint, method="GET", headers={"Accept": "application/json"})
+def _analysis_result_turn_matches(result: dict[str, Any], interview_id: str, turn_index: int) -> bool:
+    result_turn = result.get("turnIndex") or result.get("turn_index")
     try:
-        with urllib.request.urlopen(request, timeout=REALTIME_MMM_RESULT_TIMEOUT_SECONDS) as response:
-            body = response.read().decode("utf-8", errors="replace")
-            status = response.status
-    except urllib.error.HTTPError as error:
-        error.read()
-        return None, {"attempted": True, "status": error.code, "endpoint": "/signals", "error": "analysis_signals_rejected"}
-    except urllib.error.URLError:
-        return None, {"attempted": True, "endpoint": "/signals", "error": "analysis_engine_unavailable"}
+        if int(result_turn) != turn_index:
+            return False
+    except (TypeError, ValueError):
+        return False
+    result_session = _safe_str(result.get("sessionId") or result.get("interviewId"), 96)
+    return result_session == interview_id
+
+
+def _candidate_safe_fragment_from_result(result: dict[str, Any]) -> str:
+    structured = result.get("candidateSafePromptFragment")
+    if isinstance(structured, dict):
+        if any(bool(structured.get(key)) for key in ("containsRawTranscript", "containsRawMedia", "containsSecrets")):
+            return ""
+        return _candidate_safe_fragment(structured.get("text"))
+    return _candidate_safe_fragment(result.get("candidatePromptFragment") or result.get("realtimePromptFragment") or result.get("nextQuestionGuidance"))
+
+
+def _coach_llm_settings() -> dict[str, object]:
+    provider = _safe_str(os.getenv("COACH_LLM_PROVIDER", "fake"), 40).lower() or "fake"
+    explicit_model = _safe_str(os.getenv("COACH_LLM_MODEL"), 120)
+    if provider == "gemini":
+        model = explicit_model or "gemini-2.5-flash"
+    elif provider == "openai":
+        model = explicit_model or "gpt-4.1-mini"
+    else:
+        model = explicit_model or "fake-coach"
     try:
-        parsed = json.loads(body)
-    except json.JSONDecodeError:
-        return None, {"attempted": True, "status": status, "endpoint": "/signals", "error": "invalid_analysis_signals"}
-    if not isinstance(parsed, dict):
-        return None, {"attempted": True, "status": status, "endpoint": "/signals", "error": "invalid_analysis_signals"}
-    return parsed, {"attempted": True, "status": status, "endpoint": "/signals"}
+        timeout = float(os.getenv("COACH_LLM_TIMEOUT_SECONDS", str(COACH_LLM_TIMEOUT_SECONDS)))
+    except ValueError:
+        timeout = COACH_LLM_TIMEOUT_SECONDS
+    return {
+        "provider": provider,
+        "model": model,
+        "timeout": max(1.0, min(timeout, 60.0)),
+        "openaiApiBase": os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/"),
+        "openaiApiKey": os.getenv("OPENAI_API_KEY", "").strip(),
+        "geminiApiBase": os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta").rstrip("/"),
+        "geminiApiKey": (os.getenv("COACH_GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")).strip(),
+    }
 
 
-def _turn_handoff_from_signals(payload: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(payload, dict):
-        return None
-    value = payload.get("turnHandoff")
-    return value if isinstance(value, dict) else None
-
-
-def _turn_handoff_prompt_line_count(handoff: dict[str, Any] | None) -> int:
-    if not isinstance(handoff, dict):
-        return 0
-    prompt_block = handoff.get("prompt_block")
-    if not isinstance(prompt_block, list):
-        return 0
-    return sum(1 for line in prompt_block if _safe_str(line, 1_200))
-
-
-def _turn_handoff_coverage(handoff: dict[str, Any] | None) -> dict[str, bool]:
-    if not isinstance(handoff, dict):
-        return {}
-    meta = handoff.get("meta")
-    coverage = meta.get("coverage") if isinstance(meta, dict) else None
-    if not isinstance(coverage, dict):
-        return {}
-    safe: dict[str, bool] = {}
-    for key in ("transcript", "vision", "prosody", "speech", "visual", "nv"):
-        if key in coverage:
-            safe[key] = bool(coverage.get(key))
-    return safe
-
-
-def _coach_feedback_pending_payload() -> dict[str, object]:
+def _coach_feedback_pending_payload(reason: str) -> dict[str, object]:
     return {
         "ready": False,
+        "reason": reason,
         "summary": "분석 결과를 기다리는 중입니다.",
         "answerEvaluation": "",
         "multimodalEvaluation": "",
@@ -558,102 +888,237 @@ def _coach_feedback_pending_payload() -> dict[str, object]:
     }
 
 
-def _handoff_prompt_snippets(handoff: dict[str, Any] | None) -> list[str]:
-    if not isinstance(handoff, dict):
-        return []
-    prompt_block = handoff.get("prompt_block")
-    if not isinstance(prompt_block, list):
-        return []
-    snippets: list[str] = []
-    for line in prompt_block:
-        snippet = _safe_str(line, 1_000)
-        if len(snippet) >= 12:
-            snippets.append(snippet)
-    return snippets
+def _coach_analysis_summary(result: dict[str, Any] | None, source: dict[str, object]) -> dict[str, object]:
+    result = result or {}
+    public = _analysis_result_public_summary(result)
+    coverage = public.get("coverage")
+    return {
+        "endpoint": _safe_str(source.get("endpoint"), 120),
+        "attempted": bool(source.get("attempted", False)),
+        "status": source.get("status") if isinstance(source.get("status"), int) else None,
+        "error": _safe_str(source.get("error"), 120),
+        "resultStatus": _safe_str(result.get("status"), 40),
+        "schemaVersion": public.get("schemaVersion"),
+        "confidence": public.get("confidence"),
+        "latencyMs": public.get("latencyMs"),
+        "coverage": coverage if isinstance(coverage, dict) else {},
+        "rawTranscriptLogged": bool(result.get("rawTranscriptLogged", False)),
+        "rawMediaAccepted": bool(result.get("rawMediaAccepted", False)),
+    }
 
 
-def _redact_handoff_echoes(value: object, handoff: dict[str, Any] | None, max_len: int = 1_000) -> str:
-    text = _safe_str(value, max_len)
-    for snippet in _handoff_prompt_snippets(handoff):
-        text = text.replace(snippet, "[redacted]")
-    return text
+def _build_coach_feedback_prompt(result: dict[str, Any], interview_id: str, turn_index: int) -> str:
+    safe_fragment = _candidate_safe_fragment_from_result(result)
+    prompt_payload = {
+        "task": "Korean interview coach feedback",
+        "interviewId": interview_id,
+        "turnIndex": turn_index,
+        "safeGuidance": safe_fragment,
+        "analysisSummary": _analysis_result_public_summary(result),
+        "outputJsonSchema": {
+            "summary": "one Korean sentence",
+            "answerEvaluation": "short Korean feedback on answer quality",
+            "multimodalEvaluation": "short Korean feedback on visual/prosody signals",
+            "bullets": ["1-4 concise Korean coaching actions"],
+        },
+        "rules": [
+            "Return only valid JSON.",
+            "Do not expose raw transcript, raw media, provider keys, or internal transport labels.",
+            "Do not mention implementation details.",
+        ],
+    }
+    return json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True)
 
 
-def _coach_feedback_public_payload(upstream: dict[str, Any], handoff: dict[str, Any]) -> dict[str, object]:
-    feedback = upstream.get("coachFeedback")
-    if not isinstance(feedback, dict):
-        feedback = {}
+def _parse_json_object_from_text(text: str) -> dict[str, Any] | None:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", cleaned)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _coerce_coach_feedback(value: object) -> dict[str, object]:
+    feedback = value.get("coachFeedback") if isinstance(value, dict) and isinstance(value.get("coachFeedback"), dict) else value
+    feedback = feedback if isinstance(feedback, dict) else {}
     raw_bullets = feedback.get("bullets")
     bullets = [
-        _redact_handoff_echoes(item, handoff, 320)
+        _safe_str(item, 280)
         for item in (raw_bullets if isinstance(raw_bullets, list) else [])
-        if _safe_str(item, 320)
-    ][:5]
+        if _safe_str(item, 280)
+    ][:4]
     return {
-        "ready": bool(feedback.get("ready", True)),
-        "summary": _redact_handoff_echoes(feedback.get("summary") or "코치 피드백이 준비되었습니다.", handoff, 500),
-        "answerEvaluation": _redact_handoff_echoes(feedback.get("answerEvaluation"), handoff, 800),
-        "multimodalEvaluation": _redact_handoff_echoes(feedback.get("multimodalEvaluation"), handoff, 800),
+        "ready": True,
+        "summary": _safe_str(feedback.get("summary") or "코치 피드백이 준비되었습니다.", 420),
+        "answerEvaluation": _safe_str(feedback.get("answerEvaluation"), 700),
+        "multimodalEvaluation": _safe_str(feedback.get("multimodalEvaluation"), 700),
         "bullets": bullets,
     }
 
 
-def _coach_llm_metadata(upstream: dict[str, Any], source: dict[str, object]) -> dict[str, object]:
-    return {
-        "attempted": True,
-        "endpoint": "/coach/feedback",
-        "status": source.get("status"),
-        "provider": _safe_str(upstream.get("provider") or "ai-engine", 80),
-        "providerStatus": _safe_str(upstream.get("providerStatus") or "unknown", 80),
-        "model": _safe_str(upstream.get("model"), 120) or None,
+def _fake_coach_feedback(result: dict[str, Any], interview_id: str, turn_index: int, settings: dict[str, object]) -> tuple[int, dict[str, object]]:
+    coverage = _analysis_result_public_summary(result).get("coverage")
+    coverage_text = ", ".join(f"{key}:{value}" for key, value in sorted(coverage.items())) if isinstance(coverage, dict) and coverage else "available"
+    feedback = {
+        "ready": True,
+        "summary": "답변 분석과 멀티모달 신호를 바탕으로 코치 피드백이 준비되었습니다.",
+        "answerEvaluation": "다음 답변에서는 핵심 주장 뒤에 구체적인 근거와 본인 역할을 더 붙이면 좋습니다.",
+        "multimodalEvaluation": f"시각/음성 신호는 공개 가능한 요약 범위에서 확인되었습니다. coverage={coverage_text}",
+        "bullets": [
+            "성과를 수치나 비교 기준으로 한 문장 더 구체화하세요.",
+            "문제 상황, 행동, 결과를 순서대로 짧게 정리하세요.",
+            "시선과 말의 속도는 안정적으로 유지하세요.",
+        ],
+    }
+    return 200, {
+        "provider": "fake",
+        "providerStatus": "fake",
+        "model": _safe_str(settings.get("model"), 120) or "fake-coach",
+        "coachFeedback": feedback,
     }
 
 
-def _fetch_coach_llm_feedback(
-    interview_id: str,
-    turn_index: int,
-    handoff: dict[str, Any],
-    analysis: dict[str, object],
-) -> tuple[dict[str, object] | None, dict[str, object]]:
-    endpoint = f"{AI_ENGINE_INTERNAL_URL}/coach/feedback"
+def _extract_openai_output_text(payload: dict[str, Any]) -> str:
+    output_text = _safe_str(payload.get("output_text"), 10_000)
+    if output_text:
+        return output_text
+    texts: list[str] = []
+    output = payload.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        text = _safe_str(part.get("text"), 10_000)
+                        if text:
+                            texts.append(text)
+    return "\n".join(texts)
+
+
+def _openai_coach_feedback(settings: dict[str, object], result: dict[str, Any], interview_id: str, turn_index: int) -> tuple[int, dict[str, object]]:
+    api_key = _safe_str(settings.get("openaiApiKey"), 500)
+    if not api_key:
+        return 503, {"error": "coach_llm_missing_key", "provider": "openai", "providerStatus": "not_configured"}
+    endpoint = f"{settings['openaiApiBase']}/responses"
     body = json.dumps({
-        "interviewId": interview_id,
-        "turnIndex": turn_index,
-        "turnHandoff": handoff,
-        "analysis": {
-            "turnHandoffPresent": analysis.get("turnHandoffPresent"),
-            "promptBlockLineCount": analysis.get("promptBlockLineCount"),
-            "coverage": analysis.get("coverage"),
-            "rawTranscriptLogged": analysis.get("rawTranscriptLogged"),
-            "rawMediaAccepted": analysis.get("rawMediaAccepted"),
-        },
-    }).encode("utf-8")
+        "model": settings["model"],
+        "instructions": "Return only valid JSON for concise Korean interview coaching feedback.",
+        "input": _build_coach_feedback_prompt(result, interview_id, turn_index),
+        "store": False,
+    }, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         endpoint,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
     )
     try:
-        with urllib.request.urlopen(request, timeout=COACH_LLM_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=float(settings["timeout"])) as response:
             response_body = response.read().decode("utf-8", errors="replace")
             status = response.status
     except urllib.error.HTTPError as error:
-        error.read()
-        return None, {"attempted": True, "status": error.code, "endpoint": "/coach/feedback", "error": "coach_llm_rejected"}
-    except urllib.error.URLError:
-        return None, {"attempted": True, "endpoint": "/coach/feedback", "error": "ai_engine_unavailable"}
+        error_body = error.read().decode("utf-8", errors="replace")
+        return 502, {"error": "coach_llm_rejected", "provider": "openai", "providerStatus": "provider_error", "status": error.code, "message": _redact_provider_error(error_body)}
+    except urllib.error.URLError as error:
+        return 502, {"error": "coach_llm_unavailable", "provider": "openai", "providerStatus": "network_error", "message": _redact_provider_error(str(error))}
     try:
-        upstream = json.loads(response_body)
+        parsed = json.loads(response_body)
     except json.JSONDecodeError:
-        return None, {"attempted": True, "status": status, "endpoint": "/coach/feedback", "error": "invalid_coach_llm_response"}
-    if not isinstance(upstream, dict):
-        return None, {"attempted": True, "status": status, "endpoint": "/coach/feedback", "error": "invalid_coach_llm_response"}
-    source = {"attempted": True, "status": status, "endpoint": "/coach/feedback"}
-    return {
-        "coachFeedback": _coach_feedback_public_payload(upstream, handoff),
-        "coachLlm": _coach_llm_metadata(upstream, source),
-    }, source
+        return 502, {"error": "invalid_coach_llm_response", "provider": "openai", "providerStatus": "invalid_response", "status": status}
+    if not isinstance(parsed, dict):
+        return 502, {"error": "invalid_coach_llm_response", "provider": "openai", "providerStatus": "invalid_response", "status": status}
+    feedback_json = _parse_json_object_from_text(_extract_openai_output_text(parsed))
+    if feedback_json is None:
+        return 502, {"error": "invalid_coach_llm_response", "provider": "openai", "providerStatus": "invalid_json", "status": status}
+    return 200, {
+        "provider": "openai",
+        "providerStatus": "provider",
+        "status": status,
+        "model": _safe_str(settings.get("model"), 120),
+        "coachFeedback": _coerce_coach_feedback(feedback_json),
+    }
+
+
+def _extract_gemini_output_text(payload: dict[str, Any]) -> str:
+    texts: list[str] = []
+    candidates = payload.get("candidates")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            content = candidate.get("content")
+            parts = content.get("parts") if isinstance(content, dict) else None
+            if isinstance(parts, list):
+                for part in parts:
+                    if isinstance(part, dict):
+                        text = _safe_str(part.get("text"), 10_000)
+                        if text:
+                            texts.append(text)
+    return "\n".join(texts)
+
+
+def _gemini_coach_feedback(settings: dict[str, object], result: dict[str, Any], interview_id: str, turn_index: int) -> tuple[int, dict[str, object]]:
+    api_key = _safe_str(settings.get("geminiApiKey"), 500)
+    if not api_key:
+        return 503, {"error": "coach_llm_missing_key", "provider": "gemini", "providerStatus": "not_configured"}
+    model = _safe_str(settings.get("model"), 120) or "gemini-2.5-flash"
+    endpoint = f"{settings['geminiApiBase']}/models/{urllib.parse.quote(model, safe='')}:generateContent"
+    body = json.dumps({
+        "contents": [{"role": "user", "parts": [{"text": _build_coach_feedback_prompt(result, interview_id, turn_index)}]}],
+        "generationConfig": {"responseMimeType": "application/json"},
+    }, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=body,
+        method="POST",
+        headers={
+            "X-goog-api-key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=float(settings["timeout"])) as response:
+            response_body = response.read().decode("utf-8", errors="replace")
+            status = response.status
+    except urllib.error.HTTPError as error:
+        error_body = error.read().decode("utf-8", errors="replace")
+        return 502, {"error": "coach_llm_rejected", "provider": "gemini", "providerStatus": "provider_error", "status": error.code, "message": _redact_provider_error(error_body)}
+    except urllib.error.URLError as error:
+        return 502, {"error": "coach_llm_unavailable", "provider": "gemini", "providerStatus": "network_error", "message": _redact_provider_error(str(error))}
+    try:
+        parsed = json.loads(response_body)
+    except json.JSONDecodeError:
+        return 502, {"error": "invalid_coach_llm_response", "provider": "gemini", "providerStatus": "invalid_response", "status": status}
+    if not isinstance(parsed, dict):
+        return 502, {"error": "invalid_coach_llm_response", "provider": "gemini", "providerStatus": "invalid_response", "status": status}
+    feedback_json = _parse_json_object_from_text(_extract_gemini_output_text(parsed))
+    if feedback_json is None:
+        return 502, {"error": "invalid_coach_llm_response", "provider": "gemini", "providerStatus": "invalid_json", "status": status}
+    return 200, {
+        "provider": "gemini",
+        "providerStatus": "provider",
+        "status": status,
+        "model": model,
+        "coachFeedback": _coerce_coach_feedback(feedback_json),
+    }
 
 
 def coach_feedback_response(interview_id: str, turn_index: int) -> tuple[int, dict[str, object]]:
@@ -663,62 +1128,82 @@ def coach_feedback_response(interview_id: str, turn_index: int) -> tuple[int, di
     if turn_index < 1:
         return 400, {"error": "invalid_turn_index"}
 
-    signals, source = _fetch_analysis_signals(interview_id)
-    handoff = _turn_handoff_from_signals(signals)
-    ready = handoff is not None
-    analysis = {
-        "source": "analysis-engine",
-        "signals": source,
-        "turnHandoffPresent": ready,
-        "promptBlockLineCount": _turn_handoff_prompt_line_count(handoff),
-        "coverage": _turn_handoff_coverage(handoff),
-        "rawTranscriptLogged": bool(signals.get("rawTranscriptLogged", False)) if isinstance(signals, dict) else False,
-        "rawMediaAccepted": bool(signals.get("rawMediaAccepted", False)) if isinstance(signals, dict) else False,
+    result, source = _fetch_analysis_result(interview_id, turn_index)
+    reason = ""
+    failure = _analysis_result_gate_failure(result, interview_id, turn_index)
+    if failure:
+        reason = failure[0]
+    elif result is not None and not _analysis_result_turn_matches(result, interview_id, turn_index):
+        reason = "exact_turn_analysis_result_required"
+    elif not _candidate_safe_fragment_from_result(result or {}) or bool((result or {}).get("rawTranscriptLogged", False)) or bool((result or {}).get("rawMediaAccepted", False)):
+        reason = "candidate_safe_ready_result_required"
+
+    analysis = _coach_analysis_summary(result, source)
+    delivery = {
+        "mode": "api-mediated-coach-feedback",
+        "source": "api-owned-coach-llm" if not reason else "analysis-turn-result",
+        "analysisEndpoint": "/realtime/turn-results",
+        "rawAnalysisReturned": False,
     }
-    status = 200 if ready else 202
-    coach_payload: dict[str, object] = {
-        "coachFeedback": _coach_feedback_pending_payload(),
-        "coachLlm": {"attempted": False, "reason": "turn_handoff_pending"},
-    }
-    if ready and handoff is not None:
-        fetched_coach, llm_source = _fetch_coach_llm_feedback(interview_id, turn_index, handoff, analysis)
-        if fetched_coach is None:
-            return _return_with_latency(502, {
-                "error": "coach_llm_failed",
-                "message": "provider request failed",
-                "interviewId": interview_id,
-                "turnIndex": turn_index,
-                "status": "failed",
-                "analysis": analysis,
-                "coachLlm": llm_source,
-                "delivery": {
-                    "mode": "api-mediated-coach-feedback",
-                    "source": "ai-engine-coach-llm",
-                    "rawTurnHandoffReturned": False,
-                },
-            }, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider="ai-engine")
-        coach_payload = fetched_coach
+    if reason:
+        payload = {
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "status": "pending",
+            "coachFeedback": _coach_feedback_pending_payload(reason),
+            "coachLlm": {"attempted": False, "reason": reason},
+            "analysis": analysis,
+            "delivery": delivery,
+        }
+        return _return_with_latency(202, payload, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider="analysis-engine")
+
+    settings = _coach_llm_settings()
+    provider = _safe_str(settings.get("provider"), 40)
+    assert result is not None
+    if provider == "fake":
+        llm_status, llm_payload = _fake_coach_feedback(result, interview_id, turn_index, settings)
+    elif provider == "openai":
+        llm_status, llm_payload = _openai_coach_feedback(settings, result, interview_id, turn_index)
+    elif provider == "gemini":
+        llm_status, llm_payload = _gemini_coach_feedback(settings, result, interview_id, turn_index)
+    else:
+        llm_status, llm_payload = 400, {"error": "unsupported_coach_llm_provider", "provider": provider, "providerStatus": "unsupported"}
+
+    if llm_status != 200:
+        payload = {
+            "error": llm_payload.get("error", "coach_llm_failed"),
+            "message": "provider request failed",
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "status": "failed",
+            "analysis": analysis,
+            "coachLlm": {
+                "attempted": True,
+                "provider": _safe_str(llm_payload.get("provider") or provider, 80),
+                "providerStatus": _safe_str(llm_payload.get("providerStatus"), 80),
+                "model": _safe_str(settings.get("model"), 120),
+                "status": llm_payload.get("status") if isinstance(llm_payload.get("status"), int) else None,
+            },
+            "delivery": delivery,
+        }
+        return _return_with_latency(llm_status, payload, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider=provider)
+
     payload = {
         "interviewId": interview_id,
         "turnIndex": turn_index,
-        "status": "ready" if ready else "pending",
-        "coachFeedback": coach_payload["coachFeedback"],
-        "coachLlm": coach_payload["coachLlm"],
-        "analysis": analysis,
-        "delivery": {
-            "mode": "api-mediated-coach-feedback",
-            "source": "ai-engine-coach-llm" if ready else "analysis-engine-turn-handoff",
-            "rawTurnHandoffReturned": False,
+        "status": "ready",
+        "coachFeedback": llm_payload["coachFeedback"],
+        "coachLlm": {
+            "attempted": True,
+            "provider": _safe_str(llm_payload.get("provider") or provider, 80),
+            "providerStatus": _safe_str(llm_payload.get("providerStatus"), 80),
+            "model": _safe_str(llm_payload.get("model"), 120),
+            "status": llm_payload.get("status") if isinstance(llm_payload.get("status"), int) else None,
         },
+        "analysis": analysis,
+        "delivery": delivery,
     }
-    return _return_with_latency(status, payload, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider="ai-engine" if ready else "analysis-engine")
-
-
-def _resolve_analysis_result(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, object]]:
-    inline_result = _extract_analysis_result(payload)
-    if inline_result is not None:
-        return inline_result, {"attempted": False, "source": "request-inline-test-fixture"}
-    return _fetch_analysis_result(interview_id, turn_index)
+    return _return_with_latency(200, payload, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider=provider)
 
 
 def _realtime_response_create_command(instructions: str) -> dict[str, object]:
@@ -760,13 +1245,16 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         _log_latency_span("api.realtime.context.inject", 0, status=200, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="openai-realtime")
+        response_create = {"owner": "api", "created": True, "commandType": "response.create"}
+        debug_response_create = {**response_create, "reason": "no_prior_candidate_answer"}
         return _return_with_latency(202, {
             "interviewId": interview_id,
             "turnIndex": turn_index,
             "analysisTurnIndex": None,
             "status": "response_create_queued",
             "bootstrap": {"firstQuestion": True, "mmmGateRequired": False, "reason": "no_prior_candidate_answer"},
-            "responseCreate": {"owner": "api", "created": True, "commandType": "response.create"},
+            "responseCreate": response_create,
+            "mmmDebug": _mmm_debug_envelope(interview_id, turn_index, analysis_turn_index=None, response_create=debug_response_create),
             "sideband": {
                 "controlBoundary": "server-sideband",
                 "singleResponseCreateOwner": "api",
@@ -778,41 +1266,111 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
 
     readiness = _readiness_payload_with_durable_fallback(interview_id, analysis_turn_index)
     if not readiness.get("full_mmm_ready"):
+        response_create = {"owner": "api", "created": False, "reason": "full_mmm_required_for_prior_answer"}
         return _return_with_latency(409, {
             "error": "analysis_result_not_ready",
             "interviewId": interview_id,
             "turnIndex": turn_index,
             "analysisTurnIndex": analysis_turn_index,
             "readiness": readiness,
-            "responseCreate": {"owner": "api", "created": False, "reason": "full_mmm_required_for_prior_answer"},
+            "responseCreate": response_create,
+            "mmmDebug": _mmm_debug_envelope(interview_id, turn_index, analysis_turn_index=analysis_turn_index, readiness=readiness, response_create=response_create),
             "delivery": _realtime_delivery("api-sideband-response-create"),
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
     wait_start = time.perf_counter()
-    result, source = _resolve_analysis_result(interview_id, analysis_turn_index, payload)
+    result, source = _fetch_analysis_result(interview_id, analysis_turn_index)
     _log_latency_span("api.analysis.result.wait", _duration_ms(wait_start), status=200 if result else 504, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
-    if not result:
+    inline_result = _extract_analysis_result(payload)
+    if result is None and inline_result is not None and not _analysis_result_turn_matches(inline_result, interview_id, analysis_turn_index):
+        response_create = {"owner": "api", "created": False, "reason": "exact_turn_analysis_result_required"}
         return _return_with_latency(409, {
-            "error": "analysis_result_unavailable",
+            "error": "analysis_result_wrong_turn",
             "interviewId": interview_id,
             "turnIndex": turn_index,
             "analysisTurnIndex": analysis_turn_index,
+            "readiness": readiness,
             "analysisEngine": source,
-            "responseCreate": {"owner": "api", "created": False, "reason": "structured_analysis_required"},
+            "responseCreate": response_create,
+            "mmmDebug": _mmm_debug_envelope(
+                interview_id,
+                turn_index,
+                analysis_turn_index=analysis_turn_index,
+                readiness=readiness,
+                analysis_engine=source,
+                response_create=response_create,
+            ),
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
+    gate_failure = _analysis_result_gate_failure(result, interview_id, analysis_turn_index)
+    if gate_failure:
+        error, reason = gate_failure
+        response_create = {"owner": "api", "created": False, "reason": reason}
+        return _return_with_latency(409, {
+            "error": error,
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
+            "readiness": readiness,
+            "analysisResult": _analysis_result_public_summary(result or {}),
+            "analysisEngine": source,
+            "responseCreate": response_create,
+            "mmmDebug": _mmm_debug_envelope(
+                interview_id,
+                turn_index,
+                analysis_turn_index=analysis_turn_index,
+                readiness=readiness,
+                analysis_engine=source,
+                response_create=response_create,
+                analysis_result=result,
+            ),
             "delivery": _realtime_delivery("api-sideband-response-create"),
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
-    status = _safe_str(result.get("status"), 40)
-    fragment = _candidate_safe_fragment(result.get("candidatePromptFragment") or result.get("realtimePromptFragment") or result.get("nextQuestionGuidance"))
-    if status != "ready" or not fragment or bool(result.get("rawTranscriptLogged", False)) or bool(result.get("rawMediaAccepted", False)):
+    if result is not None and not _analysis_result_turn_matches(result, interview_id, analysis_turn_index):
+        response_create = {"owner": "api", "created": False, "reason": "exact_turn_analysis_required"}
+        return _return_with_latency(409, {
+            "error": "analysis_result_stale_or_wrong_turn",
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "analysisTurnIndex": analysis_turn_index,
+            "readiness": readiness,
+            "analysisResult": _analysis_result_public_summary(result),
+            "analysisEngine": source,
+            "responseCreate": response_create,
+            "mmmDebug": _mmm_debug_envelope(
+                interview_id,
+                turn_index,
+                analysis_turn_index=analysis_turn_index,
+                readiness=readiness,
+                analysis_engine=source,
+                response_create=response_create,
+                analysis_result=result,
+            ),
+            "delivery": _realtime_delivery("api-sideband-response-create"),
+        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
+
+    fragment = _candidate_safe_fragment_from_result(result)
+    if not fragment or bool((result or {}).get("rawTranscriptLogged", False)) or bool((result or {}).get("rawMediaAccepted", False)):
+        response_create = {"owner": "api", "created": False, "reason": "candidate_safe_ready_result_required"}
         return _return_with_latency(409, {
             "error": "analysis_result_not_usable",
             "interviewId": interview_id,
             "turnIndex": turn_index,
             "analysisTurnIndex": analysis_turn_index,
-            "analysisResult": _analysis_result_public_summary(result),
+            "readiness": readiness,
+            "analysisResult": _analysis_result_public_summary(result or {}),
             "analysisEngine": source,
-            "responseCreate": {"owner": "api", "created": False, "reason": "candidate_safe_ready_result_required"},
+            "responseCreate": response_create,
+            "mmmDebug": _mmm_debug_envelope(
+                interview_id,
+                turn_index,
+                analysis_turn_index=analysis_turn_index,
+                readiness=readiness,
+                analysis_engine=source,
+                response_create=response_create,
+                analysis_result=result,
+            ),
             "delivery": _realtime_delivery("api-sideband-response-create"),
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
@@ -831,6 +1389,8 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     _log_latency_span("api.realtime.context.inject", 0, status=200, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="openai-realtime")
+    response_create = {"owner": "api", "created": True, "commandType": "response.create"}
+    debug_response_create = {**response_create, "reason": "candidate_safe_ready_result_available"}
     return _return_with_latency(202, {
         "interviewId": interview_id,
         "turnIndex": turn_index,
@@ -838,7 +1398,16 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
         "status": "response_create_queued",
         "analysisResult": analysis_summary,
         "analysisEngine": source,
-        "responseCreate": {"owner": "api", "created": True, "commandType": "response.create"},
+        "responseCreate": response_create,
+        "mmmDebug": _mmm_debug_envelope(
+            interview_id,
+            turn_index,
+            analysis_turn_index=analysis_turn_index,
+            readiness=readiness,
+            analysis_engine=source,
+            response_create=debug_response_create,
+            analysis_result=result,
+        ),
         "sideband": {
             "controlBoundary": "server-sideband",
             "singleResponseCreateOwner": "api",
@@ -895,13 +1464,17 @@ def record_realtime_vision_event(interview_id: str, turn_index: int, payload: di
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
     raw_payload = json.dumps(payload, ensure_ascii=False)
-    if len(raw_payload.encode("utf-8")) > MAX_REALTIME_EVENT_BYTES:
+    if len(raw_payload.encode("utf-8")) > MAX_REALTIME_VISION_EVENT_BYTES:
         return 413, {"error": "event_too_large"}
     if payload.get("rawMediaIncluded") is True or "rawMedia" in payload or "frame" in payload:
         return 400, {"error": "raw_media_not_allowed"}
     kind = _event_kind(payload)
     if kind not in {"vision.frame_metrics", "vision_metadata"}:
         return 400, {"error": "unsupported_vision_event"}
+    engine_detail, detail_error = _sideband_vision_detail_for_engine(payload)
+    if detail_error:
+        status = 413 if detail_error == "vision_frame_too_large" else 400
+        return status, {"error": detail_error}
     state = _turn_state(interview_id, turn_index)
     state["vision_observed"] = True
     _append_realtime_event(state, "vision.frame_metrics", payload)
@@ -911,9 +1484,10 @@ def record_realtime_vision_event(interview_id: str, turn_index: int, payload: di
         "accepted": True,
         "eventKind": "vision.frame_metrics",
         "rawMediaAccepted": False,
+        "internalVisionFrameForwarded": bool(engine_detail and "visionFrame" in engine_detail),
         "delivery": _realtime_delivery("api-mediated-realtime-vision-event"),
         "readiness": _readiness_payload(interview_id, turn_index),
-        "ingress": _record_realtime_mmm_ingress(interview_id, turn_index, "vision.frame_metrics", "vision-events"),
+        "ingress": _record_realtime_mmm_ingress(interview_id, turn_index, "vision.frame_metrics", "vision-events", engine_detail=engine_detail),
     }
     return _return_with_latency(202, public, start, "api.realtime.vision_event.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
 
@@ -1194,13 +1768,23 @@ def create_realtime_call(interview_id: str, payload: dict[str, Any]) -> tuple[in
     }, start, "api.realtime.call.total", session_id=interview_id, provider="openai-realtime")
 
 
-def _sanitize_upstream_provider_failure(upstream: dict[str, object], upstream_status: int, default_error: str, *, ready: bool | None = None) -> dict[str, object] | None:
-    if upstream_status < 500:
-        return None
-    upstream_error = _safe_str(upstream.get("error") or default_error, 120)
-    if upstream_error.endswith("_failed") or upstream_error in {"llm_provider_failed", "tts_provider_failed", "avatar_provider_failed"}:
-        return _provider_failure_payload(upstream_error, upstream.get("provider") or "api-mediated", ready=ready)
-    return None
+def _deprecated_ai_engine_payload(interview_id: str, turn_index: int | None = None, *, mode: str) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "interviewId": interview_id,
+        "error": "deprecated_ai_engine_removed",
+        "reason": "realtime_only",
+        "status": "deprecated",
+        "delivery": {
+            "mode": mode,
+            "source": "api",
+            "publicDirectAiRoutes": "blocked",
+            "publicDirectTtsRoutes": "blocked",
+            "publicDirectAvatarRoutes": "blocked",
+        },
+    }
+    if turn_index is not None:
+        payload["turnIndex"] = turn_index
+    return payload
 
 
 def request_next_question(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
@@ -1209,206 +1793,66 @@ def request_next_question(interview_id: str, turn_index: int, payload: dict[str,
         return 400, {"error": "invalid_interview_id"}
     if turn_index < 1:
         return 400, {"error": "invalid_turn_index"}
-    request_payload = json.dumps({
-        "interviewId": interview_id,
-        "turnIndex": turn_index,
-        "persona": _safe_str(payload.get("persona") or "차분하고 명확한 한국어 면접관", 500),
-        "candidateProfile": _safe_str(payload.get("candidateProfile") or "not provided in this slice", 2_000),
-        "job": _safe_str(payload.get("job") or "not provided in this slice", 2_000),
-        "lastAnswer": _safe_str(payload.get("lastAnswer") or "아직 이전 답변 전사가 없습니다.", 2_000),
-        # analysis-engine turn_handoff prompt_block(web이 /analysis/signals에서 join) —
-        # 실측+관찰+판단 규칙. 없으면 빈 문자열(ai-engine이 섹션 생략). 섹션 줄 구조가
-        # 의미라 개행 보존(_safe_str의 \s+ 압축은 블록을 한 줄로 뭉갠다).
-        "analysisBlock": _safe_multiline(payload.get("analysisBlock") or "", 4_000),
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        f"{AI_ENGINE_INTERNAL_URL}/interview/next-question",
-        data=request_payload,
-        method="POST",
-        headers={"Content-Type": "application/json"},
+    return _return_with_latency(
+        410,
+        _deprecated_ai_engine_payload(interview_id, turn_index, mode="deprecated-question-route"),
+        start,
+        "api.next_question.deprecated",
+        session_id=interview_id,
+        turn_index=turn_index,
+        provider="openai-realtime",
     )
-    upstream_start = time.perf_counter()
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read().decode("utf-8")
-            upstream_status = response.status
-    except urllib.error.HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        upstream_status = error.code
-    except urllib.error.URLError as error:
-        _log_latency_span(
-            "api.ai_engine.next_question.upstream",
-            _duration_ms(upstream_start),
-            status=502,
-            sessionId=interview_id,
-            turnIndex=turn_index,
-            traceId=_trace_id(interview_id, turn_index),
-            provider="api-mediated",
-        )
-        return _return_with_latency(502, {
-            "error": "llm_provider_failed",
-            "provider": "api-mediated",
-            "message": _redact_provider_error(str(error.reason)),
-        }, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    _log_latency_span(
-        "api.ai_engine.next_question.upstream",
-        _duration_ms(upstream_start),
-        status=upstream_status,
-        sessionId=interview_id,
-        turnIndex=turn_index,
-        traceId=_trace_id(interview_id, turn_index),
-        provider="api-mediated",
-    )
-    try:
-        upstream = json.loads(body)
-    except json.JSONDecodeError:
-        return _return_with_latency(502, {"error": "llm_provider_failed", "provider": "api-mediated", "message": "invalid upstream response"}, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    if not isinstance(upstream, dict):
-        return _return_with_latency(502, {"error": "llm_provider_failed", "provider": "api-mediated", "message": "invalid upstream payload"}, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    public_failure = _sanitize_upstream_provider_failure(upstream, upstream_status, "llm_provider_failed")
-    if public_failure is not None:
-        public_failure["interviewId"] = interview_id
-        public_failure["turnIndex"] = turn_index
-        public_failure["delivery"] = {
-            "mode": "api-mediated-question",
-            "source": "ai-engine",
-            "publicDirectAiRoutes": "blocked",
-        }
-        return _return_with_latency(upstream_status, public_failure, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    upstream["interviewId"] = interview_id
-    upstream["turnIndex"] = turn_index
-    upstream["delivery"] = {
-        "mode": "api-mediated-question",
-        "source": "ai-engine",
-        "publicDirectAiRoutes": "blocked",
-    }
-    return _return_with_latency(upstream_status, upstream, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
 
 
 def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
     start = time.perf_counter()
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
-    request_payload = json.dumps({
-        "interviewId": interview_id,
-        "reason": _safe_str(payload.get("reason") or "room-join", 120),
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        f"{AI_ENGINE_INTERNAL_URL}/avatar/session",
-        data=request_payload,
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    upstream_start = time.perf_counter()
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read().decode("utf-8")
-            upstream_status = response.status
-    except urllib.error.HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        upstream_status = error.code
-    except urllib.error.URLError as error:
-        _log_latency_span("api.ai_engine.avatar_session.upstream", _duration_ms(upstream_start), status=502, sessionId=interview_id, traceId=_trace_id(interview_id), provider="api-mediated")
-        return _return_with_latency(502, {
-            "error": "avatar_provider_failed",
-            "provider": "api-mediated",
-            "message": _redact_provider_error(str(error.reason)),
-        }, start, "api.avatar_session.total", session_id=interview_id, provider="api-mediated")
-    _log_latency_span("api.ai_engine.avatar_session.upstream", _duration_ms(upstream_start), status=upstream_status, sessionId=interview_id, traceId=_trace_id(interview_id), provider="api-mediated")
-    try:
-        upstream = json.loads(body)
-    except json.JSONDecodeError:
-        return 502, {"error": "avatar_provider_failed", "provider": "api-mediated", "message": "invalid upstream response"}
-    if not isinstance(upstream, dict):
-        return 502, {"error": "avatar_provider_failed", "provider": "api-mediated", "message": "invalid upstream payload"}
-    public_failure = _sanitize_upstream_provider_failure(upstream, upstream_status, "avatar_provider_failed", ready=False)
-    if public_failure is not None:
-        public_failure["interviewId"] = interview_id
-        public_failure["delivery"] = {
-            "mode": "api-mediated-spatialreal-session",
-            "source": "ai-engine",
-            "publicDirectAvatarRoutes": "blocked",
-        }
-        return _return_with_latency(upstream_status, public_failure, start, "api.avatar_session.total", session_id=interview_id, provider="api-mediated")
-    client = upstream.get("client")
-    if isinstance(client, dict):
-        client["livekit"] = issue_avatar_viewer_livekit_token(
+    client = {
+        "livekit": issue_avatar_viewer_livekit_token(
             room_name=f"giljob-session-{interview_id}",
             session_id=interview_id,
-        )
-    upstream["interviewId"] = interview_id
-    upstream["delivery"] = {
-        "mode": "api-mediated-spatialreal-session",
-        "source": "ai-engine",
-        "publicDirectAvatarRoutes": "blocked",
+        ),
     }
-    return _return_with_latency(upstream_status, upstream, start, "api.avatar_session.total", session_id=interview_id, provider="api-mediated")
+    return _return_with_latency(
+        202,
+        {
+            "interviewId": interview_id,
+            "provider": "spatialreal",
+            "ready": False,
+            "status": "deferred",
+            "error": "deprecated_ai_engine_removed",
+            "reason": "realtime_only",
+            "client": client,
+            "bridge": _avatar_bridge_metadata(),
+            "delivery": {
+                "mode": "api-owned-avatar-session",
+                "source": "api",
+                "publicDirectAvatarRoutes": "blocked",
+            },
+        },
+        start,
+        "api.avatar_session.deferred",
+        session_id=interview_id,
+        provider="api-owned",
+    )
 
 
 def synthesize_room_tts(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
     start = time.perf_counter()
-    text = _safe_str(payload.get("text") or payload.get("question") or "", MAX_TTS_TEXT_CHARS)
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
     if turn_index < 1:
         return 400, {"error": "invalid_turn_index"}
-    if not text:
-        return 400, {"error": "missing_text"}
-
-    request_payload = json.dumps({
-        "sessionId": interview_id,
-        "turnId": f"q_{interview_id}_{turn_index:04d}",
-        "text": text,
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        f"{AI_ENGINE_INTERNAL_URL}/tts/synthesize",
-        data=request_payload,
-        method="POST",
-        headers={"Content-Type": "application/json"},
+    return _return_with_latency(
+        410,
+        _deprecated_ai_engine_payload(interview_id, turn_index, mode="deprecated-tts-route"),
+        start,
+        "api.tts.deprecated",
+        session_id=interview_id,
+        turn_index=turn_index,
+        provider="openai-realtime",
     )
-    upstream_start = time.perf_counter()
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read().decode("utf-8")
-            upstream_status = response.status
-    except urllib.error.HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        upstream_status = error.code
-    except urllib.error.URLError as error:
-        _log_latency_span("api.ai_engine.tts.upstream", _duration_ms(upstream_start), status=502, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="api-mediated")
-        return _return_with_latency(502, {
-            "error": "tts_provider_failed",
-            "provider": "api-mediated",
-            "message": _redact_provider_error(str(error.reason)),
-        }, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    _log_latency_span("api.ai_engine.tts.upstream", _duration_ms(upstream_start), status=upstream_status, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="api-mediated")
-    try:
-        upstream = json.loads(body)
-    except json.JSONDecodeError:
-        return _return_with_latency(502, {"error": "tts_provider_failed", "provider": "api-mediated", "message": "invalid upstream response"}, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    if not isinstance(upstream, dict):
-        return _return_with_latency(502, {"error": "tts_provider_failed", "provider": "api-mediated", "message": "invalid upstream payload"}, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-
-    upstream.pop("sessionId", None)
-    upstream.pop("turnId", None)
-    public_failure = _sanitize_upstream_provider_failure(upstream, upstream_status, "tts_provider_failed")
-    if public_failure is not None:
-        public_failure["interviewId"] = interview_id
-        public_failure["turnIndex"] = turn_index
-        public_failure["delivery"] = {
-            "mode": "api-mediated-base64",
-            "source": "ai-engine",
-            "publicDirectTtsRoutes": "blocked",
-        }
-        return _return_with_latency(upstream_status, public_failure, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    upstream["interviewId"] = interview_id
-    upstream["turnIndex"] = turn_index
-    upstream["delivery"] = {
-        "mode": "api-mediated-base64",
-        "source": "ai-engine",
-        "publicDirectTtsRoutes": "blocked",
-    }
-    return _return_with_latency(upstream_status, upstream, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "GilJobV2API/0.2"
@@ -1463,6 +1907,7 @@ class Handler(BaseHTTPRequestHandler):
         public = issued["public"]
         session_id = str(public.get("sessionId") or stored["sessionId"])
         public["realtime"] = _realtime_route_config(session_id)
+        public["realtimeAvatarBridge"] = _avatar_bridge_metadata()
         SESSION_HASH_STORE[str(stored["sessionId"])] = stored
         self._json(201, public)
 
@@ -1483,7 +1928,7 @@ class Handler(BaseHTTPRequestHandler):
             if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
                 self._json(400, {"error": "invalid_interview_id"})
                 return
-            self._json(200, _readiness_payload_with_durable_fallback(interview_id, turn_index))
+            self._json(200, _readiness_payload_with_analysis_result(interview_id, turn_index))
             return
         if self.path == "/healthz":
             self._json(200, {"service": SERVICE_NAME, "status": "ok"})

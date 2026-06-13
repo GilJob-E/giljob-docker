@@ -1,0 +1,20 @@
+{
+  "date": "2026-06-12",
+  "purpose": "lk 파일 퍼블리시 GOP 버스트 제거 시 visual/nv 커버리지 절대값 재측정 (기준선: qa/archive/kor-signals-sentence-mode.json)",
+  "engine": {
+    "image": "giljob-qa-analysis-engine",
+    "env": {
+      "GILJOBE_GIT_REF": "b769120",
+      "GILJOBE_TRANSCRIPT_SOURCE": "external",
+      "GILJOBE_VISION": "auto",
+      "GILJOBE_PROSODY": "auto"
+    }
+  },
+  "engine_note": "GILJOBE_GIT_REF는 빌드 시점 env — 실효 코드는 문장 레인 핫패치 포함 (2026-06-12 핸드오프: 6bef78b 핀 + dae5191 모듈 docker cp)",
+  "media": "qa/media/kor.mp4 → /tmp/qa-media/kor-540.y4m (540x960@30) + /tmp/qa-media/kor-48k.wav (48k mono)",
+  "publish_path": "fakecam-browser",
+  "publisher": "Google Chrome 148.0.7778.167 --headless=new --use-file-for-fake-{video,audio}-capture, livekit-client@2 (CDN), 오디오 처리 OFF(AEC/NS/AGC — lk 기준선과 비교성 우선)",
+  "transcript_feed": "harness-sideband (sentence_live_harness.CLIPS 재사용)",
+  "stack": "giljob-qa",
+  "caveat": "y4m은 캡처 시작부터 루프 — publish_s(42s) > 클립(38.2s)이라 마지막 ~4s는 선두 구간 재생(꼬리 윈도우 오염 가능, lk 런의 유휴 꼬리와 유사한 한계)"
+}

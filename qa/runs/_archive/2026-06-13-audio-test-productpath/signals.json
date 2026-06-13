@@ -1,0 +1,229 @@
+{
+  "service": "analysis-engine",
+  "sessionId": "qa-audio-test-1",
+  "records": [
+    {
+      "type": "sentence",
+      "session_id": "qa-audio-test-1",
+      "t": 3.78,
+      "start_s": 2.07,
+      "end_s": 5.48,
+      "text": "지금 목소리 크기나",
+      "source": "punct",
+      "speech": {
+        "duration_s": 3.42,
+        "pitch": {
+          "voiced_frames": 54,
+          "voiced_ratio": 0.028,
+          "mean_hz": 484.8,
+          "sd_semitone": 1.6,
+          "pdq": 0.0955,
+          "range_st_10_90": 3.86,
+          "detrended_sd_semitone": 1.6,
+          "octave_error_frac": 0
+        },
+        "rate": {
+          "syllable_nuclei": 2,
+          "speech_rate_syl_per_s": 0.58,
+          "articulation_rate_syl_per_s": 0.71,
+          "phonation_s": 2.81,
+          "intensity_peak_nuclei": 19,
+          "intensity_peak_artic_per_s": 6.76
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 0,
+          "short_juncture_count_0p1_0p25": 3,
+          "juncture_median_s": 0.232,
+          "longest_pauses_s": [
+            0.25,
+            0.23,
+            0.13
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": 2.506,
+          "half_to_half_delta_db": 7.67,
+          "sounding_trough_db": -25.36
+        }
+      },
+      "visual": {
+        "face_frames": 51,
+        "face_seen_ratio": 1,
+        "smile_mean": 0.047,
+        "smile_max": 0.246,
+        "smile_ratio": 0.02,
+        "brow_down_mean": 0,
+        "mouth_press_mean": 0.052,
+        "blink_count": 0,
+        "gaze_off_mean": 0.163,
+        "yaw_std_deg": 0.19,
+        "pitch_std_deg": 1.25,
+        "lip_motion": 0.00196,
+        "pose_frames": 51,
+        "pose_seen_ratio": 1,
+        "posture_std": 0.0101,
+        "head_sway": 0.0154,
+        "wrist_visible": 0,
+        "wrist_motion": 0,
+        "gesture_events": 0,
+        "hand_frames": 51,
+        "hand_seen_ratio": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.3,
+        "note": "시선 이탈이 관찰되었고, 발화 속도가 느리며, 미소는 거의 없음."
+      }
+    },
+    {
+      "type": "turn_end",
+      "session_id": "qa-audio-test-1",
+      "t": 18.12203729012981,
+      "transcript_full": "지금 목소리 크기나",
+      "eval": null
+    }
+  ],
+  "recordCount": 2,
+  "transcriptFull": "지금 목소리 크기나",
+  "windowTranscripts": [],
+  "latestTurnEnd": {
+    "type": "turn_end",
+    "session_id": "qa-audio-test-1",
+    "t": 18.12203729012981,
+    "transcript_full": "지금 목소리 크기나",
+    "eval": null
+  },
+  "turnHandoff": {
+    "type": "turn_handoff",
+    "schema_version": 2,
+    "session_id": "qa-audio-test-1",
+    "t": 18.12203729012981,
+    "transcript": "지금 목소리 크기나",
+    "sentences": [
+      {
+        "start_s": 2.07,
+        "end_s": 5.48,
+        "text": "지금 목소리 크기나",
+        "artic_syl_s": 0.71,
+        "f0_sd_st": 1.6,
+        "pause_count": 0,
+        "energy_delta_db": 7.67,
+        "smile": 0.047,
+        "gaze_off": 0.163,
+        "nv": {
+          "state": "neutral",
+          "intensity": 0.3,
+          "note": "시선 이탈이 관찰되었고, 발화 속도가 느리며, 미소는 거의 없음."
+        }
+      }
+    ],
+    "speech": {
+      "windows": 1,
+      "duration_s": 3.42,
+      "pitch": {
+        "voiced_frames": 54,
+        "voiced_ratio": 0.028,
+        "mean_hz": 484.8,
+        "sd_semitone": 1.6,
+        "pdq": 0.0955,
+        "range_st_10_90": 3.86,
+        "detrended_sd_semitone": 1.6,
+        "octave_error_frac": 0
+      },
+      "rate": {
+        "syllable_nuclei": 2,
+        "speech_rate_syl_per_s": 0.58,
+        "articulation_rate_syl_per_s": 0.71,
+        "intensity_peak_nuclei": 19,
+        "intensity_peak_artic_per_s": 6.76
+      },
+      "pauses": {
+        "pause_count_ge_0p25": 0,
+        "short_juncture_count_0p1_0p25": 3,
+        "juncture_median_s": 0.232,
+        "longest_pauses_s": [
+          0.25,
+          0.23,
+          0.13
+        ]
+      },
+      "energy": {
+        "rel_db_slope_per_s": 2.506,
+        "half_to_half_delta_db": 7.67,
+        "sounding_trough_db": -25.36
+      }
+    },
+    "visual": {
+      "windows": 1,
+      "face_frames": 51,
+      "face_seen_ratio": 1,
+      "smile_mean": 0.047,
+      "smile_ratio": 0.02,
+      "brow_down_mean": 0,
+      "mouth_press_mean": 0.052,
+      "gaze_off_mean": 0.163,
+      "yaw_std_deg": 0.19,
+      "pitch_std_deg": 1.25,
+      "lip_motion": 0.00196,
+      "blink_count": 0,
+      "smile_max": 0.246,
+      "pose_frames": 51,
+      "pose_seen_ratio": 1,
+      "posture_std": 0.0101,
+      "head_sway": 0.0154,
+      "wrist_visible": 0,
+      "wrist_motion": 0,
+      "gesture_events": 0,
+      "hand_frames": 51,
+      "hand_seen_ratio": 0
+    },
+    "nonverbal": {
+      "windows": 1,
+      "states": {
+        "neutral": 1
+      },
+      "intensity_mean": 0.3,
+      "notes": [
+        "시선 이탈이 관찰되었고, 발화 속도가 느리며, 미소는 거의 없음."
+      ]
+    },
+    "prompt_block": [
+      "[음성 전달 실측치 — 발화 3.42초, 1개 구간 집계]",
+      "- 억양 변화: F0 표준편차 1.6 semitone(2 미만이면 단조), PDQ 0.0955",
+      "- 발화 속도: 조음 0.71 음절/초(한국어 보통 5.8~6.9), 쉼 포함 0.58 음절/초",
+      "- 쉼: 0.25초 이상 0회, 짧은 휴지(0.1~0.25초) 3회, 휴지 중앙값 0.232초",
+      "- 음량 추세: 전반 대비 후반 +7.67 dB(후반 증가) — 상대값(AGC 영향 가능)",
+      "",
+      "[시각 실측치 — MediaPipe]",
+      "- 미소: 평균 0.047/최대 0.246, 프레임 2%에서 미소(>0.2)",
+      "- 깜빡임 0회, 시선 이탈 평균 0.163, 머리 움직임 yaw/pitch 표준편차 0.19/1.25도",
+      "- 입술 움직임(프레임간 평균 변위) 0.00196",
+      "- 자세: 어깨중점 흔들림 0.0101(어깨폭 정규화), 머리 sway 0.0154",
+      "- ★손목이 화면에 거의 안 보임(프레임 0%) — 손동작/제스처는 관측 불가이므로 평가하지 말 것(없다고 단정 금지)",
+      "",
+      "[비언어 상태 분포 — read 1개]",
+      "- 상태: neutral 100% · 평균 강도 0.3",
+      "",
+      "[문장 하이라이트 — 전달이 변한 구간]",
+      "- (2~5초) \"지금 목소리 크기나\" — 에너지 +7.7dB",
+      "",
+      "[판단 규칙]",
+      "- 내용(논리·구조·구체성)의 판단은 이 블록을 읽는 네가 전사를 근거로 직접 하라.",
+      "- 전달력(억양·속도·쉼·음량·시선·자세)은 위 실측치가 정본 — 실측과 다른 인상 묘사 금지(예: F0 표준편차 2 semitone 미만일 때만 '단조').",
+      "- 비언어 노트는 모델의 보조 관찰 — 실측치와 충돌하면 실측치를 따를 것.",
+      "- '관측 불가' 항목은 평가하지 말 것(없다고 단정하는 것도 금지)."
+    ],
+    "meta": {
+      "sentences": 1,
+      "coverage": {
+        "speech": 1,
+        "visual": 1,
+        "nv": 1
+      },
+      "transcript_chars": 10,
+      "prompt_block_chars": 852
+    }
+  },
+  "rawMediaExposed": false,
+  "rawSecretsExposed": false
+}
