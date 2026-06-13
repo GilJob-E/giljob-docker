@@ -75,12 +75,37 @@ giljob_first_response_latency = min(t_model_first_text_delta, t_model_first_audi
 - `transcript_flush_latency_ms` when measuring an ASR/text diagnostic row
 - `measurement_label`: `GilJob v2 Realtime adapter`
 
+## 측정 결과 (2026-06-13, 랜덤 20/119, seed 42)
+
+방법: `benchmark/harness/fdbench_room_minimal.mjs` + `fdbench_room_batch.py` — 실제 룸 UI를
+사람 QA처럼 구동(룸 열기 → 답변 시작 클릭 → 클립을 마이크로 주입 → 답변 종료 클릭)하고,
+타임스탬프는 서비스 자신의 `#event-log`에서 읽는다. 스택 = giljob-qa(PR #16 코드,
+d38396a), 측정 창 동안 `OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE=en`(영어 데이터셋 대응,
+측정 후 ko 복구). 1차 기준 = `답변 종료` 클릭(클릭 지연은 벤치 기준상 제외), 발화 종료
+기준 원값은 run artifact에 병기.
+
+| 단계 (클릭 기준) | mean | median | p95 | min–max |
+|---|---|---|---|---|
+| full_mmm_ready 게이트 | 1,097ms | 1,102 | 1,117 | 1,057–1,124 |
+| response.create 송신 | 1,146ms | 1,158 | 1,182 | 1,076–1,192 |
+| 다음 질문 첫 오디오 | **2,274ms** | 2,196 | 3,171 | 1,560–3,824 |
+
+- 20/20 응답, 무응답 0. 답변 길이(4.2–23.0s)와 레이턴시 무상관.
+- 게이트 편차 ±35ms로 사실상 상수. 분산의 근원은 create→첫 오디오(OpenAI 생성 0.4–2.7s).
+- raw artifact: `benchmark/runs/01-fd-bench-v1-turn-taking-latency/en20-minimal-1/` (로컬 전용, git ignore).
+
+측정에서 확인된 제품 동작 2건:
+
+1. 수동 턴 종료 구조에서 클릭이 마이크 프레임을 끊으므로, 중간 VAD 커밋이 없는 한 호흡
+   답변은 발화 종료 후 server VAD 침묵 윈도(~2.2s)가 차기 전에 클릭하면 전사가 비어
+   턴이 차단된다(개선 레버: 클릭 후 짧게 프레임 유지). 하니스는 클릭을 턴 종료 +3s에 둔다.
+2. 하니스 마이크의 "침묵"이 디지털 제로면 WebRTC opus DTX가 패킷을 끊어 VAD가 영영 닫히지
+   않는다 — 주입 오디오 뒤에 룸톤(-54dB) 테일 필수.
+
 ## 다음 준비 작업
 
-1. FD-bench V1 데이터는 `benchmark/data/raw/fd-bench-v1-v1_5/`에 확보되어 있다.
-2. audio sample을 Realtime product path 또는 동등 command adapter로 주입하는 harness를 연결한다.
-3. input commit, `full_mmm_ready`, Realtime response create, first text/audio delta, response done 시각을 monotonic clock으로 기록한다.
-4. 같은 sample set으로 20개 smoke run을 먼저 돌려 timestamp 안정성을 확인한다.
+1. 119 전수 run (같은 토글·방법으로).
+2. 모델 단독 기준선 행(gpt-realtime-2 직접 스트리밍)으로 서비스 오버헤드 분리.
 
 ## 주의점
 
