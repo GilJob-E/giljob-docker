@@ -106,6 +106,14 @@ services:
       # Realtime flow default: external consumes API sideband transcripts (sentence lane).
       # Set internal only for legacy LiveKit/Gemma STT grid testing.
       GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}
+      # Deployment defaults per 2026-06-12 decisions (GilJobE library defaults stay conservative):
+      # eval off = content judgement delegated to the next-question LLM via turnHandoff
+      # (stop->turn_end 1.24s->0.03s); 3fps buffer + nv cap 24 = denser nv reads at ~zero cost
+      # and covers sub-second sentences that starve at the 1fps library default
+      # (validated together in qa/runs/2026-06-12-nv3fps-evaloff).
+      GILJOBE_EVAL_GRID: ${GILJOBE_EVAL_GRID:-off}
+      GILJOBE_FRAME_FPS: ${GILJOBE_FRAME_FPS:-3}
+      GILJOBE_NV_FRAME_CAP: ${GILJOBE_NV_FRAME_CAP:-24}
       LIVEKIT_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
       LIVEKIT_SESSION_ID: ${LIVEKIT_SESSION_ID:-local-demo}
       LIVEKIT_IDENTITY: ${LIVEKIT_IDENTITY:-giljobe-analysis}
