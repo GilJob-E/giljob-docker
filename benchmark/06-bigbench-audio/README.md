@@ -47,8 +47,8 @@ GilJob row는 다음처럼 만들 수 있다.
 
 ```text
 BigBench Audio input
-  -> GilJobE transcript or direct ASR
-  -> Gemini/Main LLM answer
+  -> OpenAI Realtime audio adapter or ASR/text diagnostic adapter
+  -> GilJob/Gemini answer
   -> official or fixed correctness judge
 ```
 
@@ -66,8 +66,8 @@ BigBench Audio input
 ## 다음 준비 작업
 
 1. Artificial Analysis의 BigBench Audio methodology 공개 여부를 확인한다.
-2. dataset/task list를 확보하지 못하면 이 벤치마크는 target 후보에서 제외한다.
-3. 대체재로 VoiceBench `bbh` 또는 Audio MultiChallenge를 우선 검토한다.
+2. 확보된 `ArtificialAnalysis/big_bench_audio` data subset과 MiMo evaluator 기준으로 provisional runner를 유지한다.
+3. Realtime audio adapter와 ASR/text diagnostic adapter를 분리해 재현성 낮음을 명확히 표시한다.
 
 ## 주의점
 

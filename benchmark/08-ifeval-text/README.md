@@ -51,7 +51,7 @@ model responses jsonl
 
 라벨: `official-compatible`
 
-이 9개 중 가장 먼저 측정하기 좋다. audio/video path와 무관하게 Gemini question provider, future Main LLM, report generation boundary의 text instruction-following을 볼 수 있다.
+이 9개 중 가장 먼저 측정하기 좋다. audio/video path와 무관하게 GilJob/Gemini text boundary와 report generation boundary의 text instruction-following을 볼 수 있다.
 
 GilJob row는 다음처럼 만든다.
 
@@ -66,7 +66,7 @@ IFEval prompt
 
 ```text
 IFEval prompt + interview system prompt
-  -> next-question provider
+  -> GilJob/Gemini text adapter
   -> response
   -> official evaluator
 ```

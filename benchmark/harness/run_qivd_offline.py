@@ -351,7 +351,7 @@ def summarize_eval(eval_rows: list[dict[str, Any]], timing_errors: list[float]) 
     return {
         "evaluator": "short-answer-normalized-v0",
         "limitations": [
-            "This is an offline-adapted runner, not a LiveKit streaming runner.",
+            "This is an offline-adapted runner, not a Realtime sideband streaming runner.",
             "The short-answer evaluator is deterministic and provisional; a fixed LLM judge can replace it.",
             "Frame sampling and VLM prompting are adapter responsibilities in this runner.",
         ],

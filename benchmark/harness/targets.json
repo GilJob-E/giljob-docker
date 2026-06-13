@@ -5,23 +5,35 @@
     {
       "id": "01-fd-bench-v1-turn-taking-latency",
       "data_path": "benchmark/data/raw/fd-bench-v1-v1_5/",
-      "first_adapter": "turn-based-latency-adapter",
+      "first_adapter": "realtime-latency-adapter",
       "first_runner_status": "implemented-provisional",
       "runner": "benchmark/harness/run_fdbench_v1_latency.py",
+      "target_measurement_level": "product-path",
+      "target_adapter_boundary": "realtime-product-path",
+      "required_product_path_evidence": [
+        "realtime/session broker returned browser-safe Realtime session contract without exposing a standard provider key",
+        "Realtime SDP attach or equivalent adapter path completed without storing SDP body",
+        "full_mmm_ready=true observed before Realtime response create",
+        "Realtime response create accepted or observed",
+        "first text or audio delta observed"
+      ],
       "judge_or_evaluator": "fixed timestamp calculation",
       "primary_metrics": [
         "first_response_latency_ms",
-        "transcript_flush_latency_ms",
-        "llm_latency_ms",
-        "tts_first_audio_latency_ms",
+        "first_text_delta_latency_ms",
+        "first_audio_delta_latency_ms",
+        "input_commit_overhead_ms",
+        "mmm_ready_latency_ms",
+        "response_create_overhead_ms",
+        "end_to_end_latency_ms",
         "no_response_rate"
       ],
-      "next_step": "Connect GilJob harness timestamps around audio end, transcript ready, LLM done, and TTS first audio."
+      "next_step": "Connect Realtime harness timestamps around audio end, input commit, full_mmm_ready, API-mediated Realtime response create, first text/audio delta, and response done."
     },
     {
       "id": "04-qivd",
       "data_path": "benchmark/data/raw/qivd/",
-      "first_adapter": "offline-video-qa-adapter",
+      "first_adapter": "realtime-sideband-or-offline-video-qa-adapter",
       "first_runner_status": "implemented-provisional",
       "runner": "benchmark/harness/run_qivd_offline.py",
       "judge_or_evaluator": "short-answer-normalized-v0 now; fixed VLM/text answer judge later",
@@ -31,12 +43,12 @@
         "answer_timing_mae_ms",
         "first_response_latency_ms"
       ],
-      "next_step": "Connect offline VLM/frame-sampling adapter first, then add LiveKit streaming timing runner."
+      "next_step": "Connect offline VLM/frame-sampling adapter first, then add Realtime sideband streaming timing runner when product media input is fixed."
     },
     {
       "id": "05-audio-multichallenge",
       "data_path": "benchmark/data/raw/mimo-audio-evalset/multi_challenge/",
-      "first_adapter": "oracle-transcript-or-asr-plus-text-response-adapter",
+      "first_adapter": "realtime-audio-native-or-rubric-adapter",
       "first_runner_status": "implemented-provisional",
       "runner": "benchmark/harness/run_audio_multichallenge.py",
       "judge_or_evaluator": "binary-rubric-exact-v0 now; judge-based rubric evaluator later",
@@ -47,12 +59,12 @@
         "self_coherence_pass_rate",
         "voice_editing_pass_rate"
       ],
-      "next_step": "Replace TARGET_QUESTION direct answering with full multi-turn audio/GilJob adapter and judge-based rubric checks."
+      "next_step": "Replace TARGET_QUESTION direct answering with full multi-turn Realtime audio adapter and judge-based rubric checks."
     },
     {
       "id": "06-bigbench-audio",
       "data_path": "benchmark/data/raw/bigbench-audio/",
-      "first_adapter": "audio-qa-adapter",
+      "first_adapter": "realtime-audio-qa-adapter",
       "first_runner_status": "implemented-provisional",
       "runner": "benchmark/harness/run_bigbench_audio.py",
       "judge_or_evaluator": "category-aware-token-exact-v0; official public methodology still unclear",
@@ -60,12 +72,12 @@
         "accuracy",
         "transcript_error_rate"
       ],
-      "next_step": "Connect an audio-capable adapter or ASR-plus-text adapter; keep reporting as internal-adapted unless official methodology is fixed."
+      "next_step": "Connect a Realtime audio-capable adapter or ASR-plus-text diagnostic adapter; keep reporting as internal-adapted unless official methodology is fixed."
     },
     {
       "id": "07-ifeval-voicebench",
       "data_path": "benchmark/data/raw/voicebench-ifeval/test-00000-of-00001.parquet",
-      "first_adapter": "audio-to-transcript-plus-ifeval-text-adapter",
+      "first_adapter": "realtime-audio-ifeval-adapter",
       "first_runner_status": "implemented-provisional",
       "runner": "benchmark/harness/run_voicebench_ifeval.py",
       "judge_or_evaluator": "google-research/instruction_following_eval",
@@ -74,7 +86,7 @@
         "instruction_level_accuracy",
         "transcript_error_rate"
       ],
-      "next_step": "Replace oracle transcript input with GilJobE/ASR transcript adapter, then compare transcript_error_rate."
+      "next_step": "Replace oracle transcript input with Realtime audio responses or ASR/text diagnostic adapter, then compare transcript_error_rate only for transcript-based rows."
     },
     {
       "id": "08-ifeval-text",
@@ -88,7 +100,7 @@
         "instruction_level_accuracy",
         "failed_instruction_types"
       ],
-      "next_step": "Connect a real GilJob/Gemini/Main LLM command or existing response JSONL."
+      "next_step": "Connect a real GilJob/Gemini fallback text boundary command or existing response JSONL."
     },
     {
       "id": "09-harmbench",
@@ -103,7 +115,7 @@
         "over_refusal_rate",
         "secret_exposure_count"
       ],
-      "next_step": "Connect real GilJob/Gemini/Main LLM responses, then rerun with the official HarmBench classifier or a fixed judge."
+      "next_step": "Connect real GilJob Realtime or Gemini fallback safety-boundary responses, then rerun with the official HarmBench classifier or a fixed judge."
     }
   ]
 }

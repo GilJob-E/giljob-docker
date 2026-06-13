@@ -52,8 +52,8 @@ APR = average(pass_rate_per_conversation across conversations)
 
 ```text
 Audio MultiChallenge conversation audio
-  -> GilJobE transcript or direct STT adapter
-  -> GilJob Main LLM / Gemini adapter response
+  -> OpenAI Realtime audio adapter or ASR/text diagnostic adapter
+  -> GilJob/Gemini response
   -> rubric judge
 ```
 
@@ -89,4 +89,4 @@ resume/job posting/persona seed
 
 ## 주의점
 
-Audio-native model과 GilJob cascaded adapter를 같은 표에 놓을 수는 있다. 단, `cascaded/turn-based` 라벨을 붙이고, transcript error와 answer generation error를 분리해서 보고해야 한다.
+Realtime audio row와 ASR/text diagnostic row를 같은 표에 놓을 수는 있다. 단, adapter 라벨을 분리하고, transcript error와 answer generation error를 분리해서 보고해야 한다.

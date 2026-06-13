@@ -60,16 +60,13 @@ GilJob row는 다음처럼 만든다.
 
 ```text
 FDB input.wav
-  -> LiveKit/GilJobE or adapter STT
-  -> transcript
-  -> Gemini/tool prompt adapter
+  -> OpenAI Realtime audio/tool adapter or ASR/text diagnostic adapter
   -> FDB-v3 mock API execution
-  -> response text
-  -> TTS output
+  -> response text/audio
   -> FDB-v3 evaluator
 ```
 
-행 이름은 `GilJob v2 cascaded adapter`로 둔다. 이 행은 제품 UX 자체가 아니라 benchmark adapter 성능이다.
+행 이름은 기본적으로 `GilJob v2 Realtime/tool adapter`로 둔다. ASR -> text LLM으로 우회하는 경우에는 `GilJob v2 ASR/text diagnostic`으로 따로 표시한다.
 
 ## GilJob용 리포트 필드
 
@@ -89,9 +86,9 @@ FDB input.wav
 
 1. FDB-v3 repo와 released data를 별도 benchmark workspace에 받는다.
 2. mock API schema를 GilJob adapter prompt에 고정한다.
-3. GilJobE transcript path와 direct audio STT fallback을 분리해 두 행을 만든다.
+3. Realtime audio/tool path와 ASR/text diagnostic fallback을 분리해 두 행을 만든다.
 4. 먼저 10 samples smoke를 돌리고, 그 다음 100 samples full run으로 확장한다.
 
 ## 주의점
 
-FDB-v3는 GilJob 면접 제품의 기본 task와 다르다. 하지만 "disfluent speech를 이해하고 여러 step을 정확히 수행하는가"는 향후 Main LLM orchestration 품질을 보기 좋은 proxy다.
+FDB-v3는 GilJob 면접 제품의 기본 task와 다르다. 하지만 "disfluent speech를 이해하고 여러 step을 정확히 수행하는가"는 Realtime 기반 orchestration 품질을 보기 좋은 proxy다.

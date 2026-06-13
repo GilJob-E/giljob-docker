@@ -28,6 +28,19 @@ benchmark/runs/<benchmark_id>/<run_id>/
 
 `benchmark/runs/`는 git ignore 대상이다. 모델 응답, judge 결과, raw timing, 실패 로그는 재현을 위해 로컬에는 남기되 commit하지 않는다.
 
+## Measurement levels
+
+모든 run manifest와 metrics에는 `measurement.level`을 남긴다.
+
+| level | 의미 |
+|---|---|
+| `evaluator-smoke` | 데이터/evaluator/artifact plumbing만 확인한다. GilJob service path를 측정하지 않는다. |
+| `component` | MMM, ASR, text model 같은 단일 boundary만 측정한다. |
+| `product-path` | PR #15 이후 Realtime product path를 측정한다. `/api/interviews/:id/realtime/session`, API-mediated Realtime call broker 또는 동등 SDP attach path, `full_mmm_ready`, Realtime response-create acceptance, first text/audio delta timestamp가 evidence다. |
+| `full-service-e2e` | browser room, Realtime, MMM gate, avatar/public media path까지 포함한다. 현재 benchmark harness의 기본 타겟은 아니다. |
+
+FD-Bench V1의 다음 실측 타겟은 `product-path`다. 이 레벨은 MMM만의 성능도 아니고 full deployment E2E도 아니다. SpatialReal avatar, public TURN/external media path, final report generation은 제외한다.
+
 ## Adapter contract
 
 현재 adapter contract는 의도적으로 작게 둔다.
@@ -39,20 +52,20 @@ prompt/input artifact
   -> official/fixed evaluator
 ```
 
-Text benchmark에서는 adapter가 `prompt`를 받아 `response`를 만든다. Audio/video benchmark에서는 이후 다음 stage를 추가한다.
+Text benchmark에서는 adapter가 `prompt`를 받아 `response`를 만든다. Audio/video benchmark에서는 PR #15의 Realtime product path를 우선 adapter로 연결하고, 아직 product media contract가 고정되지 않은 경우 offline/adapted stage로 둔다.
 
 ```text
 media input
-  -> transcript/frame/audio feature adapter
-  -> response adapter
+  -> OpenAI Realtime adapter or offline media adapter
+  -> response text/audio or structured response
   -> evaluator
 ```
 
-GilJob product path, direct model API, oracle transcript, offline VLM, LiveKit streaming path는 모두 adapter 이름으로 분리한다. 같은 benchmark 표에 섞더라도 `adapter_type`과 timestamp 기준을 manifest에 반드시 남긴다.
+GilJob Realtime product path, direct model API, oracle transcript, offline VLM, Gemini fallback, ASR/text diagnostic path는 모두 adapter 이름으로 분리한다. 같은 benchmark 표에 섞더라도 `adapter_type`과 timestamp 기준을 manifest에 반드시 남긴다. API-mediated Realtime 구조에서는 standard OpenAI API key와 SDP body가 artifact에 남지 않아야 하며, browser가 직접 client secret을 받지 않는 contract도 허용한다.
 
 ## Secret and media policy
 
-- `.env` 값, API key, session token, report token, JWT, LiveKit token은 artifact에 저장하지 않는다.
+- `.env` 값, API key, session token, report token, JWT, Realtime client secret, SDP body, provider session token은 artifact에 저장하지 않는다.
 - raw GilJob media는 run artifact에 저장하지 않는다. benchmark 원본 media는 `benchmark/data/raw/` 아래의 ignored data로만 둔다.
 - command adapter를 사용할 때 stdout은 response로 저장된다. adapter command는 stdout에 응답 외 로그나 secret을 쓰지 않아야 한다.
 - runner는 obvious API key/JWT 패턴을 저장 전에 `[REDACTED]` 처리하고 `secret_exposure_count`로 카운트한다. 이 카운트는 정밀 secret scanner가 아니라 안전장치다.
@@ -132,7 +145,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_harmbench_text.py \
 
 ## VoiceBench IFEval Smoke
 
-VoiceBench IFEval runner는 parquet 안의 `audio.bytes`를 raw artifact로 저장하지 않는다. 대신 audio byte count와 SHA-256만 `inputs.jsonl`에 남긴다. 첫 runner는 `prompt` 필드를 oracle transcript로 사용해 IFEval evaluator 연결을 확인한다. 실제 ASR/GilJobE 경로는 별도 adapter로 추가한다.
+VoiceBench IFEval runner는 parquet 안의 `audio.bytes`를 raw artifact로 저장하지 않는다. 대신 audio byte count와 SHA-256만 `inputs.jsonl`에 남긴다. 첫 runner는 `prompt` 필드를 oracle transcript로 사용해 IFEval evaluator 연결을 확인한다. 실제 Realtime audio path 또는 ASR/text diagnostic path는 별도 adapter로 추가한다.
 
 parquet reader가 필요하다.
 
@@ -177,7 +190,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_bigbench_audio.py \
 
 ## Audio MultiChallenge Smoke
 
-Audio MultiChallenge runner는 첫 단계에서 `TARGET_QUESTION`에 대한 `YES/NO` 답을 평가하는 binary rubric 형태로 둔다. 이는 full multi-turn audio-agent simulation이 아니라, rubric/evaluator artifact를 먼저 고정하기 위한 provisional runner다.
+Audio MultiChallenge runner는 첫 단계에서 `TARGET_QUESTION`에 대한 `YES/NO` 답을 평가하는 binary rubric 형태로 둔다. 이는 Realtime full multi-turn audio-agent simulation이 아니라, rubric/evaluator artifact를 먼저 고정하기 위한 provisional runner다.
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_audio_multichallenge.py \
@@ -196,7 +209,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_audio_multichallenge.py 
 
 ## FD-Bench V1 Latency Smoke
 
-FD-Bench V1 latency runner는 official full-duplex score가 아니라 GilJob turn-based latency diagnostic row다. Adapter는 `t_user_audio_end_s` 기준으로 `model_response_start_s` 또는 `t_tts_first_audio_s`를 반환해야 한다.
+FD-Bench V1 latency runner는 official full-duplex score가 아니라 GilJob Realtime first-response latency diagnostic row다. Adapter는 `t_user_audio_end_s` 기준으로 `t_realtime_first_text_delta_s`, `t_realtime_first_audio_delta_s`, 또는 generic `t_model_first_*` timestamp를 반환해야 한다. PR #15 이후 product-path row에서는 `t_mmm_ready_s`와 `t_response_create_s`도 함께 기록한다.
 
 artifact plumbing만 확인하려면 simulated latency를 사용한다.
 
@@ -207,10 +220,55 @@ PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_fdbench_v1_latency.py \
   --simulated-latency-ms 750
 ```
 
+PR #15 이후 product-path timestamp를 평가하려면 measurement level을 명시한다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_fdbench_v1_latency.py \
+  --limit 20 \
+  --measurement-level product-path \
+  --adapter existing-jsonl \
+  --timestamps-jsonl path/to/realtime-product-path-timestamps.jsonl
+```
+
 외부 timestamp JSONL은 `example_id`와 timestamp field를 포함한다.
 
 ```json
-{"example_id": "1", "t_user_audio_end_s": 5.63, "model_response_start_s": 6.38}
+{"example_id": "1", "t_user_audio_end_s": 5.63, "t_mmm_ready_s": 5.92, "t_response_create_s": 5.94, "t_realtime_first_audio_delta_s": 6.38, "t_realtime_response_done_s": 8.12}
+```
+
+PR #15 이후 API sideband만 먼저 측정하려면 command adapter probe를 사용한다. 이 run은 `component` 레벨이다. Realtime session broker와 MMM gate route를 호출하지만, browser WebRTC SDP attach와 first model delta는 포함하지 않는다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_fdbench_v1_latency.py \
+  --limit 20 \
+  --measurement-level component \
+  --adapter-boundary realtime-mmm-gate \
+  --adapter command \
+  --command "python3 benchmark/harness/probe_realtime_product_path.py --base-url http://127.0.0.1 --interview-prefix fdbench-pr15"
+```
+
+API-mediated Realtime call broker와 browser WebRTC까지 붙여 smoke를 돌리려면 direct browser collector를 사용한다. 이 collector는 browser fake audio input, `/realtime/session`, `/realtime/call`, MMM sideband events, `/mmm-ready`, response-create endpoint, first Realtime delta를 한 run에 기록한다. raw client secret, standard provider key, SDP body, raw media는 stdout/artifact에 쓰지 않는다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_fdbench_v1_latency.py \
+  --limit 1 \
+  --measurement-level product-path \
+  --adapter-boundary realtime-product-path \
+  --adapter command \
+  --timeout-s 120 \
+  --command "node benchmark/harness/collect_realtime_direct_fdbench.mjs --base-url http://127.0.0.1 --interview-prefix fdbench-direct --first-delta-timeout-ms 10000"
+```
+
+현 스캐폴드에서 response-create endpoint는 live analysis-engine 결과를 요구한다. 분석 결과 파이프라인이 준비되지 않은 상태에서 Realtime attach와 first-delta plumbing만 확인하려면 `--analysis-inline-fixture`를 붙인다. 이 경우 latency 값은 남기지만 `analysis_inline_fixture_used=true`가 기록되고 `product_path_complete`에는 집계하지 않는다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_fdbench_v1_latency.py \
+  --limit 1 \
+  --measurement-level product-path \
+  --adapter-boundary realtime-product-path \
+  --adapter command \
+  --timeout-s 120 \
+  --command "node benchmark/harness/collect_realtime_direct_fdbench.mjs --analysis-inline-fixture --base-url http://127.0.0.1 --interview-prefix fdbench-direct-fixture --first-delta-timeout-ms 10000"
 ```
 
 ```bash
@@ -221,7 +279,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_fdbench_v1_latency.py \
 
 ## QIVD Offline Smoke
 
-QIVD runner는 첫 단계에서 offline video-QA 형태로만 동작한다. Adapter에는 video path, question, category, reference timestamp를 넘긴다. LiveKit streaming timing은 별도 runner로 추가한다.
+QIVD runner는 첫 단계에서 offline video-QA 형태로만 동작한다. Adapter에는 video path, question, category, reference timestamp를 넘긴다. Realtime sideband streaming timing은 product media contract가 고정되면 별도 runner로 추가한다.
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_qivd_offline.py \

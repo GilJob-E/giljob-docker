@@ -38,21 +38,27 @@ turn_taking_latency = t_model_start - t_user_end
 
 라벨: `diagnostic-only`
 
-GilJob v2는 full-duplex listener/speaker가 아니다. 현재 제품 흐름은 사용자가 답변을 시작하고 끝내는 turn-based interview room이다. 따라서 FD-bench V1 official score처럼 말할 수는 없다.
+실측 레벨: `product-path`
+
+이 레벨은 PR #15의 Realtime product path를 겨냥한다. MMM 분석 모듈만의 단독 성능이 아니며, SpatialReal avatar/public TURN/final report까지 포함하는 full-service E2E도 아니다.
+
+PR #15 기준 GilJob v2의 primary interviewer audio path는 API-mediated OpenAI Realtime WebRTC 흐름이다. 그래도 FD-bench V1 official score처럼 말하려면 공식 streaming 조건과 동일한 judge/timestamp 규칙이 필요하므로, 지금은 제품 latency를 같은 기준으로 맞춘 diagnostic row로 둔다.
 
 대신 GilJob 행은 다음 product latency로 만들 수 있다.
 
 ```text
 t_user_audio_end = benchmark answer audio 종료
-t_stop_sent = harness가 /subscriber/stop 또는 동등 event를 보낸 시각
-t_transcript_ready = GilJobE final transcript 확보
-t_next_question_ready = Gemini next-question text 생성 완료
-t_tts_first_audio = next question TTS 첫 오디오 송출 가능
+t_model_input_commit = harness가 Realtime input/end-of-turn을 commit한 시각
+t_mmm_ready = API가 full_mmm_ready: true를 반환한 시각
+t_response_create = API 또는 adapter가 Realtime response create를 accepted/observed한 시각
+t_model_first_text_delta = Realtime 첫 text delta 관측 시각
+t_model_first_audio_delta = Realtime 첫 audio delta 관측 시각
+t_model_response_done = Realtime response 완료 시각
 
-giljob_first_response_latency = t_tts_first_audio - t_user_audio_end
+giljob_first_response_latency = min(t_model_first_text_delta, t_model_first_audio_delta) - t_user_audio_end
 ```
 
-사람의 "답변 종료" 클릭 지연은 제외한다. benchmark harness가 audio 종료 직후 stop event를 보내야 한다.
+사람의 "답변 종료" 클릭 지연은 제외한다. benchmark harness가 audio 종료 직후 input commit/end-of-turn event를 보내고, 같은 monotonic clock으로 `full_mmm_ready`, Realtime response create, 첫 delta와 response done을 기록해야 한다.
 
 ## GilJob용 리포트 필드
 
@@ -60,18 +66,22 @@ giljob_first_response_latency = t_tts_first_audio - t_user_audio_end
 - `latency_median_ms`
 - `latency_p95_ms`
 - `no_response_rate`
-- `transcript_flush_latency_ms`
-- `next_question_llm_latency_ms`
-- `tts_first_audio_latency_ms`
-- `measurement_label`: `GilJob v2 cascaded/turn-based adapter`
+- `input_commit_overhead_ms`
+- `mmm_ready_latency_ms`
+- `response_create_overhead_ms`
+- `first_text_delta_latency_ms`
+- `first_audio_delta_latency_ms`
+- `end_to_end_latency_ms`
+- `transcript_flush_latency_ms` when measuring an ASR/text diagnostic row
+- `measurement_label`: `GilJob v2 Realtime adapter`
 
 ## 다음 준비 작업
 
-1. FD-bench V1 데이터를 받을 수 있는지 확인한다.
-2. audio sample을 LiveKit room 또는 analysis-engine adapter로 주입하는 harness를 만든다.
-3. `/subscriber/stop` 자동 호출 시각과 TTS first audio 시각을 monotonic clock으로 기록한다.
+1. FD-bench V1 데이터는 `benchmark/data/raw/fd-bench-v1-v1_5/`에 확보되어 있다.
+2. audio sample을 Realtime product path 또는 동등 command adapter로 주입하는 harness를 연결한다.
+3. input commit, `full_mmm_ready`, Realtime response create, first text/audio delta, response done 시각을 monotonic clock으로 기록한다.
 4. 같은 sample set으로 20개 smoke run을 먼저 돌려 timestamp 안정성을 확인한다.
 
 ## 주의점
 
-이 점수는 "GilJob이 full-duplex turn-taking을 한다"는 증거가 아니다. GilJob의 turn-based interview latency를 FD-bench식 기준선에 맞춰 기록하는 진단 행이다.
+이 점수는 "GilJob이 official FD-bench full-duplex 조건을 통과했다"는 증거가 아니다. GilJob의 Realtime gate와 첫 응답 latency를 FD-bench식 기준선에 맞춰 기록하는 진단 행이다.

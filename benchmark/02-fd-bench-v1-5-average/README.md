@@ -39,31 +39,31 @@ Thinking Machines의 표는 이 복수 지표를 평균 quality 형태로 요약
 
 라벨: `not-ready` 또는 `diagnostic-only`
 
-현재 GilJob의 product boundary는 full-duplex overlap handling이 아니다. 사용자가 말하는 동안 AI interviewer가 계속 듣고 동시에 말하는 기능, 사용자 끼어들기 처리, side conversation 무시, listener backchannel 생성이 제품 goal로 구현되어 있지 않다.
+GilJob의 메인 방향은 API-mediated OpenAI Realtime WebRTC audio path로 바뀌었지만, 제품 boundary가 아직 FD-bench V1.5식 overlap controller와 평가 event schema로 고정된 것은 아니다. 사용자 끼어들기 처리, side conversation 무시, listener backchannel 생성은 별도 product behavior로 정의되어야 한다.
 
 따라서 공식 점수를 만드는 것은 부정확하다. 다만 다음처럼 일부 diagnostic만 만들 수 있다.
 
 - background speech가 transcript에 섞이는 비율
 - side conversation이 interview answer로 오인되는 비율
 - user interruption audio가 들어왔을 때 analysis-engine stop/final transcript가 깨지는지
-- TTS 재생 중 사용자 마이크 입력이 들어올 때 UI state가 안전하게 유지되는지
+- 모델 output audio 중 사용자 마이크 입력이 들어올 때 session state가 안전하게 유지되는지
 
 ## GilJob용 adapter 설계
 
 정식 벤치마크를 목표로 하려면 다음 boundary가 필요하다.
 
-1. LiveKit room에서 interviewer TTS가 재생되는 동안 user audio track을 계속 publish한다.
-2. agent가 말하는 중 incoming speech를 처리할 수 있는 full-duplex controller를 둔다.
-3. stop/continue/backchannel behavior를 model output event로 기록한다.
-4. output audio에 word timestamp를 붙여 stop latency와 response latency를 계산한다.
+1. OpenAI Realtime session 또는 동등 full-duplex adapter에 user/output audio overlap을 주입한다.
+2. agent가 말하는 중 incoming speech를 처리할 수 있는 product controller를 둔다.
+3. stop/continue/backchannel behavior를 model/session event로 기록한다.
+4. output audio 또는 text delta에 timestamp를 붙여 stop latency와 response latency를 계산한다.
 
-현재는 이 구조가 없으므로 `GilJob v2 product path`에는 official-compatible 행을 만들지 않는다.
+현재는 이 controller/evaluation schema가 없으므로 `GilJob v2 Realtime product path`에는 official-compatible 행을 만들지 않는다.
 
 ## 다음 준비 작업
 
 1. 이 벤치마크는 후순위로 둔다.
-2. 먼저 FD-bench V1 latency로 turn-based 병목을 측정한다.
-3. full-duplex interviewer를 제품 방향으로 채택할 때 다시 target으로 올린다.
+2. 먼저 FD-bench V1 latency로 Realtime gate와 첫 응답 delta를 측정한다.
+3. overlap behavior를 제품 요구사항으로 고정할 때 다시 target으로 올린다.
 
 ## 주의점
 

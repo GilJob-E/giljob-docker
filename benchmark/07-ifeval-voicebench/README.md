@@ -56,15 +56,15 @@ GilJob은 범용 voice assistant가 아니라 interview product이므로, produc
 
 ```text
 VoiceBench ifeval audio
-  -> GilJobE transcript or direct ASR
-  -> Gemini/Main LLM response
+  -> OpenAI Realtime audio adapter or ASR/text diagnostic adapter
+  -> GilJob/Gemini response
   -> VoiceBench ifeval evaluator
 ```
 
 이때 두 행을 분리하는 것이 좋다.
 
-- `GilJob v2 transcript+LLM adapter`: audio를 transcript로 바꾼 뒤 text LLM 평가
-- `GilJob v2 product path`: 실제 면접방 flow에 넣은 경우
+- `GilJob v2 Realtime audio adapter`: audio를 직접 product media path에 넣은 경우
+- `GilJob v2 ASR/text diagnostic`: audio를 transcript로 바꾼 뒤 text LLM 평가
 
 ## GilJob용 리포트 필드
 
@@ -78,8 +78,8 @@ VoiceBench ifeval audio
 
 ## 다음 준비 작업
 
-1. VoiceBench dataset의 `ifeval` subset을 받는다.
-2. GilJobE transcript와 reference transcript를 비교해 ASR 영향을 분리한다.
+1. VoiceBench `ifeval` subset은 `benchmark/data/raw/voicebench-ifeval/`에 확보되어 있다.
+2. Realtime audio path를 연결하고, ASR/text diagnostic row에서는 transcript와 reference transcript를 비교해 ASR 영향을 분리한다.
 3. text-only IFEval baseline을 먼저 찍고, 그 다음 VoiceBench audio path로 확장한다.
 
 ## 주의점

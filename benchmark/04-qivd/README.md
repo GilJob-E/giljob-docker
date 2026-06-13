@@ -49,7 +49,7 @@ first_response_latency = t_model_answer_start - t_question_or_answerable_end
 
 라벨: `adapted`
 
-GilJob은 LiveKit video path와 analysis-engine signal boundary를 갖고 있지만, 현재 제품은 QIVD용 video QA controller가 아니다. 따라서 두 버전으로 나눠야 한다.
+PR #15 기준 GilJob의 primary audio path는 OpenAI Realtime WebRTC이고, vision/prosody/transcript는 API sideband route와 `full_mmm_ready` gate를 통해 묶인다. 다만 현재 제품은 QIVD용 video QA controller와 timing evaluator가 아니므로 두 버전으로 나눠야 한다.
 
 ### QIVD offline adapted
 
@@ -67,13 +67,12 @@ video clip
 
 ```text
 raw video/audio clip
-  -> LiveKit publish
-  -> GilJob visual/audio adapter
+  -> Realtime audio path + bounded vision sideband adapter
   -> answer generation
   -> transcript grading and timing evaluation
 ```
 
-이 버전은 LiveKit media path와 answer timestamp를 함께 측정해야 한다.
+이 버전은 Realtime media/input event, vision sideband, `full_mmm_ready`, answer timestamp를 함께 측정해야 한다.
 
 ## GilJob용 리포트 필드
 
@@ -83,15 +82,15 @@ raw video/audio clip
 - `first_response_latency_ms`
 - `video_frame_sampling_policy`
 - `judge_model`
-- `adapter_type`: `offline-adapted` 또는 `streaming-adapted`
+- `adapter_type`: `offline-adapted` 또는 `realtime-sideband-adapted`
 
 ## 다음 준비 작업
 
-1. QIVD 데이터 접근 경로를 확인한다.
-2. offline-adapted runner부터 만든다.
+1. QIVD 데이터는 `benchmark/data/raw/qivd/`에 확보되어 있다.
+2. offline-adapted runner는 provisional 상태로 준비되어 있다.
 3. video frame sampling interval과 max frames를 고정한다.
-4. streaming runner는 LiveKit browser smoke가 안정화된 뒤 진행한다.
+4. product media contract가 고정되면 Realtime sideband streaming runner를 추가한다.
 
 ## 주의점
 
-QIVD 점수는 VLM 성능 영향을 크게 받는다. GilJobE의 visual signal boundary만으로 QIVD QA를 직접 수행한다고 해석하면 안 된다.
+QIVD 점수는 VLM 성능 영향을 크게 받는다. Realtime sideband/video QA path나 offline VLM adapter를 QIVD QA용으로 명시적으로 연결하지 않은 상태에서 제품이 QIVD를 직접 수행한다고 해석하면 안 된다.

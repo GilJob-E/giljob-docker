@@ -50,8 +50,125 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--timeout-s", type=float, default=120.0)
     parser.add_argument("--model-label", default=None)
+    parser.add_argument(
+        "--measurement-level",
+        choices=("evaluator-smoke", "component", "product-path", "full-service-e2e"),
+        default=None,
+        help="What level of the GilJob system this run claims to measure.",
+    )
+    parser.add_argument(
+        "--adapter-boundary",
+        default=None,
+        help="Human-readable boundary label, e.g. realtime-product-path or mmm-only.",
+    )
     parser.add_argument("--notes", action="append", default=[])
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.measurement_level is None:
+        args.measurement_level = "evaluator-smoke" if args.adapter == "simulated-latency" else "product-path"
+    if args.adapter_boundary is None:
+        if args.adapter == "simulated-latency":
+            args.adapter_boundary = "offline-simulated"
+        elif args.adapter == "command":
+            args.adapter_boundary = "realtime-product-path-command"
+        else:
+            args.adapter_boundary = "external-timestamp-jsonl"
+    return args
+
+
+def measurement_contract(args: argparse.Namespace) -> dict[str, Any]:
+    level = args.measurement_level
+    required_evidence: list[str] = []
+    excluded_boundaries: list[str] = []
+    includes = {
+        "browser_webrtc_or_equivalent": False,
+        "realtime_session_broker": False,
+        "mmm_readiness_gate": False,
+        "realtime_response_create": False,
+        "first_model_delta": False,
+        "spatialreal_avatar": False,
+        "public_turn_or_external_media_path": False,
+    }
+    if level == "product-path":
+        includes.update(
+            {
+                "browser_webrtc_or_equivalent": True,
+                "realtime_session_broker": True,
+                "mmm_readiness_gate": True,
+                "realtime_response_create": True,
+                "first_model_delta": True,
+            }
+        )
+        required_evidence = [
+            "/api/interviews/:id/realtime/session returned a browser-safe Realtime session contract without exposing a standard provider key",
+            "Realtime SDP attach or equivalent adapter path completed without exposing SDP body",
+            "/api/interviews/:id/turns/:turnIndex/mmm-ready returned full_mmm_ready=true",
+            "Realtime response create was accepted after full_mmm_ready",
+            "first Realtime text/audio delta timestamp was recorded",
+        ]
+        excluded_boundaries = [
+            "SpatialReal avatar RTC/egress",
+            "public TURN/external media path",
+            "final report generation",
+        ]
+    elif level == "component":
+        boundary = args.adapter_boundary or ""
+        includes["realtime_session_broker"] = "realtime" in boundary
+        includes["mmm_readiness_gate"] = "mmm" in boundary
+        includes["first_model_delta"] = "first-delta" in boundary
+        required_evidence = [
+            "component input timestamp recorded",
+            "component output timestamp recorded",
+            "component adapter label recorded",
+        ]
+        excluded_boundaries = [
+            "browser WebRTC",
+            "full product room UX",
+            "SpatialReal avatar RTC/egress",
+        ]
+        if not includes["realtime_session_broker"]:
+            excluded_boundaries.append("Realtime session broker")
+        if not includes["mmm_readiness_gate"]:
+            excluded_boundaries.append("MMM readiness gate")
+    elif level == "full-service-e2e":
+        includes.update(
+            {
+                "browser_webrtc_or_equivalent": True,
+                "realtime_session_broker": True,
+                "mmm_readiness_gate": True,
+                "realtime_response_create": True,
+                "first_model_delta": True,
+                "spatialreal_avatar": True,
+                "public_turn_or_external_media_path": True,
+            }
+        )
+        required_evidence = [
+            "browser route created/joined interview room",
+            "Realtime session broker returned a browser-safe Realtime session contract",
+            "browser performed SDP attach through the configured Realtime call path",
+            "full_mmm_ready gate passed before realtime.response.create",
+            "first model text/audio delta timestamp was recorded",
+            "avatar/media/public path evidence was recorded",
+        ]
+    else:
+        required_evidence = [
+            "dataset examples selected",
+            "runner artifacts written",
+            "fixed timestamp evaluator executed",
+        ]
+        excluded_boundaries = [
+            "GilJob API",
+            "browser WebRTC",
+            "Realtime provider",
+            "MMM analysis",
+            "SpatialReal avatar RTC/egress",
+        ]
+    return {
+        "adapter_boundary": args.adapter_boundary,
+        "level": level,
+        "includes": includes,
+        "required_evidence": required_evidence,
+        "excluded_boundaries": excluded_boundaries,
+    }
 
 
 def file_sha256(path: Path) -> str:
@@ -174,13 +291,40 @@ def compute_latency_row(example: dict[str, Any], timestamp_row: dict[str, Any], 
         timestamp_value(timestamp_row, "t_user_audio_end_s", "t_user_audio_end", "user_turn_end_s")
         or example["user_turn_end_s"]
     )
-    response_start = timestamp_value(
+    first_audio_delta = timestamp_value(
         timestamp_row,
+        "t_realtime_first_audio_delta_s",
+        "t_realtime_first_audio_delta",
+        "t_model_first_audio_delta_s",
+        "t_model_first_audio_delta",
+        # Compatibility with an earlier planned adapter name.
+        "t_gemini_live_first_audio_delta_s",
+        "t_gemini_live_first_audio_delta",
+        # Legacy split-TTS diagnostic artifacts can still be evaluated.
         "t_tts_first_audio_s",
         "t_tts_first_audio",
+    )
+    first_text_delta = timestamp_value(
+        timestamp_row,
+        "t_realtime_first_text_delta_s",
+        "t_realtime_first_text_delta",
+        "t_model_first_text_delta_s",
+        "t_model_first_text_delta",
+        # Compatibility with an earlier planned adapter name.
+        "t_gemini_live_first_text_delta_s",
+        "t_gemini_live_first_text_delta",
+    )
+    legacy_response_start = timestamp_value(
+        timestamp_row,
         "model_response_start_s",
         "t_model_response_start_s",
     )
+    response_candidates = [
+        value
+        for value in (first_audio_delta, first_text_delta, legacy_response_start)
+        if value is not None
+    ]
+    response_start = min(response_candidates) if response_candidates else None
     no_response = response_start is None
     row: dict[str, Any] = {
         "adapter": adapter,
@@ -188,20 +332,82 @@ def compute_latency_row(example: dict[str, Any], timestamp_row: dict[str, Any], 
         "no_response": no_response,
         "t_user_audio_end_s": user_end,
     }
+    for key in (
+        "analysis_inline_fixture_used",
+        "api_call_broker_observed",
+        "api_response_create_observed",
+        "browser_webrtc_observed",
+        "client_secret_shape_observed",
+        "full_product_path_observed",
+        "realtime_session_contract_observed",
+        "response_command_forwarded_by_probe",
+        "technical_realtime_first_delta_observed",
+    ):
+        if key in timestamp_row:
+            row[key] = bool(timestamp_row[key])
     if response_start is not None:
         row["t_model_response_start_s"] = response_start
         row["first_response_latency_ms"] = round((response_start - user_end) * 1000.0, 3)
+    if first_text_delta is not None:
+        row["t_model_first_text_delta_s"] = first_text_delta
+        row["first_text_delta_latency_ms"] = round((first_text_delta - user_end) * 1000.0, 3)
+    if first_audio_delta is not None:
+        row["t_model_first_audio_delta_s"] = first_audio_delta
+        row["first_audio_delta_latency_ms"] = round((first_audio_delta - user_end) * 1000.0, 3)
 
+    input_commit = timestamp_value(
+        timestamp_row,
+        "t_realtime_input_commit_s",
+        "t_realtime_input_commit",
+        "t_model_input_commit_s",
+        "t_model_input_commit",
+        "t_gemini_live_input_commit_s",
+        "t_gemini_live_input_commit",
+    )
+    mmm_ready = timestamp_value(
+        timestamp_row,
+        "t_mmm_ready_s",
+        "t_mmm_ready",
+        "t_full_mmm_ready_s",
+        "t_full_mmm_ready",
+        "full_mmm_ready_s",
+    )
+    response_create = timestamp_value(
+        timestamp_row,
+        "t_response_create_s",
+        "t_response_create",
+        "t_realtime_response_create_s",
+        "t_realtime_response_create",
+    )
     transcript_ready = timestamp_value(timestamp_row, "t_transcript_ready_s", "t_transcript_ready")
     llm_request = timestamp_value(timestamp_row, "t_llm_request_s", "t_llm_request")
     llm_done = timestamp_value(timestamp_row, "t_llm_done_s", "t_llm_done")
-    response_done = timestamp_value(timestamp_row, "t_response_done_s", "t_response_done")
+    response_done = timestamp_value(
+        timestamp_row,
+        "t_realtime_response_done_s",
+        "t_realtime_response_done",
+        "t_model_response_done_s",
+        "t_model_response_done",
+        # Compatibility with an earlier planned adapter name.
+        "t_gemini_live_response_done_s",
+        "t_gemini_live_response_done",
+        "t_response_done_s",
+        "t_response_done",
+    )
+    if input_commit is not None:
+        row["t_model_input_commit_s"] = input_commit
+        row["input_commit_overhead_ms"] = round((input_commit - user_end) * 1000.0, 3)
+    if mmm_ready is not None:
+        row["t_mmm_ready_s"] = mmm_ready
+        row["mmm_ready_latency_ms"] = round((mmm_ready - user_end) * 1000.0, 3)
+    if response_create is not None:
+        row["t_response_create_s"] = response_create
+        reference = mmm_ready if mmm_ready is not None else user_end
+        row["response_create_overhead_ms"] = round((response_create - reference) * 1000.0, 3)
     if transcript_ready is not None:
         row["transcript_flush_latency_ms"] = round((transcript_ready - user_end) * 1000.0, 3)
     if llm_request is not None and llm_done is not None:
         row["llm_latency_ms"] = round((llm_done - llm_request) * 1000.0, 3)
-    if llm_done is not None and response_start is not None:
-        row["tts_first_audio_latency_ms"] = round((response_start - llm_done) * 1000.0, 3)
     if response_done is not None:
         row["end_to_end_latency_ms"] = round((response_done - user_end) * 1000.0, 3)
     return row
@@ -233,7 +439,7 @@ def make_timestamp_rows(
             timestamp_row = {
                 "adapter": args.adapter,
                 "example_id": example_id,
-                "model_response_start_s": response_start,
+                "t_realtime_first_audio_delta_s": response_start,
                 "t_user_audio_end_s": example["user_turn_end_s"],
             }
         elif args.adapter == "existing-jsonl":
@@ -258,6 +464,9 @@ def make_timestamp_rows(
                 "audio_path": str(example["audio_path"]),
                 "audio_path_relative": relative_audio_path,
                 "annotation": example["annotation"],
+                "adapter_boundary": args.adapter_boundary,
+                "measurement_contract": measurement_contract(args),
+                "measurement_level": args.measurement_level,
                 "t_user_audio_end_s": example["user_turn_end_s"],
             }
             timestamp_row, error = run_command_adapter(
@@ -269,6 +478,8 @@ def make_timestamp_rows(
                     "BENCHMARK_EXAMPLE_ID": example_id,
                     "BENCHMARK_ORDINAL": str(ordinal),
                     "BENCHMARK_RUN_DIR": str(run_dir),
+                    "GILJOB_BENCHMARK_ADAPTER_BOUNDARY": args.adapter_boundary,
+                    "GILJOB_BENCHMARK_MEASUREMENT_LEVEL": args.measurement_level,
                     "FDBENCH_AUDIO_PATH": str(example["audio_path"]),
                     "FDBENCH_USER_TURN_END_S": str(example["user_turn_end_s"]),
                 },
@@ -286,6 +497,24 @@ def make_timestamp_rows(
 def summarize_latencies(latency_rows: list[dict[str, Any]]) -> dict[str, Any]:
     values = [row["first_response_latency_ms"] for row in latency_rows if not row["no_response"]]
     no_response_count = sum(1 for row in latency_rows if row["no_response"])
+    mmm_ready_count = sum(1 for row in latency_rows if "mmm_ready_latency_ms" in row)
+    response_create_count = sum(1 for row in latency_rows if "response_create_overhead_ms" in row)
+    first_text_count = sum(1 for row in latency_rows if "first_text_delta_latency_ms" in row)
+    first_audio_count = sum(1 for row in latency_rows if "first_audio_delta_latency_ms" in row)
+    end_to_end_count = sum(1 for row in latency_rows if "end_to_end_latency_ms" in row)
+    product_path_complete_count = sum(
+        1
+        for row in latency_rows
+        if not row["no_response"]
+        and not row.get("analysis_inline_fixture_used", False)
+        and not row.get("response_command_forwarded_by_probe", False)
+        and "mmm_ready_latency_ms" in row
+        and "response_create_overhead_ms" in row
+        and (
+            "first_text_delta_latency_ms" in row
+            or "first_audio_delta_latency_ms" in row
+        )
+    )
 
     def percentile(sorted_values: list[float], pct: float) -> float | None:
         if not sorted_values:
@@ -298,18 +527,37 @@ def summarize_latencies(latency_rows: list[dict[str, Any]]) -> dict[str, Any]:
     median = percentile(sorted_values, 0.5)
     p95 = percentile(sorted_values, 0.95)
     total = len(latency_rows)
+    limitations = [
+        "This is a Realtime first-response latency diagnostic row, not an official full-duplex score.",
+        "Adapter timestamps must use the same monotonic clock convention per run.",
+    ]
+    if any(row.get("adapter") == "simulated-latency" for row in latency_rows):
+        limitations.append("simulated-latency adapter only verifies artifact plumbing.")
+    if any(row.get("analysis_inline_fixture_used") for row in latency_rows):
+        limitations.append(
+            "Rows with analysis_inline_fixture_used rely on a candidate-safe inline analysis result instead of a live analysis-engine result and are excluded from product_path_complete."
+        )
+    if any(row.get("response_command_forwarded_by_probe") for row in latency_rows):
+        limitations.append(
+            "Rows with response_command_forwarded_by_probe use the benchmark probe to forward the API command on the browser data channel and are excluded from product_path_complete."
+        )
     return {
         "evaluator": "fixed-timestamp-latency-v0",
-        "limitations": [
-            "This is a diagnostic turn-based latency row, not an official full-duplex score.",
-            "Adapter timestamps must use the same monotonic clock convention per run.",
-            "simulated-latency adapter only verifies artifact plumbing.",
-        ],
+        "limitations": limitations,
         "latency_mean_ms": round(mean, 3) if mean is not None else None,
         "latency_median_ms": median,
         "latency_p95_ms": p95,
         "no_response_count": no_response_count,
         "no_response_rate": float(no_response_count / total) if total else 0.0,
+        "evidence_counts": {
+            "end_to_end": end_to_end_count,
+            "first_audio_delta": first_audio_count,
+            "first_text_delta": first_text_count,
+            "mmm_ready": mmm_ready_count,
+            "product_path_complete": product_path_complete_count,
+            "response_create": response_create_count,
+        },
+        "product_path_complete_rate": float(product_path_complete_count / total) if total else 0.0,
         "response_count": len(values),
         "total": total,
     }
@@ -335,8 +583,10 @@ def main() -> int:
         "created_at_utc": common.utc_now_iso(),
         "status": "running",
         "pipeline_status": "provisional",
+        "measurement": measurement_contract(args),
         "adapter": {
             "type": args.adapter,
+            "boundary": args.adapter_boundary,
             "model_label": args.model_label,
             "command": "[provided]" if args.command else None,
         },
@@ -398,7 +648,8 @@ def main() -> int:
             "audio_byte_total": audio_byte_total,
             "error_count": len(errors),
             "example_count": len(selected),
-            "measurement_label": "GilJob v2 cascaded/turn-based adapter",
+            "measurement_label": "GilJob v2 Realtime adapter",
+            "measurement": measurement_contract(args),
             "response_empty_count": sum(1 for row in latency_rows if row["no_response"]),
             "evaluation": {
                 "latency": summarize_latencies(latency_rows),

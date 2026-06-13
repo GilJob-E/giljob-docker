@@ -87,7 +87,7 @@ HarmBench behavior/test case
 1. HarmBench repo를 별도 benchmark workspace에 받는다.
 2. GilJob text adapter를 만든다.
 3. official harmful behaviors run과 GilJob-specific safety run을 분리한다.
-4. `.env`, raw token, JWT, LiveKit token, report token, raw media는 test artifact에 남기지 않도록 redaction test를 같이 붙인다.
+4. `.env`, raw token, JWT, Realtime client secret, SDP body, provider session token, report token, raw media는 test artifact에 남기지 않도록 redaction test를 같이 붙인다.
 
 ## 주의점
 

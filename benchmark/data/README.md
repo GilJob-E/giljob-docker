@@ -17,6 +17,6 @@
 ## Policy
 
 - Do not commit downloaded audio/video/model outputs.
-- Do not store `.env`, API keys, raw session tokens, JWTs, LiveKit tokens, report tokens, or raw GilJob media in this tree.
+- Do not store `.env`, API keys, raw session tokens, JWTs, Realtime client secrets, SDP bodies, provider session tokens, report tokens, or raw GilJob media in this tree.
 - Keep source URLs, commit revisions, dataset subsets, and local paths in `sources.json`.
 - If a dataset requires manual access, record `blocked` with the required action instead of fabricating a substitute.
