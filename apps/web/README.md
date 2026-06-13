@@ -3,7 +3,7 @@
 Minimal GilJob v2 browser surface for the Realtime-first interview room, with optional LiveKit/AvatarKit compatibility surfaces.
 
 Current scope:
-- serves production-style interview routes, `/app.js`, `/styles.css`, and the vendored browser bundles;
+- serves production-style interview routes, `/app.js`, `/styles.css`, and the allowed SDK vendor path `/vendor/@spatialwalk/avatarkit/dist/*`;
 - calls `/api/sessions` through Caddy to create a candidate session;
 - requests OpenAI Realtime browser metadata only through `/api/interviews/{id}/realtime/session`, then sends SDP to `/api/interviews/{id}/realtime/call` for server-side provider attach;
 - starts the Realtime-primary room without requiring `livekit.publicUrl`, `candidateToken`, or AvatarKit RTC readiness;
@@ -12,6 +12,12 @@ Current scope:
 - consumes API-brokered AvatarKit session metadata only after the primary transport starts, and keeps Avatar disabled/deferred unless explicit non-LiveKit SDK Mode metadata is enabled;
 - reads the experimental avatar audio bridge flag only from safe sibling metadata (`activeSession.realtimeAvatarBridge` and avatar-session `bridge.browserAudioBridgeEnabled`), not from token-bearing `client` metadata;
 - keeps raw session/report/LiveKit tokens, Realtime client secrets, SDP bodies, and avatar session tokens out of visible UI/logs.
+
+Static vendor contract:
+- `@spatialwalk/avatarkit` is the only allowed browser SDK vendor prefix; legacy `livekit-client` and `@spatialwalk/avatarkit-rtc` bundles must stay unserved on the default path.
+- The import map may point at `/vendor/@spatialwalk/avatarkit/dist/index.js` only for deferred SDK Mode Web metadata; it must not imply avatar readiness or expose provider secrets.
+- Runtime/build checks should run `npm --prefix apps/web ci` before archive-style verification when `node_modules` is absent, because the allowed SDK vendor path is copied from the installed package rather than committed source.
+- The static server must return JavaScript assets as `text/javascript` and WASM assets as `application/wasm`; failing MIME checks are deployment blockers, not reasons to re-enable LiveKit RTC.
 
 Stable defaults: `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` and `SPATIALREAL_NON_LIVEKIT_SDK_MODE_ENABLED` absent/false. Realtime remains audible, Avatar RTC media stays muted/separate, Avatar startup is deferred until after the primary transport, and no production lip-sync claim is made. If the browser-audio flag is explicitly enabled, the browser may run the experimental `AvatarPlayer.publishAudio(track)` probe with an OpenAI Realtime remote audio track and report only redacted `avatar_audio_bridge_*` statuses until kiostation QA records `bridge_verified`, `bridge_not_supported`, or `blocked`. Non-LiveKit SDK Mode also requires API metadata with `mode: "spatialreal-non-livekit-sdk-mode"`, `transport: "direct-sdk"`, `livekitRequired: false`, and no provider secrets or raw media exposure; otherwise the UI must remain honest disabled/deferred.
 
