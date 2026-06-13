@@ -53,6 +53,9 @@ let activeAvatarSession = null;
 let avatarSdkModeState = { initialized: false, outcome: "sdk_mode_deferred", reason: "not_started", audioFeed: "pcm16-mono-16000" };
 let activeRealtimeSession = null;
 let realtimeRemoteAudioTrack = null;
+let activeAvatarSdkRuntime = null;
+let avatarSdkInitializePromise = null;
+let avatarPcmBridge = null;
 let activeRealtimeResponseId = "";
 let realtimeAnswerTranscript = "";
 let realtimeInterviewerQuestionTranscript = "";
@@ -69,8 +72,8 @@ const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
 const SPATIALREAL_SDK_MODE_WEB_ENABLED = "SPATIALREAL_SDK_MODE_WEB_ENABLED";
 const SPATIALREAL_SDK_MODE_OUTCOME = "sdk_mode_deferred";
-const SPATIALREAL_SDK_MODE = "spatialreal-non-livekit-sdk-mode";
-const SPATIALREAL_SDK_TRANSPORT = "direct-sdk";
+const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
+const SPATIALREAL_SDK_TRANSPORT = "spatialreal-sdk-websocket";
 const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
 const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
 const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
@@ -218,7 +221,7 @@ function normalizeAvatarSdkModeState(payload = activeAvatarSession) {
   const audioFormat = audioFeed.format || [audioFeed.encoding, audioFeed.channels, audioFeed.sampleRate].filter(Boolean).join("-") || SPATIALREAL_SDK_AUDIO_FEED_FORMAT;
   const metadataAccepted = sdkMode.enabled === true
     && sdkMode.mode === SPATIALREAL_SDK_MODE
-    && sdkMode.transport === SPATIALREAL_SDK_TRANSPORT
+    && [SPATIALREAL_SDK_TRANSPORT, "direct-sdk"].includes(sdkMode.transport)
     && sdkMode.livekitRequired === false
     && sdkMode.requiresFeatureFlag === SPATIALREAL_SDK_MODE_WEB_ENABLED
     && sdkMode.outcome === SPATIALREAL_SDK_MODE_OUTCOME
@@ -624,6 +627,184 @@ function attachRealtimeRemoteAudio(stream) {
   interviewerAudio.play().catch((error) => appendLog(`Realtime remote audio autoplay skipped: ${errorMessage(error)}`));
 }
 
+
+function avatarSdkClientMetadata(payload = activeAvatarSession) {
+  const client = payload?.client && typeof payload.client === "object" ? payload.client : {};
+  const sdkMode = avatarSdkModeConfig(payload);
+  return {
+    appId: payload?.appId || sdkMode.appId || client.appId || activeSession?.avatarSdk?.appId || "",
+    sessionToken: payload?.sessionToken || sdkMode.sessionToken || client.sessionToken || "",
+    avatarId: payload?.avatarId || sdkMode.avatarId || client.avatarId || client.characterId || "",
+    environment: sdkMode.environment || payload?.environment || client.environment || "production",
+    sampleRate: Number(payload?.audioFormat?.sampleRate || sdkMode.audioFormat?.sampleRate || sdkMode.audio?.sampleRate || client.audioFormat?.sampleRate || 16000),
+    channelCount: Number(payload?.audioFormat?.channelCount || sdkMode.audioFormat?.channelCount || sdkMode.audio?.channelCount || client.audioFormat?.channelCount || 1),
+  };
+}
+
+function avatarSdkMissingMetadataReason(payload = activeAvatarSession) {
+  const metadata = avatarSdkClientMetadata(payload);
+  if (!metadata.appId) {
+    return "sdk_app_id_missing";
+  }
+  if (!metadata.sessionToken) {
+    return "sdk_session_token_missing";
+  }
+  if (!metadata.avatarId) {
+    return "sdk_avatar_id_missing";
+  }
+  return "";
+}
+
+async function importSpatialRealAvatarKit() {
+  try {
+    return await import("/vendor/@spatialwalk/avatarkit/dist/index.js");
+  } catch (error) {
+    throw new Error(`sdk_import_failed:${errorMessage(error)}`);
+  }
+}
+
+function setAvatarSdkMuted(controller) {
+  if (!controller) {
+    throw new Error("sdk_controller_unavailable");
+  }
+  if (typeof controller.setVolume === "function") {
+    controller.setVolume(0);
+    return "setVolume";
+  }
+  if ("volume" in controller) {
+    controller.volume = 0;
+    return "volume";
+  }
+  throw new Error("sdk_mute_unavailable");
+}
+
+function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
+  if (!track || track.kind !== "audio") {
+    throw new Error("realtime_audio_track_unavailable");
+  }
+  if (!controller || typeof controller.send !== "function") {
+    throw new Error("sdk_controller_send_unavailable");
+  }
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    throw new Error("audio_context_unavailable");
+  }
+  const context = new AudioContextClass();
+  const sourceStream = new MediaStream([track]);
+  const source = context.createMediaStreamSource(sourceStream);
+  const processor = context.createScriptProcessor(4096, 1, 1);
+  let carry = new Float32Array(0);
+  let ended = false;
+
+  const downsampleToPcm16 = (input, inputSampleRate, outputSampleRate) => {
+    if (!input.length || !inputSampleRate || !outputSampleRate) {
+      return null;
+    }
+    const ratio = inputSampleRate / outputSampleRate;
+    const outputLength = Math.floor(input.length / ratio);
+    if (outputLength <= 0) {
+      return null;
+    }
+    const buffer = new ArrayBuffer(outputLength * 2);
+    const view = new DataView(buffer);
+    for (let index = 0; index < outputLength; index += 1) {
+      const start = Math.floor(index * ratio);
+      const end = Math.min(input.length, Math.floor((index + 1) * ratio));
+      let total = 0;
+      let count = 0;
+      for (let cursor = start; cursor < end; cursor += 1) {
+        total += input[cursor];
+        count += 1;
+      }
+      const sample = Math.max(-1, Math.min(1, count ? total / count : input[start] || 0));
+      view.setInt16(index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    }
+    return buffer;
+  };
+
+  processor.onaudioprocess = (event) => {
+    if (ended) {
+      return;
+    }
+    const input = event.inputBuffer.getChannelData(0);
+    const combined = new Float32Array(carry.length + input.length);
+    combined.set(carry);
+    combined.set(input, carry.length);
+    const minFrameCount = Math.max(1, Math.floor(context.sampleRate / 20));
+    if (combined.length < minFrameCount) {
+      carry = combined;
+      return;
+    }
+    const usableLength = Math.floor(combined.length / minFrameCount) * minFrameCount;
+    const usable = combined.slice(0, usableLength);
+    carry = combined.slice(usableLength);
+    const pcm = downsampleToPcm16(usable, context.sampleRate, sampleRate);
+    if (!pcm || pcm.byteLength % 2 !== 0) {
+      return;
+    }
+    try {
+      controller.send(pcm, false);
+    } catch (error) {
+      renderAvatarSdkDegraded(`sdk_pcm_send_failed:${errorMessage(error)}`);
+    }
+  };
+
+  source.connect(processor);
+  processor.connect(context.destination);
+
+  return {
+    async start() {
+      if (context.state === "suspended") {
+        await context.resume();
+      }
+    },
+    async end() {
+      if (ended) {
+        return;
+      }
+      ended = true;
+      try {
+        const finalChunk = carry.length ? downsampleToPcm16(carry, context.sampleRate, sampleRate) : new ArrayBuffer(0);
+        controller.send(finalChunk || new ArrayBuffer(0), true);
+      } finally {
+        carry = new Float32Array(0);
+      }
+    },
+    close() {
+      ended = true;
+      processor.disconnect();
+      source.disconnect();
+      context.close().catch(() => {});
+    },
+  };
+}
+
+async function startAvatarPcmBridgeIfReady(track = realtimeRemoteAudioTrack) {
+  if (!activeAvatarSdkRuntime?.controller || !track || avatarPcmBridge) {
+    return;
+  }
+  try {
+    avatarPcmBridge = createAvatarPcmBridge(track, activeAvatarSdkRuntime.controller, activeAvatarSdkRuntime.sampleRate || 16000);
+    await avatarPcmBridge.start();
+    avatarSdkModeState = { ...avatarSdkModeState, audioBridge: "pcm16_active" };
+    appendLog("avatar SDK muted PCM16 bridge active; Realtime remains the only audible path; media hidden");
+  } catch (error) {
+    renderAvatarSdkDegraded(`sdk_pcm_bridge_failed:${errorMessage(error)}`);
+  }
+}
+
+async function endAvatarPcmBridgeRound() {
+  if (!avatarPcmBridge) {
+    return;
+  }
+  try {
+    await avatarPcmBridge.end();
+    appendLog("avatar SDK PCM16 end marker sent; Realtime/MMM ownership unchanged");
+  } catch (error) {
+    renderAvatarSdkDegraded(`sdk_pcm_end_failed:${errorMessage(error)}`);
+  }
+}
+
 function renderAvatarSdkModeStatus(payload = activeAvatarSession) {
   const state = normalizeAvatarSdkModeState(payload);
   avatarSdkModeState = { ...avatarSdkModeState, ...state };
@@ -642,13 +823,16 @@ function captureRealtimeRemoteAudioTrack(track) {
     activeRealtimeSession.remoteAudioTrack = track;
   }
   renderAvatarSdkModeStatus();
-  appendLog("Realtime remote audio track observed for interviewer playback only; non-LiveKit avatar SDK adapter remains deferred; PCM16 feed not attached; media hidden");
+  startAvatarPcmBridgeIfReady(track);
+  appendLog("Realtime remote audio track observed for interviewer playback; avatar SDK muted PCM16 adapter will attach only after SDK readiness; media hidden");
   if (typeof track.addEventListener === "function") {
     track.addEventListener("ended", () => {
       if (realtimeRemoteAudioTrack === track) {
         realtimeRemoteAudioTrack = null;
       }
-      appendLog("Realtime remote audio track ended; avatar SDK Mode remains deferred; media hidden");
+      avatarPcmBridge?.close();
+      avatarPcmBridge = null;
+      appendLog("Realtime remote audio track ended; avatar SDK PCM16 bridge closed; media hidden");
     }, { once: true });
   }
 }
@@ -848,6 +1032,7 @@ function handleRealtimeServerEvent(event) {
     return;
   }
   if (type === "response.done") {
+    endAvatarPcmBridgeRound();
     renderRealtimeQuestionDone(event);
     avatarSdkEndResponseFeed(event.response?.id || event.response_id || activeRealtimeResponseId);
     realtimeResponseInFlight = false;
@@ -1051,31 +1236,80 @@ function renderAvatarRtcEgressStatus(avatarRtc) {
 }
 
 async function disconnectAvatarRtc() {
+  avatarPcmBridge?.close();
+  avatarPcmBridge = null;
+  activeAvatarSdkRuntime?.avatarView?.dispose?.();
+  activeAvatarSdkRuntime?.sdk?.AvatarSDK?.cleanup?.();
+  activeAvatarSdkRuntime = null;
+  avatarSdkInitializePromise = null;
   avatarSdkModeState = { ...avatarSdkModeState, initialized: false, reason: "disconnected", audioFeed: SPATIALREAL_SDK_AUDIO_FEED_FORMAT };
-  avatarRenderTarget?.classList.remove("is-rtc-active");
+  avatarRenderTarget?.classList.remove("is-rtc-active", "is-sdk-active");
   appendLog(`${AVATAR_DEFERRED_LABEL}: disconnected; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} unaffected`);
 }
 
-function renderAvatarRtcDegraded(reason) {
+function renderAvatarSdkDegraded(reason) {
   avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_MODE_OUTCOME, reason: String(reason || "sdk_mode_deferred"), audioFeed: SPATIALREAL_SDK_AUDIO_FEED_FORMAT };
   setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
   setAvatarPanelMessage(`${AVATAR_DEFERRED_LABEL}: ${reason}. OpenAI Realtime owns STT/VAD/interviewer audio. ${SPATIALREAL_SDK_MODE_LABEL} remains ${SPATIALREAL_SDK_MODE_OUTCOME}; no production lip-sync claim.`);
   appendLog(`${AVATAR_DEFERRED_LABEL}: ${reason}; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}; tokens hidden; media hidden`);
 }
 
-async function initializeAvatarRtc(payload) {
+async function initializeSpatialRealSdkAvatar(payload) {
   if (!payload?.ready || payload?.provider !== "spatialreal") {
-    renderAvatarRtcDegraded("spatialreal_session_not_ready");
+    renderAvatarSdkDegraded("spatialreal_session_not_ready");
     return;
   }
   if (!isSpatialRealSdkModeEnabled(payload)) {
-    renderAvatarRtcDegraded("sdk_mode_deferred");
+    renderAvatarSdkDegraded("sdk_mode_deferred");
     return;
   }
-  avatarSdkModeState = { ...normalizeAvatarSdkModeState(payload), initialized: false, reason: "pcm_audio_feed_unverified" };
-  setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
-  setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} metadata is browser-safe for ${SPATIALREAL_SDK_TRANSPORT}, but runtime rendering is deferred until a kiostation proof verifies the ${SPATIALREAL_SDK_AUDIO_FEED_FORMAT} lifecycle. ${AVATAR_DEFERRED_LABEL}.`);
-  renderAvatarSdkModeStatus(payload);
+  const missingReason = avatarSdkMissingMetadataReason(payload);
+  if (missingReason) {
+    renderAvatarSdkDegraded(missingReason);
+    appendLog(`avatar SDK metadata missing: ${missingReason}; coordinate API metadata with worker-1`);
+    return;
+  }
+  if (avatarSdkInitializePromise) {
+    await avatarSdkInitializePromise;
+    return;
+  }
+  avatarSdkInitializePromise = (async () => {
+    const metadata = avatarSdkClientMetadata(payload);
+    const sdk = await importSpatialRealAvatarKit();
+    const { AvatarSDK, AvatarManager, AvatarView, DrivingServiceMode } = sdk;
+    if (!AvatarSDK || !AvatarManager?.shared || !AvatarView) {
+      throw new Error("sdk_exports_unavailable");
+    }
+    await AvatarSDK.initialize(metadata.appId, {
+      environment: metadata.environment,
+      drivingServiceMode: DrivingServiceMode?.sdk || "sdk",
+      logLevel: "error",
+      audioFormat: { channelCount: metadata.channelCount || 1, sampleRate: metadata.sampleRate || 16000 },
+    });
+    AvatarSDK.setSessionToken(metadata.sessionToken);
+    const avatar = await AvatarManager.shared.load(metadata.avatarId);
+    if (!avatarRenderTarget) {
+      throw new Error("avatar_render_target_missing");
+    }
+    avatarRenderTarget.replaceChildren();
+    const avatarView = new AvatarView(avatar, avatarRenderTarget);
+    const controller = avatarView.controller;
+    const muteMethod = setAvatarSdkMuted(controller);
+    await controller.initializeAudioContext();
+    await controller.start();
+    setAvatarSdkMuted(controller);
+    activeAvatarSdkRuntime = { sdk, avatarView, controller, sampleRate: metadata.sampleRate || 16000, muteMethod };
+    avatarSdkModeState = { ...normalizeAvatarSdkModeState(payload), initialized: true, reason: "sdk_mode_ready_muted_pcm_bridge", muteMethod };
+    avatarRenderTarget?.classList.add("is-sdk-active");
+    setAvatarRtcState("speaking", "Avatar SDK active");
+    setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} active with muted ${SPATIALREAL_SDK_AUDIO_FEED_FORMAT} feed. OpenAI Realtime remains the only audible interviewer path.`);
+    appendLog(`avatar SDK initialized; muted via ${muteMethod}; session token hidden; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}`);
+    await startAvatarPcmBridgeIfReady(realtimeRemoteAudioTrack);
+  })().catch((error) => {
+    avatarSdkInitializePromise = null;
+    renderAvatarSdkDegraded(`sdk_init_failed:${errorMessage(error)}`);
+  });
+  await avatarSdkInitializePromise;
 }
 
 function renderAvatarState(payload) {
@@ -1107,7 +1341,7 @@ function renderAvatarState(payload) {
     }
   }
   if (payload?.ready) {
-    initializeAvatarRtc(payload).catch((error) => appendLog(`avatar SDK Mode deferred: ${errorMessage(error)}`));
+    initializeSpatialRealSdkAvatar(payload).catch((error) => appendLog(`avatar SDK Mode init: ${errorMessage(error)}`));
   }
 }
 
@@ -1131,7 +1365,6 @@ async function requestAvatarSession(reason = "room-join") {
     }
     renderAvatarState(payload);
     appendLog(`avatar session state: ${payload.status || "unknown"}; provider ${payload.provider || "unknown"}; session token hidden; Realtime voice unaffected`);
-    initializeAvatarRtc(payload).catch((error) => appendLog(`avatar init deferred safely: ${errorMessage(error)}`));
     return payload;
   } catch (error) {
     const message = errorMessage(error);
@@ -1706,7 +1939,7 @@ async function createSession() {
   const sessionLabel = payload.roomName || payload.sessionId || activeInterviewId;
   setStatus(`session created: ${sessionLabel}`, "idle");
   appendLog(`session created for ${sessionLabel}; tokens hidden; avatar remains deferred unless a verified avatar path is explicitly enabled`);
-  renderAvatarRtcDegraded("avatar_session_deferred_unverified");
+  renderAvatarSdkDegraded("avatar_session_deferred_unverified");
   return activeSession;
 }
 
@@ -1716,7 +1949,7 @@ async function connectPrimaryTransport() {
     appendLog("Realtime primary metadata missing; attempting API-brokered Realtime path and failing closed if unavailable");
   }
   await connectRealtimeRoom(session);
-  renderAvatarRtcDegraded("avatar_session_not_requested_default_realtime_path");
+  await requestAvatarSession("primary-transport-connected");
 }
 
 async function connectProductionRoomRoute() {
