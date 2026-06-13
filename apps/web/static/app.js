@@ -57,6 +57,8 @@ let activeAvatarSdkRuntime = null;
 let avatarSdkInitializePromise = null;
 let avatarPcmBridge = null;
 let avatarPcmBridgeIdleTimer = null;
+let avatarPcmBridgeEndTimer = null;
+let avatarSdkResponseFeedActive = false;
 let avatarSdkConnectionState = "unknown";
 let avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, rmsMax: 0, startedAt: 0 };
 let activeRealtimeResponseId = "";
@@ -702,6 +704,13 @@ function clearAvatarPcmBridgeIdleTimer() {
   }
 }
 
+function clearAvatarPcmBridgeEndTimer() {
+  if (avatarPcmBridgeEndTimer) {
+    window.clearTimeout(avatarPcmBridgeEndTimer);
+    avatarPcmBridgeEndTimer = null;
+  }
+}
+
 function appendAvatarSdkPcmSummary(reason = "summary") {
   if (!avatarSdkPcmStats.startedAt) {
     return;
@@ -748,6 +757,22 @@ function sendAvatarSdkPcmChunk(controller, pcmBuffer, isLast = false) {
   return conversationId;
 }
 
+function createAvatarPcmSourceStream(track) {
+  if (interviewerAudio?.srcObject && (typeof interviewerAudio.captureStream === "function" || typeof interviewerAudio.mozCaptureStream === "function")) {
+    try {
+      const capture = interviewerAudio.captureStream || interviewerAudio.mozCaptureStream;
+      const capturedStream = capture.call(interviewerAudio);
+      const capturedTrack = capturedStream?.getAudioTracks?.()[0] || null;
+      if (capturedTrack) {
+        return { stream: new MediaStream([capturedTrack]), source: "interviewer-audio-element-capture" };
+      }
+    } catch (error) {
+      appendLog(`avatar SDK PCM source element capture unavailable: ${errorMessage(error)}; falling back to Realtime track; media hidden`);
+    }
+  }
+  return { stream: new MediaStream([track]), source: "realtime-remote-track" };
+}
+
 function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
   if (!track || track.kind !== "audio") {
     throw new Error("realtime_audio_track_unavailable");
@@ -761,8 +786,9 @@ function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
   }
   const context = new AudioContextClass();
   appendLog("avatar SDK PCM bridge created with ScriptProcessorNode diagnostic path; browser deprecation warning is expected and not treated as lip-sync failure; media hidden");
-  const sourceStream = new MediaStream([track]);
-  const source = context.createMediaStreamSource(sourceStream);
+  const sourceSelection = createAvatarPcmSourceStream(track);
+  const source = context.createMediaStreamSource(sourceSelection.stream);
+  appendLog(`avatar SDK PCM source selected: ${sourceSelection.source}; response feed gated; media hidden`);
   const processor = context.createScriptProcessor(4096, 1, 1);
   let carry = new Float32Array(0);
   let ended = false;
@@ -794,7 +820,7 @@ function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
   };
 
   processor.onaudioprocess = (event) => {
-    if (ended) {
+    if (ended || !avatarSdkResponseFeedActive) {
       return;
     }
     const input = event.inputBuffer.getChannelData(0);
@@ -863,8 +889,8 @@ async function startAvatarPcmBridgeIfReady(track = realtimeRemoteAudioTrack) {
     appendLog(`avatar SDK muted PCM16 bridge active; connection=${avatarSdkConnectionState}; trackReadyState=${track.readyState || "unknown"}; trackMuted=${Boolean(track.muted)}; trackEnabled=${Boolean(track.enabled)}; Realtime remains the only audible path; media hidden`);
     clearAvatarPcmBridgeIdleTimer();
     avatarPcmBridgeIdleTimer = window.setTimeout(() => {
-      if (avatarPcmBridge && avatarSdkPcmStats.startedAt && avatarSdkPcmStats.chunks === 0) {
-        appendLog(`avatar SDK PCM bridge idle: no audio frames after 2000ms; connection=${avatarSdkConnectionState}; trackReadyState=${track.readyState || "unknown"}; trackMuted=${Boolean(track.muted)}; trackEnabled=${Boolean(track.enabled)}; ScriptProcessorNode deprecation warning is not the failure; media hidden`);
+      if (avatarPcmBridge && avatarSdkResponseFeedActive && avatarSdkPcmStats.startedAt && avatarSdkPcmStats.chunks === 0) {
+        appendLog(`avatar SDK PCM bridge idle during response feed: no audio frames after 2000ms; connection=${avatarSdkConnectionState}; trackReadyState=${track.readyState || "unknown"}; trackMuted=${Boolean(track.muted)}; trackEnabled=${Boolean(track.enabled)}; ScriptProcessorNode deprecation warning is not the failure; media hidden`);
       }
     }, 2000);
   } catch (error) {
@@ -882,6 +908,7 @@ async function endAvatarPcmBridgeRound() {
     clearAvatarPcmBridgeIdleTimer();
     await bridge.end();
     bridge.close();
+    avatarSdkResponseFeedActive = false;
     appendLog("avatar SDK PCM16 end marker sent; Realtime/MMM ownership unchanged");
   } catch (error) {
     renderAvatarSdkDegraded(`sdk_pcm_end_failed:${errorMessage(error)}`);
@@ -889,9 +916,13 @@ async function endAvatarPcmBridgeRound() {
 }
 
 function avatarSdkBeginResponseFeed() {
+  avatarSdkResponseFeedActive = true;
+  clearAvatarPcmBridgeEndTimer();
   if (!activeAvatarSdkRuntime?.controller) {
+    appendLog("avatar SDK response feed pending: SDK runtime not ready; media hidden");
     return;
   }
+  appendLog(`avatar SDK response feed active; connection=${avatarSdkConnectionState}; media hidden`);
   startAvatarPcmBridgeIfReady(realtimeRemoteAudioTrack).catch((error) => {
     renderAvatarSdkDegraded(`sdk_pcm_bridge_failed:${errorMessage(error)}`);
   });
@@ -903,7 +934,9 @@ function avatarSdkEndResponseFeed(responseId = "") {
   }
   const safeResponseId = String(responseId || "response").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
   appendLog(`avatar SDK response feed grace ${AVATAR_PCM_END_GRACE_MS}ms started: ${safeResponseId}; Realtime question boundary already released`);
-  window.setTimeout(() => {
+  clearAvatarPcmBridgeEndTimer();
+  avatarPcmBridgeEndTimer = window.setTimeout(() => {
+    avatarPcmBridgeEndTimer = null;
     endAvatarPcmBridgeRound()
       .then(() => {
         appendLog(`avatar SDK response feed ended: ${safeResponseId}; Realtime question boundary already released; tokens hidden`);
@@ -932,8 +965,10 @@ function captureRealtimeRemoteAudioTrack(track) {
     activeRealtimeSession.remoteAudioTrack = track;
   }
   renderAvatarSdkModeStatus();
-  startAvatarPcmBridgeIfReady(track);
-  appendLog("Realtime remote audio track observed for interviewer playback; avatar SDK muted PCM16 adapter will attach only after SDK readiness; media hidden");
+  if (avatarSdkResponseFeedActive) {
+    startAvatarPcmBridgeIfReady(track);
+  }
+  appendLog("Realtime remote audio track observed for interviewer playback; avatar SDK muted PCM16 adapter waits for response feed; media hidden");
   if (typeof track.addEventListener === "function") {
     track.addEventListener("mute", () => {
       appendLog("Realtime remote audio track muted; avatar SDK PCM bridge may idle until audio resumes; media hidden");
@@ -947,7 +982,9 @@ function captureRealtimeRemoteAudioTrack(track) {
       }
       avatarPcmBridge?.close();
       avatarPcmBridge = null;
+      avatarSdkResponseFeedActive = false;
       clearAvatarPcmBridgeIdleTimer();
+      clearAvatarPcmBridgeEndTimer();
       appendLog("Realtime remote audio track ended; avatar SDK PCM16 bridge closed; media hidden");
     }, { once: true });
   }
@@ -1354,6 +1391,9 @@ function renderAvatarRtcEgressStatus(avatarRtc) {
 async function disconnectAvatarRtc() {
   avatarPcmBridge?.close();
   avatarPcmBridge = null;
+  avatarSdkResponseFeedActive = false;
+  clearAvatarPcmBridgeIdleTimer();
+  clearAvatarPcmBridgeEndTimer();
   activeAvatarSdkRuntime?.avatarView?.dispose?.();
   activeAvatarSdkRuntime?.sdk?.AvatarSDK?.cleanup?.();
   activeAvatarSdkRuntime = null;
@@ -1432,7 +1472,11 @@ async function initializeSpatialRealSdkAvatar(payload) {
     setAvatarRtcState("speaking", "Avatar SDK active");
     setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} active with muted ${SPATIALREAL_SDK_AUDIO_FEED_FORMAT} feed. OpenAI Realtime remains the only audible interviewer path.`);
     appendLog(`avatar SDK initialized; muted via ${muteMethod}; session token hidden; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}`);
-    await startAvatarPcmBridgeIfReady(realtimeRemoteAudioTrack);
+    if (avatarSdkResponseFeedActive) {
+      await startAvatarPcmBridgeIfReady(realtimeRemoteAudioTrack);
+    } else {
+      appendLog("avatar SDK PCM bridge armed; waiting for Realtime response feed before sending audio; media hidden");
+    }
   })().catch((error) => {
     avatarSdkInitializePromise = null;
     renderAvatarSdkDegraded(`sdk_init_failed:${errorMessage(error)}`);
