@@ -118,6 +118,23 @@ PY
   echo "media smoke OK"
 }
 
+
+realtime_ready() {
+  echo "== realtime readiness =="
+  local web_url="${REALTIME_SMOKE_WEB_URL:-http://127.0.0.1/}"
+  local api_url="${REALTIME_SMOKE_API_URL:-$web_url}"
+  local interview_id="${REALTIME_SMOKE_INTERVIEW_ID:-realtime-smoke}"
+  local live_args=()
+  if [[ "${REQUIRE_REALTIME_LIVE:-0}" == "1" ]]; then
+    live_args+=(--require-live)
+  fi
+  python3 "$ROOT_DIR/scripts/realtime-smoke-readiness.py" \
+    --web-url "$web_url" \
+    --api-url "$api_url" \
+    --interview-id "$interview_id" \
+    "${live_args[@]}"
+}
+
 browser_join() {
   media_up
   echo "== browser join smoke with caddy =="
@@ -152,8 +169,11 @@ case "$mode" in
     KEEP_STACK=1 browser_join
     "${MEDIA_COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
     ;;
+  realtime-ready)
+    realtime_ready
+    ;;
   *)
-    echo "usage: $0 [config|media-up|browser-join]" >&2
+    echo "usage: $0 [config|media-up|browser-join|realtime-ready]" >&2
     exit 2
     ;;
 esac

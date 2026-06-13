@@ -1,240 +1,365 @@
 from __future__ import annotations
 
-from http.server import ThreadingHTTPServer
 import importlib.util
-import json
-import os
 import pathlib
-import tempfile
 import sys
-import threading
+import types
 import unittest
-import urllib.error
-import urllib.request
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
-
-spec = importlib.util.spec_from_file_location("giljob_v2_analysis_engine_server", ANALYSIS_ENGINE_ROOT / "server.py")
-assert spec is not None and spec.loader is not None
-analysis_engine = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = analysis_engine
-spec.loader.exec_module(analysis_engine)
-
-ANALYSIS_ENV_NAMES = (
-    "ANALYSIS_ENGINE_ENABLE_SUBSCRIBER",
-    "LIVEKIT_URL",
-    "LIVEKIT_TOKEN",
-    "LIVEKIT_API_KEY",
-    "LIVEKIT_API_SECRET",
-    "LIVEKIT_SESSION_ID",
-    "GILJOBE_GIT_URL",
-    "GILJOBE_GIT_REF",
-    "ANALYSIS_ENGINE_DUMMY_SCENARIO",
-)
+PINNED_GILJOBE_REF = "f7307fc"
+# Superseded pins must not resurface anywhere a stale copy could mislead operators.
+OLD_GILJOBE_REFS = ("a26045d", "f817f81", "b769120", "88a4df5", "e0671f5", "5ba7249")
 
 
-def restore_env(old_env: dict[str, str | None]) -> None:
-    for name, value in old_env.items():
-        if value is None:
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = value
+def load_analysis_engine_wrapper():
+    aiohttp = types.ModuleType("aiohttp")
+    aiohttp.web = types.SimpleNamespace()
+
+    server_main = types.ModuleType("giljobe.server.__main__")
+    server_main._build_critic = lambda: types.SimpleNamespace(warmup=lambda: None)
+    server_main._make_lanes = lambda: []
+    server_main._port = lambda: 8200
+    server_main._vllm_ready = lambda _critic: True
+
+    http_app = types.ModuleType("giljobe.server.http_app")
+    http_app.make_app = lambda _service, ready_check=None: None
+
+    service_mod = types.ModuleType("giljobe.server.service")
+    service_mod.AnalysisService = lambda **_kwargs: object()
+    service_mod.signals_payload = lambda session_id, records: {
+        "service": "analysis-engine",
+        "sessionId": session_id,
+        "records": records,
+        "recordCount": len(records),
+        "turnHandoff": None,
+        "rawMediaExposed": False,
+        "rawSecretsExposed": False,
+    }
+
+    sys.modules["aiohttp"] = aiohttp
+    sys.modules.setdefault("giljobe", types.ModuleType("giljobe"))
+    sys.modules.setdefault("giljobe.server", types.ModuleType("giljobe.server"))
+    sys.modules["giljobe.server.__main__"] = server_main
+    sys.modules["giljobe.server.http_app"] = http_app
+    sys.modules["giljobe.server.service"] = service_mod
+
+    spec = importlib.util.spec_from_file_location("analysis_engine_wrapper_contract", ANALYSIS_ENGINE_ROOT / "server.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 class AnalysisEngineContractTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self._old_env = {name: os.environ.get(name) for name in ANALYSIS_ENV_NAMES}
-        for name in self._old_env:
-            os.environ.pop(name, None)
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), analysis_engine.Handler)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-        host = self.server.server_address[0]
-        port = self.server.server_address[1]
-        self.base_url = f"http://{host}:{port}"
-
-    def tearDown(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
-        self.thread.join(timeout=2)
-        restore_env(self._old_env)
-
-    def _get(self, path: str) -> tuple[int, dict[str, object], str]:
-        try:
-            with urllib.request.urlopen(self.base_url + path, timeout=5) as res:
-                body = res.read().decode("utf-8")
-                return res.status, json.loads(body), body
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8")
-            return exc.code, json.loads(body), body
-
-    def test_health_contract_names_giljobe_without_secret_leaks(self) -> None:
-        os.environ["LIVEKIT_URL"] = "ws://livekit:7880"
-        os.environ["LIVEKIT_TOKEN"] = "secret-livekit-token-should-not-leak"
-        status, payload, body = self._get("/healthz")
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["service"], "analysis-engine")
-        self.assertEqual(payload["mode"], "standby")
-        self.assertEqual(payload["sttPath"], "GilJobE")
-        self.assertIn("transcript_full", payload["owns"])
-        self.assertIn("main-llm", payload["doesNotOwn"])
-        self.assertIn("tts", payload["doesNotOwn"])
-        self.assertEqual(payload["livekit"]["tokenConfigured"], True)
-        self.assertEqual(payload["livekit"]["rawSecretsExposed"], False)
-        self.assertNotIn("secret-livekit-token-should-not-leak", body)
-
-    def test_readyz_standby_is_safe_without_livekit_or_giljobe_installed(self) -> None:
-        status, payload, _body = self._get("/readyz")
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["status"], "standby")
-        self.assertEqual(payload["subscriberEnabled"], False)
-
-    def test_readyz_fails_closed_when_subscriber_enabled_without_credentials(self) -> None:
-        os.environ["ANALYSIS_ENGINE_ENABLE_SUBSCRIBER"] = "true"
-        status, payload, _body = self._get("/readyz")
-        self.assertEqual(status, 503)
-        self.assertEqual(payload["status"], "not_ready")
-        self.assertEqual(payload["subscriberEnabled"], True)
-        self.assertEqual(payload["livekit"]["tokenSource"], "missing")
-
-    def test_service_files_pin_giljobe_and_compose_wires_analysis_engine(self) -> None:
-        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
-        self.assertIn("https://github.com/GilJob-E/GilJobE.git@b769120", requirements)
+    def test_analysis_engine_runs_giljobe_app_with_realtime_mmm_ingress_wrapper(self) -> None:
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        self.assertIn("from giljobe.server.http_app import make_app", wrapper)
+        self.assertIn('web.post("/realtime/turn-events"', wrapper)
+        self.assertIn("raw_payload_not_allowed", wrapper)
+        self.assertIn("rawTranscriptLogged", wrapper)
+        self.assertIn("rawMediaAccepted", wrapper)
+        self.assertIn("perTurnMmmResult", wrapper)
+        self.assertIn("candidateSafePromptFragment", wrapper)
+        self.assertIn("class _EventOnlyRealtimeTurns", wrapper)
+        self.assertIn("_install_event_only_realtime_fallback", wrapper)
+        self.assertIn("realtimeNativeAnalysisSession", wrapper)
+        self.assertIn("_active_by_key", wrapper)
+        self.assertIn("_finalized_by_key", wrapper)
+        self.assertIn("2026-06-12.per-turn-mmm-result.v1", wrapper)
+        self.assertIn("2026-06-12.candidate-safe-prompt-fragment.v1", wrapper)
         dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
         self.assertIn("python:3.12-slim", dockerfile)
         self.assertNotIn("python:3.12-alpine", dockerfile)
+        self.assertIn("git ffmpeg ca-certificates", dockerfile)
+        self.assertIn("ANALYSIS_ENGINE_PORT=8200", dockerfile)
+        self.assertIn(f"GILJOBE_GIT_REF={PINNED_GILJOBE_REF}", dockerfile)
+        self.assertIn("COPY server.py /app/server.py", dockerfile)
+        self.assertIn('CMD ["python", "/app/server.py"]', dockerfile)
+
+    def test_realtime_mmm_ingress_outputs_candidate_safe_per_turn_context(self) -> None:
+        module = load_analysis_engine_wrapper()
+        record = module._public_record({
+            "schema_version": "2026-06-11.realtime-mmm-ingress.v1",
+            "sessionId": "local-demo",
+            "turnId": "2",
+            "turnIndex": 2,
+            "eventKind": "readiness_gate.full_mmm_ready",
+            "readiness": {
+                "full_mmm_ready": True,
+                "state": "full_mmm_ready",
+                "reasonCodes": ["ready"],
+                "lanes": {
+                    "transcript": {"ready": True, "observed": True, "status": "complete"},
+                    "prosody": {"ready": True, "observed": True, "status": "complete"},
+                    "vision": {"ready": True, "observed": True, "status": "complete"},
+                },
+            },
+        })
+        self.assertEqual(record["perTurnMmmResult"]["schemaVersion"], "2026-06-12.per-turn-mmm-result.v1")
+        self.assertTrue(record["perTurnMmmResult"]["ready"])
+        self.assertEqual(record["perTurnMmmResult"]["lanes"]["transcript"]["status"], "complete")
+        fragment = record["candidateSafePromptFragment"]
+        self.assertEqual(fragment["schemaVersion"], "2026-06-12.candidate-safe-prompt-fragment.v1")
+        self.assertIn("full_mmm_ready", fragment["text"])
+        self.assertFalse(fragment["containsRawTranscript"])
+        self.assertFalse(fragment["containsRawMedia"])
+        self.assertFalse(fragment["containsSecrets"])
+
+    def test_realtime_mmm_ingress_rejects_public_raw_media_and_secret_shapes_but_allows_internal_sentence_detail(self) -> None:
+        module = load_analysis_engine_wrapper()
+        for payload in (
+            {"transcript": "raw candidate answer"},
+            {"text": "raw candidate answer"},
+            {"rawMedia": "bytes"},
+            {"provider": {"token": "secret"}},
+        ):
+            self.assertTrue(module._contains_forbidden_raw_field(payload), payload)
+        for payload in (
+            {"detail": {"transcript": "bounded candidate answer"}},
+            {"detail": {"text": "bounded candidate answer", "itemId": "item-1"}},
+            {"detail": {"visionFrame": {"encoding": "image/jpeg;base64", "data": "ZmFrZQ==", "byteLength": 4}}},
+        ):
+            self.assertFalse(module._contains_forbidden_raw_field(payload), payload)
+
+    def test_pinned_giljobe_ref_is_consistent_across_runtime_files(self) -> None:
+        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
+        env_example = (REPO_ROOT / ".env.example").read_text()
+        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
+        for label, text in {
+            "requirements": requirements,
+            "compose": compose,
+            "env_example": env_example,
+            "dockerfile": dockerfile,
+        }.items():
+            self.assertIn(PINNED_GILJOBE_REF, text, label)
+            for old_ref in OLD_GILJOBE_REFS:
+                self.assertNotIn(old_ref, text, label)
+        self.assertIn(f"git+https://github.com/GilJob-E/GilJobE.git@{PINNED_GILJOBE_REF}", requirements)
+        self.assertIn("/realtime/turn-events", requirements)
+
+    def test_grounding_lane_assets_and_toggles_are_wired(self) -> None:
+        """GilJobE objective grounding lanes (vision/prosody): the image must install the
+        extras and bake the MediaPipe models; compose must pass the lane toggles through."""
+        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
+        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
+        env_example = (REPO_ROOT / ".env.example").read_text()
+        self.assertIn("giljobe[vision,prosody]", requirements)
+        self.assertIn("GILJOBE_VISION_MODELS_DIR=/app/models", dockerfile)
+        self.assertIn("face_landmarker.task", dockerfile)
+        self.assertIn("pose_landmarker.task", dockerfile)
+        # Hands lane (GilJobE f7307fc): finger-count segments ride the turn_handoff
+        # fragment; without the baked model the lane silently self-disables.
+        self.assertIn("hand_landmarker.task", dockerfile)
+        # MediaPipe C bindings dlopen GLES/EGL even for CPU inference (verified in-container);
+        # dropping these silently disables the vision lane at runtime.
+        self.assertIn("libegl1", dockerfile)
+        self.assertIn("libgles2", dockerfile)
+        for text in (compose, env_example):
+            self.assertIn("GILJOBE_VISION", text)
+            self.assertIn("GILJOBE_PROSODY", text)
+            # Realtime sentence lane: transcript-source toggle must stay wired and default to sideband.
+            self.assertIn("GILJOBE_TRANSCRIPT_SOURCE", text)
+        self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}", compose)
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        self.assertIn("from giljobe.analysis.grounding import maybe_vision_grounder", wrapper)
+        self.assertIn("_analyze_internal_vision_frame", wrapper)
+        self.assertIn("faceSeenRatio", wrapper)
+        self.assertIn("poseSeenRatio", wrapper)
+
+    def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
+        media_compose = (REPO_ROOT / "infra" / "docker-compose.media.yml").read_text()
+        caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text()
         self.assertIn("analysis-engine:", compose)
         self.assertIn("../services/analysis-engine", compose)
-        self.assertIn("ANALYSIS_ENGINE_ENABLE_SUBSCRIBER", compose)
-        self.assertIn("LIVEKIT_ANALYZER_TOKEN", compose)
-
-    def test_subscriber_start_endpoint_spawns_runtime_without_secret_leaks(self) -> None:
-        class FakeRuntime:
-            def status(self) -> dict[str, object]:
-                return {"state": "stopped"}
-
-            def start(self, *, session_id: str | None = None, critic_mode: str | None = None) -> tuple[int, dict[str, object]]:
-                return 202, {"status": "starting", "sessionId": session_id, "criticMode": critic_mode}
-
-        old_runtime = analysis_engine.RUNTIME
-        analysis_engine.RUNTIME = FakeRuntime()
-        self.addCleanup(lambda: setattr(analysis_engine, "RUNTIME", old_runtime))
-        req = urllib.request.Request(
-            self.base_url + "/subscriber/start",
-            data=json.dumps({"sessionId": "local-demo", "criticMode": "mock"}).encode("utf-8"),
-            method="POST",
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=5) as res:
-            body = res.read().decode("utf-8")
-            status = res.status
-        payload = json.loads(body)
-        self.assertEqual(status, 202)
-        self.assertEqual(payload["status"], "starting")
-        self.assertEqual(payload["sessionId"], "local-demo")
-        self.assertEqual(payload["criticMode"], "mock")
-        self.assertNotIn("LIVEKIT_API_SECRET", body)
-
-    def test_signals_endpoint_returns_transcript_without_secret_or_media_leaks(self) -> None:
-        with tempfile.TemporaryDirectory() as tempdir:
-            old_signal_dir = analysis_engine.SIGNAL_DIR
-            analysis_engine.SIGNAL_DIR = pathlib.Path(tempdir)
-            self.addCleanup(lambda: setattr(analysis_engine, "SIGNAL_DIR", old_signal_dir))
-            signal_path = pathlib.Path(tempdir) / "local-demo.jsonl"
-            signal_path.write_text(
-                '\n'.join([
-                    json.dumps({"type": "window", "session_id": "local-demo", "transcript": "안녕하세요"}, ensure_ascii=False),
-                    json.dumps({"type": "turn_end", "session_id": "local-demo", "transcript_full": "안녕하세요 지원자입니다"}, ensure_ascii=False),
-                ]),
-                encoding="utf-8",
-            )
-            status, payload, body = self._get("/signals?sessionId=local-demo")
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["sessionId"], "local-demo")
-        self.assertEqual(payload["recordCount"], 2)
-        self.assertEqual(payload["transcriptFull"], "안녕하세요 지원자입니다")
-        self.assertEqual(payload["windowTranscripts"], ["안녕하세요"])
-        self.assertEqual(payload["rawSecretsExposed"], False)
-        self.assertEqual(payload["rawMediaExposed"], False)
-        self.assertNotIn("LIVEKIT_API_SECRET", body)
-
-    def test_signals_endpoint_rejects_path_traversal_session_id(self) -> None:
-        status, payload, _body = self._get("/signals?sessionId=../local-demo")
-        self.assertEqual(status, 400)
-        self.assertEqual(payload["error"], "invalid_session_id")
-
-    def test_caddy_routes_analysis_prefix_to_analysis_engine(self) -> None:
-        caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text()
+        self.assertIn("VLLM_BASE_URL", compose)
+        self.assertIn("LIVEKIT_URL", compose)
+        self.assertIn("LIVEKIT_TOKEN: ${LIVEKIT_ANALYZER_TOKEN:-}", compose)
+        self.assertIn("LIVEKIT_API_KEY", compose)
+        self.assertIn("LIVEKIT_API_SECRET", compose)
         self.assertIn("handle_path /analysis/*", caddyfile)
         self.assertIn("reverse_proxy analysis-engine:8200", caddyfile)
+        self.assertIn("Legacy scaffold flag", media_compose)
+        self.assertIn("not consulted by the runtime", media_compose)
 
-    def test_subscriber_status_endpoint_reports_runtime_state(self) -> None:
-        status, payload, _body = self._get("/subscriber/status")
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["service"], "analysis-engine")
-        self.assertIn("runtime", payload)
-        self.assertIn("state", payload["runtime"])
-
-    def test_dummy_scenario_replaces_giljobe_runtime_with_signal_contract(self) -> None:
-        old_dummy_runtime = analysis_engine.DUMMY_RUNTIME
-        analysis_engine.DUMMY_RUNTIME = analysis_engine.DummyScenarioRuntime()
-        self.addCleanup(lambda: setattr(analysis_engine, "DUMMY_RUNTIME", old_dummy_runtime))
-        os.environ["ANALYSIS_ENGINE_DUMMY_SCENARIO"] = "hashimoto-report-ui"
-
-        status, payload, body = self._get("/readyz")
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["status"], "ready")
-        self.assertEqual(payload["mode"], "dummy-scenario")
-        self.assertNotIn("LIVEKIT_API_SECRET", body)
-
-        start_req = urllib.request.Request(
-            self.base_url + "/subscriber/start",
-            data=json.dumps({"sessionId": "local-demo", "criticMode": "window"}).encode("utf-8"),
-            method="POST",
-            headers={"Content-Type": "application/json"},
+    def test_docs_describe_giljobe_owned_http_contract(self) -> None:
+        analysis_docs = "\n".join(
+            [
+                (ANALYSIS_ENGINE_ROOT / "README.md").read_text(),
+                (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text(),
+                (ANALYSIS_ENGINE_ROOT / "CLAUDE.md").read_text(),
+            ]
         )
-        with urllib.request.urlopen(start_req, timeout=5) as res:
-            self.assertEqual(res.status, 202)
+        for expected in (
+            "/subscriber/start",
+            "/subscriber/stop",
+            "/signals",
+            "/realtime/turn-events",
+            "/healthz",
+            "/readyz",
+            "token-safe",
+        ):
+            self.assertIn(expected, analysis_docs)
+        self.assertIn("builds GilJobE", analysis_docs)
+        self.assertIn("ANALYSIS_ENGINE_ENABLE_SUBSCRIBER", analysis_docs)
+        self.assertIn("legacy", analysis_docs.lower())
 
-        stop_req = urllib.request.Request(
-            self.base_url + "/subscriber/stop",
-            data=b"{}",
-            method="POST",
-            headers={"Content-Type": "application/json"},
+    def test_root_docs_and_verification_no_longer_reference_deleted_wrapper(self) -> None:
+        root_readme = (REPO_ROOT / "README.md").read_text()
+        verification_runbook = (REPO_ROOT / "docs" / "runbooks" / "verification.md").read_text()
+        analysis_agents = (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text()
+        self.assertIn("services/analysis-engine/server.py", root_readme)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py", verification_runbook)
+        self.assertIn("/realtime/turn-events", analysis_agents)
+        self.assertIn("analysis-engine", analysis_agents)
+
+    def test_no_raw_secret_or_media_examples_in_analysis_docs(self) -> None:
+        docs = "\n".join(
+            path.read_text()
+            for path in [
+                ANALYSIS_ENGINE_ROOT / "README.md",
+                ANALYSIS_ENGINE_ROOT / "AGENTS.md",
+                ANALYSIS_ENGINE_ROOT / "CLAUDE.md",
+                REPO_ROOT / ".env.example",
+            ]
         )
-        with urllib.request.urlopen(stop_req, timeout=5) as res:
-            self.assertEqual(res.status, 200)
-
-        status, payload, body = self._get("/signals?sessionId=local-demo")
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["scenario"], "hashimoto-report-ui")
-        self.assertEqual(payload["recordCount"], 3)
-        self.assertEqual([record["type"] for record in payload["records"]], ["window", "eval", "turn_end"])
-        self.assertIn("objective_vocal", payload["records"][1]["eval"])
-        self.assertIn("objective_visual", payload["records"][1]["eval"])
-        self.assertEqual(payload["rawSecretsExposed"], False)
-        self.assertEqual(payload["rawMediaExposed"], False)
-        self.assertNotIn("LIVEKIT_API_SECRET", body)
-
-    def test_runtime_errors_are_redacted_from_public_status_payloads(self) -> None:
-        secret = "secret-livekit-token-should-not-leak"
-        analysis_engine.RUNTIME._status = {
-            "state": "error",
-            "errorType": "RuntimeError",
-            "errorCode": "subscriber_runtime_error",
-            "endedAt": 1.0,
-        }
-        for path in ("/healthz", "/readyz", "/subscriber/status"):
-            status, payload, body = self._get(path)
-            self.assertIn(status, {200, 503})
-            self.assertNotIn(secret, body)
-            self.assertNotIn("LIVEKIT_API_SECRET", body)
-            self.assertIn("runtime", payload)
-            self.assertNotIn("error", payload["runtime"])
-            self.assertEqual(payload["runtime"].get("errorCode"), "subscriber_runtime_error")
+        forbidden = [
+            "secret-livekit-token-should-not-leak",
+            "LIVEKIT_API_SECRET=devsecret",
+            "access_token=",
+            "join_request=",
+            "raw media bytes",
+        ]
+        for marker in forbidden:
+            self.assertNotIn(marker, docs)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TurnResultsContractTest(unittest.TestCase):
+    """GET /realtime/turn-results — API _fetch_analysis_result가 당겨가는 turn_handoff 운반 계약."""
+
+    def test_turn_results_route_serves_turn_handoff_fragment(self) -> None:
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        self.assertIn('web.get("/realtime/turn-results"', wrapper)
+        self.assertIn("from giljobe.emit.handoff import render_prompt_fragment", wrapper)
+        self.assertIn("candidatePromptFragment", wrapper)
+        # 구 핀 강등(ImportError → None) + 턴 미완결 pending — API 409 게이트와 정합
+        self.assertIn("render_prompt_fragment = None", wrapper)
+        self.assertIn('"status": "pending"', wrapper)
+        # 활성/last/session-wide 폴백 금지 — exact turn-keyed RNAS storage only.
+        self.assertIn("rnas.turn_result(interview_id, turn_index)", wrapper)
+        self.assertIn("no_exact_turn_result", wrapper)
+        self.assertNotIn("service.signals(None)", wrapper)
+        # exact-turn RNAS: stale/wrong turn handoffs must degrade to pending
+        self.assertIn("_turn_handoff_matches_requested_turn", wrapper)
+        self.assertIn("requested_turn_index", wrapper)
+
+    def test_realtime_native_analysis_session_is_exact_turn_keyed_and_requires_all_lanes(self) -> None:
+        module = load_analysis_engine_wrapper()
+        rnas = module._EventOnlyRealtimeTurns()
+        start = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_started"})
+        self.assertTrue(start["accepted"])
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.vad.speech_started", "detail": {"audioStartMs": 120, "rawAudioIncluded": False}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.vad.speech_stopped", "detail": {"audioEndMs": 1780, "rawAudioIncluded": False}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "prosody.window_metrics", "detail": {"energy": 0.3, "rawAudioIncluded": False}})
+        rnas.ingest({
+            "interviewId": "demo",
+            "turnIndex": 1,
+            "eventKind": "vision.frame_metrics",
+            "detail": {
+                "visionSignals": {"cameraEnabled": True, "faceVisible": True, "personVisible": True, "averageLuma": 80, "frameAvailable": True},
+                "visionFrame": {"encoding": "image/jpeg;base64", "data": "ZmFrZQ==", "byteLength": 4, "width": 2, "height": 2},
+            },
+        })
+        end = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_ended"})
+        self.assertTrue(end["accepted"])
+        ready = rnas.turn_result("demo", 1)
+        self.assertEqual(ready["status"], "ready")
+        self.assertEqual(ready["turnIndex"], 1)
+        self.assertIn("candidatePromptFragment", ready)
+        self.assertEqual(ready["schemaVersion"], "2026-06-13.rnas-turn-result.v2")
+        self.assertIn("candidateSafePromptFragment", ready)
+        self.assertEqual(ready["visionSignals"]["status"], "frame_observed")
+        self.assertEqual(ready["visionSignals"]["sampledFrameCount"], 1)
+        self.assertTrue(ready["visionSignals"]["faceVisible"])
+        self.assertTrue(ready["visionSignals"]["personVisible"])
+        self.assertEqual(ready["visionSignals"]["objectiveVisionStatus"], "frame_decode_failed")
+        self.assertIn("카메라 신호상 후보자 얼굴", ready["nextQuestionGuidance"])
+        self.assertNotIn("MMM", ready["nextQuestionGuidance"])
+        self.assertIn("transcriptSignals", ready)
+        self.assertIn("prosodySignals", ready)
+        self.assertEqual(ready["prosodySignals"]["status"], "timing_observed")
+        self.assertEqual(ready["prosodySignals"]["speechDurationMs"], 1660)
+        self.assertEqual(ready["prosodySignals"]["energyMean"], 0.3)
+        self.assertFalse(ready["prosodySignals"]["rawAudioIncluded"])
+        self.assertIn("behavioralSignals", ready)
+        self.assertIn("nextQuestionGuidance", ready)
+        self.assertFalse(ready["rawTranscriptLogged"])
+        self.assertEqual(rnas.turn_result("demo", 2)["reason"], "no_exact_turn_result")
+        self.assertEqual(rnas.turn_result("other", 1)["reason"], "no_exact_turn_result")
+
+    def test_realtime_guidance_can_ack_camera_face_visibility_without_claiming_direct_video(self) -> None:
+        module = load_analysis_engine_wrapper()
+        guidance = module._next_question_guidance(
+            {"observed": True, "specificityScore": 0.4, "hasNumbers": False, "questionLike": True},
+            {
+                "observed": True,
+                "sampledFrameCount": 1,
+                "faceVisible": True,
+                "personVisible": True,
+                "objectiveVisionStatus": "analyzed",
+            },
+        )
+        self.assertIn("카메라 신호상 후보자 얼굴이 프레임 안에 확인", guidance)
+        self.assertIn("후보자가 화면 확인을 물으면", guidance)
+        self.assertIn("영상을 직접 본다고 말하거나", guidance)
+        self.assertNotIn("MMM", guidance)
+        self.assertNotIn("직접 봤", guidance)
+
+    def test_realtime_native_analysis_session_missing_lane_stays_pending(self) -> None:
+        module = load_analysis_engine_wrapper()
+        rnas = module._EventOnlyRealtimeTurns()
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_started"})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
+        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_ended"})
+        pending = rnas.turn_result("demo", 1)
+        self.assertEqual(pending["status"], "pending")
+        self.assertIn(pending["reason"], {"missing_prosody", "missing_vision"})
+
+    def test_turn_results_loads_with_legacy_pin_mocks(self) -> None:
+        # giljobe.emit.handoff가 없는(구 핀) 모킹 환경에서도 래퍼 로드는 성공해야 한다
+        module = load_analysis_engine_wrapper()
+        self.assertTrue(hasattr(module, "_realtime_turn_results"))
+        self.assertIsNone(module.render_prompt_fragment)
+
+    def test_turn_results_exact_turn_guard_rejects_wrong_stale_or_ambiguous_handoff(self) -> None:
+        module = load_analysis_engine_wrapper()
+        handoff = {"meta": {"turnIndex": 3, "coverage": {"transcript": True}}}
+        payload = {"sessionId": "local-demo", "turnHandoff": handoff}
+
+        self.assertTrue(module._turn_handoff_matches_requested_turn(payload, handoff, 3))
+        self.assertFalse(module._turn_handoff_matches_requested_turn(payload, handoff, 2))
+        self.assertFalse(module._turn_handoff_matches_requested_turn({"turnHandoff": {"meta": {}}}, {"meta": {}}, 3))
+
+    def test_turn_results_exact_turn_guard_accepts_record_backed_event_only_fallback(self) -> None:
+        module = load_analysis_engine_wrapper()
+        handoff = {"meta": {"coverage": {"transcript": True}}}
+        payload = {
+            "sessionId": "local-demo",
+            "turnHandoff": handoff,
+            "records": [
+                {"type": "sentence", "turnIndex": 4},
+                {"type": "turn_end", "turnIndex": 4},
+            ],
+        }
+
+        self.assertTrue(module._turn_handoff_matches_requested_turn(payload, handoff, 4))
+        self.assertFalse(module._turn_handoff_matches_requested_turn(payload, handoff, 5))

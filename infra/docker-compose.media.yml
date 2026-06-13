@@ -8,6 +8,7 @@ services:
   api:
     environment:
       LIVEKIT_REQUIRED: "true"
+      LIVEKIT_MEDIA_OVERLAY_ENABLED: "true"
       LIVEKIT_URL: ${LIVEKIT_URL:-}
       LIVEKIT_INTERNAL_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
       LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:?set LIVEKIT_PUBLIC_URL before enabling media overlay}
@@ -19,7 +20,8 @@ services:
     environment:
       LIVEKIT_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
       LIVEKIT_SESSION_ID: ${LIVEKIT_SESSION_ID:-local-demo}
-      # Keep disabled by default until the runtime subscriber loop is implemented and explicitly smoke-tested.
+      # Legacy scaffold flag. The GilJobE server (python -m giljobe.server) starts the subscriber
+      # per turn via POST /subscriber/start, so this value is not consulted by the runtime.
       ANALYSIS_ENGINE_ENABLE_SUBSCRIBER: ${ANALYSIS_ENGINE_ENABLE_SUBSCRIBER:-false}
     depends_on:
       - livekit

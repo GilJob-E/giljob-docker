@@ -122,7 +122,33 @@ def issue_candidate_livekit_token(*, room_name: str, session_id: str) -> dict[st
     """Return the LiveKit object for the public session response."""
     identity = f"candidate-{session_id}"
     participant_name = "candidate"
-    settings = load_livekit_settings()
+
+    if not _env_truthy(os.getenv("LIVEKIT_MEDIA_OVERLAY_ENABLED")):
+        return {
+            "url": None,
+            "publicUrl": None,
+            "roomName": room_name,
+            "participantIdentity": identity,
+            "participantName": participant_name,
+            "candidateToken": None,
+            "tokenStatus": "not_configured",
+            "deferredReason": "livekit_media_overlay_disabled",
+        }
+
+    try:
+        settings = load_livekit_settings()
+    except LiveKitConfigurationError:
+        return {
+            "url": None,
+            "publicUrl": None,
+            "roomName": room_name,
+            "participantIdentity": identity,
+            "participantName": participant_name,
+            "candidateToken": None,
+            "tokenStatus": "not_configured",
+            "deferredReason": "livekit_deferred_for_realtime_primary",
+            "requiredForRealtimePrimary": False,
+        }
 
     if settings is None:
         return {
@@ -166,7 +192,33 @@ def issue_avatar_viewer_livekit_token(*, room_name: str, session_id: str) -> dic
     """
     identity = f"avatar-viewer-{session_id}"
     participant_name = "spatialreal-avatar-viewer"
-    settings = load_livekit_settings()
+
+    if not _env_truthy(os.getenv("LIVEKIT_MEDIA_OVERLAY_ENABLED")):
+        return {
+            "url": None,
+            "publicUrl": None,
+            "roomName": room_name,
+            "participantIdentity": identity,
+            "participantName": participant_name,
+            "avatarClientToken": None,
+            "tokenStatus": "not_configured",
+            "deferredReason": "livekit_media_overlay_disabled",
+        }
+
+    try:
+        settings = load_livekit_settings()
+    except LiveKitConfigurationError:
+        return {
+            "url": None,
+            "publicUrl": None,
+            "roomName": room_name,
+            "participantIdentity": identity,
+            "participantName": participant_name,
+            "avatarClientToken": None,
+            "tokenStatus": "not_configured",
+            "deferredReason": "livekit_deferred_for_realtime_primary",
+            "requiredForRealtimePrimary": False,
+        }
 
     if settings is None:
         return {

@@ -13,7 +13,7 @@ GilJob v2 runs on one server with Docker Compose. Public access must support fro
 - `/api/internal/*` is blocked at public ingress and protected again by API middleware
 - browser accesses frontend/API over HTTPS/WSS
 - LiveKit/TURN must be smoke-tested from a different network before demo readiness
-- Postgres/Redis/AI Engine/Agent1 internal ports are not public
+- Postgres/Redis/analysis-engine/Agent1 internal ports are not public
 
 The reopened question is whether to use Caddy, Nginx, or a split ingress shape.
 

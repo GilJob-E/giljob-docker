@@ -12,11 +12,11 @@
         <span class="brand-mark" aria-hidden="true">G</span>
         <span>GilJob</span>
       </a>
-      <nav class="nav-pill-group" aria-label="Interview flow steps">
-        <a >New</a>
-        <a class="active">Lobby</a>
-        <a >Room</a>
-        <a >Report</a>
+      <nav class="nav-pill-group" aria-label="Interview setup steps">
+        <a href="/interviews/new">New</a>
+        <a class="active" href="/interviews/local-demo/lobby">Lobby</a>
+        <a href="/interviews/local-demo/room">Room</a>
+        <a href="/interviews/local-demo/report">Report</a>
       </nav>
       <div class="nav-actions">
         <span class="nav-mode">Pre-join</span>
@@ -26,94 +26,44 @@
 
     <main>
       <section class="hero-band landing-hero" aria-labelledby="page-title">
-        <section class="hero-app-mockup-card setup-card lobby-readiness-card" aria-labelledby="lobby-title">
+        <div class="hero-copy">
+          <p class="badge-pill">Production flow · Step 2</p>
+          <h1 id="page-title">입장 전 lobby</h1>
+          <p class="lede">
+            Production에서는 lobby가 장치/권한/네트워크 readiness를 확인하고 candidate에게 면접 맥락을 보여줍니다.
+            현재 slice에서는 실제 media permission은 room route에서만 시작하고, lobby는 route 계약과 상태 설명을 담당합니다.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button button-primary" href="/interviews/local-demo/room">Interview Room 입장</a>
+            <a class="button button-secondary" href="/interviews/new">설정으로 돌아가기</a>
+          </div>
+          <div class="trust-row" aria-label="Lobby constraints">
+            <span>No LiveKit token in URL</span>
+            <span>No media auto-start</span>
+            <span>Readiness gate</span>
+          </div>
+        </div>
+
+        <section class="hero-app-mockup-card setup-card" aria-labelledby="lobby-title">
           <div class="mockup-topbar" aria-hidden="true">
             <span></span><span></span><span></span>
           </div>
-
-          <div class="lobby-split-layout">
-            
-            <div class="lobby-left-pane">
-              <div class="mockup-header">
-                <div>
-                  <p class="mockup-kicker">Pre-join lobby</p>
-                  <h2 id="lobby-title">면접 전 확인</h2>
-                </div>
-                <span id="lobby-readiness-status" class="status" role="status">점검 전</span>
-              </div>
-
-              <div class="readiness-group">
-                <p class="readiness-group-title">세션 구성요소</p>
-                <ol class="pipeline-list lobby-checklist" id="lobby-session-summary" aria-label="면접 세션 구성요소">
-                  <li><span>이력서</span><small id="summary-resume" data-field="cvFileName">미설정</small></li>
-                  <li><span>모집 공고</span><small id="summary-job" data-field="jobUrl">미설정</small></li>
-                  <li><span>면접관</span><small id="summary-interviewer" data-field="interviewer">기본 면접관</small></li>
-                  <li class="active"><span>면접 세션 ID</span><small id="summary-session" data-field="sessionId">확인 전</small></li>
-                </ol>
-              </div>
+          <div class="mockup-header">
+            <div>
+              <p class="mockup-kicker">Pre-join lobby</p>
+              <h2 id="lobby-title">면접 전 확인</h2>
             </div>
-
-            <div class="lobby-right-pane">
-              <div class="readiness-group device-check" aria-labelledby="device-check-title">
-                <p class="readiness-group-title" id="device-check-title">Device check · 장치 점검</p>
-
-                <div class="device-row">
-                  <div class="device-row-head">
-                    <span class="device-label">마이크</span>
-                    <span id="mic-status" class="device-state" role="status">대기</span>
-                  </div>
-                  <label class="device-select-label" for="mic-device">입력 장치</label>
-                  <select id="mic-device" class="device-select" disabled>
-                    <option>마이크 테스트를 시작하면 표시됩니다</option>
-                  </select>
-                  <div class="mic-meter" aria-hidden="true">
-                    <span id="mic-meter-fill" class="mic-meter-fill"></span>
-                  </div>
-                  <button id="mic-test" class="button button-secondary device-button" type="button" aria-pressed="false">마이크 테스트 시작</button>
-                </div>
-
-                <div class="device-row">
-                  <div class="device-row-head">
-                    <span class="device-label">카메라</span>
-                    <span id="cam-status" class="device-state" role="status">대기</span>
-                  </div>
-                  <div class="cam-preview">
-                    <video id="cam-video" autoplay muted playsinline hidden></video>
-                    <span id="cam-placeholder" class="cam-placeholder">미리보기를 켜면 카메라 영상이 표시됩니다</span>
-                  </div>
-                  <button id="cam-test" class="button button-secondary device-button" type="button" aria-pressed="false">카메라 미리보기 켜기</button>
-                </div>
-              </div>
-
-              <div class="lobby-action-group">
-                <p class="note">마이크에 대고 말하면 입력 레벨 막대가 실시간으로 움직입니다. 막대가 반응하면 마이크가 정상입니다.</p>
-                <a id="enter-room" class="button button-primary full-width" href="/interviews/local-demo/room" aria-disabled="true">방으로 입장</a>
-                <p id="enter-room-hint" class="enter-hint">마이크와 카메라를 모두 점검하면 입장할 수 있습니다.</p>
-              </div>
-            </div>
-            
+            <span class="status">Ready</span>
           </div>
+          <ol class="pipeline-list lobby-checklist">
+            <li class="active"><span>Interview session</span><small>local-demo</small></li>
+            <li><span>CV / job context</span><small>placeholder</small></li>
+            <li><span>Persona / avatar</span><small>placeholder</small></li>
+            <li><span>Device check</span><small>next slice</small></li>
+          </ol>
+          <p class="note">이 페이지는 production route scaffold입니다. 다음 slice에서 camera/mic preview를 room에서 lobby로 이동할 수 있습니다.</p>
+          <a class="button button-primary full-width" href="/interviews/local-demo/room">방으로 입장</a>
         </section>
-      </section>
-
-      <div class="section-divider"><span>면접 전 숙지사항</span></div>
-
-      <section class="feature-band" aria-label="면접 전 숙지사항">
-        <article class="feature-card">
-          <span class="feature-icon">01</span>
-          <h3>조용한 공간에서 진행하세요</h3>
-          <p>카메라·마이크 사용을 허용하고, 주변 소음이 적고 얼굴이 잘 보이는 환경에서 면접을 진행해 주세요. 안정적인 인터넷 연결이 필요합니다.</p>
-        </article>
-        <article class="feature-card">
-          <span class="feature-icon">02</span>
-          <h3>질문이 끝난 뒤 답변하세요</h3>
-          <p>면접관의 질문이 끝나면 ‘답변 시작’ 버튼이 활성화됩니다. 버튼을 누르고 답변한 뒤, 말을 마치면 다시 눌러 답변을 마무리합니다.</p>
-        </article>
-        <article class="feature-card">
-          <span class="feature-icon">03</span>
-          <h3>표정·음성·답변이 함께 평가됩니다</h3>
-          <p>또렷한 발화와 자연스러운 자세가 도움이 됩니다. 정해진 정답을 맞히기보다, 솔직하고 구체적으로 답변하는 데 집중하세요.</p>
-        </article>
       </section>
     </main>
 
@@ -134,7 +84,5 @@
         </div>
       </div>
     </footer>
-
-    <script type="module" src="/lobby.js"></script>
   </body>
 </html>
