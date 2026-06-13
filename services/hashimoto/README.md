@@ -67,10 +67,10 @@ returned for a disallowed URL.
 ```
 Before the first analysis completes: `200 { "ready": false, "as_of_turn_id": null, "interaction_strategy": null }`.
 
-## Consumption (AI engine side)
-The AI engine pulls `/strategy` with a short timeout and merges the package into its question prompt as guidance only. If hashimoto is cold (`ready=false`) or unreachable, the AI engine generates from the transcript alone. hashimoto must never block question generation.
+## Consumption (Realtime API side)
+The Realtime API pulls `/strategy` while preparing `/api/interviews/{interviewId}/turns/{turnIndex}/realtime/response` and merges the package into the server-authored `response.create` instructions as guidance only. If hashimoto is cold (`ready=false`), stale (`as_of_turn_id` does not match the prior answer turn), or unreachable, the API generates from the analysis-engine result alone. hashimoto must never block question generation.
 
-**Wiring:** the AI engine consumes hashimoto only when `HASHIMOTO_BASE_URL` is set. In `infra/docker-compose.yml` the `ai-engine` service defaults it to `http://hashimoto:8200` (and `depends_on: hashimoto`). The pull is non-blocking and best-effort (0.3s timeout); on any cold/slow/error state the AI engine falls back to transcript-only prompting — graceful degradation. Set `HASHIMOTO_BASE_URL=` (empty) to disable consumption entirely.
+**Wiring:** the API consumes hashimoto only when `HASHIMOTO_BASE_URL` is set. In `infra/docker-compose.yml` the `api` service defaults it to `http://hashimoto:8200`; hashimoto remains internal-only. The pull is non-blocking and best-effort (`HASHIMOTO_STRATEGY_TIMEOUT_SECONDS`, default `0.5`); on any cold/slow/error state the API falls back to analysis-engine guidance. Set `HASHIMOTO_BASE_URL=` (empty) to disable consumption entirely.
 
 > `as_of_turn_id` reports the turn whose analysis the returned package was actually computed from (set when the background worker completes), **not** merely the last submitted turn. A turn that was submitted but not yet analyzed is never reported here, so `as_of_turn_id` always matches the package contents.
 
