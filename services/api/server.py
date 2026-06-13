@@ -794,6 +794,7 @@ def _extract_analysis_result(payload: dict[str, Any]) -> dict[str, Any] | None:
         return payload
     return None
 
+
 def _analysis_result_gate_failure(result: dict[str, Any] | None, interview_id: str, turn_index: int) -> tuple[str, str] | None:
     if result is None:
         return ("analysis_result_unavailable", "structured_analysis_required")
@@ -801,40 +802,6 @@ def _analysis_result_gate_failure(result: dict[str, Any] | None, interview_id: s
     if status != "ready":
         return ("analysis_result_not_ready", "ready_analysis_result_required")
     return None
-
-
-def _extract_turn_index(value: object) -> int | None:
-    if isinstance(value, int) and value >= 0:
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    return None
-
-
-def _analysis_result_matches_turn(result: dict[str, Any], expected_turn_index: int) -> bool:
-    for key in ("turnIndex", "turn_index", "answerTurnIndex", "analysisTurnIndex"):
-        observed = _extract_turn_index(result.get(key))
-        if observed is not None:
-            return observed == expected_turn_index
-    turn_id = _safe_str(result.get("turnId") or result.get("turn_id"), 32)
-    return not turn_id or turn_id == str(expected_turn_index)
-
-
-def _extract_turn_index(value: object) -> int | None:
-    if isinstance(value, int) and value >= 0:
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    return None
-
-
-def _analysis_result_matches_turn(result: dict[str, Any], expected_turn_index: int) -> bool:
-    for key in ("turnIndex", "turn_index", "answerTurnIndex", "analysisTurnIndex"):
-        observed = _extract_turn_index(result.get(key))
-        if observed is not None:
-            return observed == expected_turn_index
-    turn_id = _safe_str(result.get("turnId") or result.get("turn_id"), 32)
-    return not turn_id or turn_id == str(expected_turn_index)
 
 
 def _fetch_analysis_result(interview_id: str, turn_index: int) -> tuple[dict[str, Any] | None, dict[str, object]]:
