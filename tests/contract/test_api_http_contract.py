@@ -213,25 +213,31 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(public["roomName"], "giljob-session-local-demo")
         self.assertEqual(set(SESSION_HASH_STORE), {"local-demo"})
 
-    def test_create_session_realtime_metadata_includes_safe_experimental_avatar_bridge_sibling(self) -> None:
+    def test_create_session_realtime_metadata_includes_safe_sdk_mode_sibling(self) -> None:
         status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"local-demo"}')
         self.assertEqual(status, 201, body)
         payload = json.loads(body)
         self.assertIn("realtime", payload)
-        self.assertIn("realtimeAvatarBridge", payload)
-        bridge = payload["realtimeAvatarBridge"]
+        self.assertIn("avatarSdkMode", payload)
+        self.assertNotIn("realtimeAvatarBridge", payload)
+        sdk_mode = payload["avatarSdkMode"]
 
-        self.assertEqual(bridge["mode"], "experimental-openai-realtime-audio-to-avatar")
-        self.assertEqual(bridge["status"], "blocked")
-        self.assertFalse(bridge["enabled"])
-        self.assertEqual(bridge["directProviderRoutes"], "blocked")
-        self.assertEqual(bridge["controlBoundary"], "api-metadata-and-browser-livekit-publication")
-        self.assertEqual(bridge["requiresFeatureFlag"], "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED")
-        self.assertFalse(bridge["providerSecretsExposed"])
-        self.assertFalse(bridge["rawMediaExposed"])
-        self.assertFalse(bridge["rawTranscriptExposed"])
-        self.assertIn("experimental", bridge["description"].lower())
-        self.assertIn("blocked", bridge["blockedOutcome"].lower())
+        self.assertEqual(sdk_mode["mode"], "spatialreal-non-livekit-sdk-mode")
+        self.assertEqual(sdk_mode["transport"], "direct-sdk")
+        self.assertEqual(sdk_mode["status"], "deferred")
+        self.assertEqual(sdk_mode["outcome"], "sdk_mode_deferred")
+        self.assertFalse(sdk_mode["enabled"])
+        self.assertFalse(sdk_mode["livekitRequired"])
+        self.assertEqual(sdk_mode["directProviderRoutes"], "blocked")
+        self.assertEqual(sdk_mode["requiresFeatureFlag"], "SPATIALREAL_SDK_MODE_WEB_ENABLED")
+        self.assertFalse(sdk_mode["providerSecretsExposed"])
+        self.assertFalse(sdk_mode["rawMediaExposed"])
+        self.assertFalse(sdk_mode["rawTranscriptExposed"])
+        self.assertEqual(sdk_mode["audioInput"]["format"], "pcm16")
+        self.assertEqual(sdk_mode["audioInput"]["channels"], 1)
+        self.assertTrue(sdk_mode["audioInput"]["mutedUntilVerified"])
+        self.assertIn("sdk mode", sdk_mode["description"].lower())
+        self.assertIn("sdk_mode_deferred", sdk_mode["blockedOutcome"].lower())
 
         serialized = json.dumps(payload, ensure_ascii=False)
         forbidden = [
@@ -243,6 +249,9 @@ class ApiHttpContractTest(unittest.TestCase):
             "raw media bytes",
             "raw candidate",
             "v=0",
+            "experimental-openai-realtime-audio-to-avatar",
+            "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED",
+            "AvatarPlayer.publishAudio",
         ]
         for marker in forbidden:
             with self.subTest(marker=marker):
@@ -1144,6 +1153,15 @@ class ApiHttpContractTest(unittest.TestCase):
         delivery = payload.get("delivery")
         if isinstance(delivery, dict):
             self.assertNotEqual(delivery.get("source"), "ai-engine")
+        self.assertIn("sdkMode", payload)
+        self.assertNotIn("bridge", payload)
+        sdk_mode = payload["sdkMode"]
+        self.assertEqual(sdk_mode["mode"], "spatialreal-non-livekit-sdk-mode")
+        self.assertEqual(sdk_mode["transport"], "direct-sdk")
+        self.assertFalse(sdk_mode["livekitRequired"])
+        self.assertEqual(sdk_mode["requiresFeatureFlag"], "SPATIALREAL_SDK_MODE_WEB_ENABLED")
+        self.assertFalse(sdk_mode["providerSecretsExposed"])
+        self.assertFalse(sdk_mode["rawMediaExposed"])
         if payload.get("error") == "deprecated_ai_engine_removed":
             self.assertEqual(payload.get("reason"), "realtime_only")
         else:
