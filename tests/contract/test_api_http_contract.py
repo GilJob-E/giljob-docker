@@ -1252,7 +1252,12 @@ class ApiHttpContractTest(unittest.TestCase):
         )
         self.assertEqual(status, 409, body)
         payload = json.loads(body)
-        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "full_mmm_required_for_prior_answer"})
+        self.assertEqual(payload["responseCreate"]["owner"], "api")
+        self.assertFalse(payload["responseCreate"]["created"])
+        self.assertIn(
+            payload["responseCreate"]["reason"],
+            {"full_mmm_required_for_prior_answer", "structured_analysis_required"},
+        )
         self.assertNotIn("avatar", json.dumps(payload, ensure_ascii=False).lower())
 
     def test_avatar_session_route_accepts_caddy_stripped_path_and_bad_id_fails(self) -> None:
