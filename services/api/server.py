@@ -452,28 +452,34 @@ def _env_enabled(name: str, default: str = "true") -> bool:
     return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
-def _avatar_bridge_metadata() -> dict[str, object]:
-    enabled = _env_enabled("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", "false")
+def _avatar_sdk_mode_metadata() -> dict[str, object]:
+    enabled = _env_enabled("SPATIALREAL_SDK_MODE_WEB_ENABLED", "false")
+    outcome = os.getenv("SPATIALREAL_SDK_MODE_OUTCOME", "sdk_mode_deferred").strip() or "sdk_mode_deferred"
     return {
         "enabled": enabled,
-        "browserAudioBridgeEnabled": enabled,
-        "mode": "experimental-openai-realtime-audio-to-avatar",
-        "status": "enabled" if enabled else "blocked",
+        "mode": "spatialreal-non-livekit-sdk-mode",
+        "transport": "direct-sdk",
+        "status": "enabled" if enabled else "deferred",
+        "outcome": outcome,
+        "livekitRequired": False,
         "directProviderRoutes": "blocked",
-        "controlBoundary": "api-metadata-and-browser-livekit-publication",
-        "requiresFeatureFlag": "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED",
+        "requiresFeatureFlag": "SPATIALREAL_SDK_MODE_WEB_ENABLED",
         "providerSecretsExposed": False,
         "rawMediaExposed": False,
         "rawTranscriptExposed": False,
-        "sourceTrack": "openai-realtime-remote-audio",
-        "target": "spatialreal-avatarplayer-publishAudio",
-        "experimental": True,
         "defaultEnabled": False,
         "tokenHidden": True,
         "rawMediaLogged": False,
         "requiresKiostationBrowserProof": True,
-        "description": "Experimental browser bridge probe from OpenAI Realtime remote audio to SpatialReal AvatarPlayer; disabled by default.",
-        "blockedOutcome": "blocked until the server flag is enabled and kiostation browser QA verifies bridge support.",
+        "audioInput": {
+            "format": "pcm16",
+            "channels": 1,
+            "sampleRateHz": 16000,
+            "source": "openai-realtime-output-audio",
+            "mutedUntilVerified": True,
+        },
+        "description": "Browser-safe SpatialReal SDK Mode metadata; disabled/deferred until kiostation proof verifies the non-LiveKit PCM audio-feed lifecycle.",
+        "blockedOutcome": "sdk_mode_deferred until SDK Mode Web package/API and muted PCM16 audio feed are verified on kiostation.",
     }
 
 
@@ -2067,7 +2073,7 @@ def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[i
             "error": "deprecated_ai_engine_removed",
             "reason": "realtime_only",
             "client": client,
-            "bridge": _avatar_bridge_metadata(),
+            "sdkMode": _avatar_sdk_mode_metadata(),
             "delivery": {
                 "mode": "api-owned-avatar-session",
                 "source": "api",
@@ -2155,7 +2161,7 @@ class Handler(BaseHTTPRequestHandler):
                 HASHIMOTO_SESSION_SEEDS[session_id] = seed
                 HASHIMOTO_BOOTSTRAPPED_SESSIONS.discard(session_id)
         public["realtime"] = _realtime_route_config(session_id)
-        public["realtimeAvatarBridge"] = _avatar_bridge_metadata()
+        public["avatarSdkMode"] = _avatar_sdk_mode_metadata()
         SESSION_HASH_STORE[str(stored["sessionId"])] = stored
         self._json(201, public)
 
