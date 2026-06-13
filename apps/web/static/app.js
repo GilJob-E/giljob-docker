@@ -72,8 +72,8 @@ const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
 const SPATIALREAL_SDK_MODE_WEB_ENABLED = "SPATIALREAL_SDK_MODE_WEB_ENABLED";
 const SPATIALREAL_SDK_MODE_OUTCOME = "sdk_mode_deferred";
-const SPATIALREAL_SDK_MODE = "spatialreal-non-livekit-sdk-mode";
-const SPATIALREAL_SDK_TRANSPORT = "direct-sdk";
+const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
+const SPATIALREAL_SDK_TRANSPORT = "spatialreal-sdk-websocket";
 const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
 const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
 const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
@@ -660,7 +660,7 @@ function avatarSdkMissingMetadataReason(payload = activeAvatarSession) {
 
 async function importSpatialRealAvatarKit() {
   try {
-    return await import("/vendor/@spatialwalk/avatarkit/dist/index.js");
+    return await import("@spatialwalk/avatarkit");
   } catch (error) {
     throw new Error(`sdk_import_failed:${errorMessage(error)}`);
   }
@@ -1279,8 +1279,8 @@ async function initializeSpatialRealSdkAvatar(payload) {
   avatarSdkInitializePromise = (async () => {
     const metadata = avatarSdkClientMetadata(payload);
     const sdk = await importSpatialRealAvatarKit();
-    const { AvatarSDK, AvatarManager, AvatarView, DrivingServiceMode } = sdk;
-    if (!AvatarSDK || !AvatarManager?.shared || !AvatarView) {
+    const { AvatarSDK, AvatarManager, DrivingServiceMode } = sdk;
+    if (!AvatarSDK || !AvatarManager?.shared || !sdk.AvatarView) {
       throw new Error("sdk_exports_unavailable");
     }
     await AvatarSDK.initialize(metadata.appId, {
@@ -1295,7 +1295,7 @@ async function initializeSpatialRealSdkAvatar(payload) {
       throw new Error("avatar_render_target_missing");
     }
     avatarRenderTarget.replaceChildren();
-    const avatarView = new AvatarView(avatar, avatarRenderTarget);
+    const avatarView = new sdk.AvatarView(avatar, avatarRenderTarget);
     const controller = avatarView.controller;
     const muteMethod = setAvatarSdkMuted(controller);
     await controller.initializeAudioContext();
