@@ -324,6 +324,10 @@ class WebStaticContractTest(unittest.TestCase):
             "function avatarSdkBeginResponseFeed",
             "function avatarSdkEndResponseFeed",
             "AVATAR_PCM_END_GRACE_MS",
+            "AVATAR_PCM_TAIL_SILENCE_MS",
+            "AVATAR_PCM_MAX_DRAIN_MS",
+            "AVATAR_PCM_NO_SPEECH_DRAIN_MS",
+            "AVATAR_PCM_TAIL_POLL_MS",
             "avatar SDK PCM chunk",
             "avatarSdkResponseFeedActive",
             "interviewer-audio-element-capture",
@@ -357,7 +361,14 @@ class WebStaticContractTest(unittest.TestCase):
 
         self.assertIn("waitForFullMmmReady", body)
         self.assertIn("avatarSdkPcmStats", body)
-        self.assertIn("avatar SDK response feed grace", body)
+        self.assertIn("lastSpeechAt", body)
+        self.assertIn("lastChunkAt", body)
+        self.assertIn("avatar SDK PCM tail drain started", body)
+        self.assertIn("avatar SDK PCM tail drain continuing", body)
+        self.assertIn("avatar SDK PCM tail drain ending", body)
+        self.assertIn("tail_silence", body)
+        self.assertIn("max_drain", body)
+        self.assertIn("no_speech_drain_timeout", body)
         self.assertIn("avatar SDK PCM bridge idle during response feed", body)
         self.assertIn("Realtime remote audio track observed for interviewer playback; avatar SDK PCM16 adapter waits for response feed", body)
         self.assertIn("SpatialReal SDK owns audible playback for lip-sync", body)
