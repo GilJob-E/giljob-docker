@@ -314,7 +314,9 @@ class WebStaticContractTest(unittest.TestCase):
             "AvatarSDK.setSessionToken",
             "AvatarManager.shared.load",
             "new sdk.AvatarView",
-            "controller.setVolume(0)",
+            "AVATAR_SDK_SYNCED_PLAYBACK_VOLUME",
+            "setAvatarSdkPlaybackVolume",
+            "Realtime direct audio output",
             "controller.send",
             "PCM16",
             "sendAvatarSdkPcmChunk(controller, pcm, false)",
@@ -325,6 +327,8 @@ class WebStaticContractTest(unittest.TestCase):
             "avatar SDK PCM chunk",
             "avatarSdkResponseFeedActive",
             "interviewer-audio-element-capture",
+            "realtime-remote-track-pre-output",
+            "spatialreal-sdk-synced-playback",
             "waiting for Realtime response feed",
             "PCM feed opens when SDK is ready and silence is gated until speech",
             "first question waits for avatar session readiness check",
@@ -355,7 +359,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("avatarSdkPcmStats", body)
         self.assertIn("avatar SDK response feed grace", body)
         self.assertIn("avatar SDK PCM bridge idle during response feed", body)
-        self.assertIn("Realtime remote audio track observed for interviewer playback; avatar SDK muted PCM16 adapter waits for response feed", body)
+        self.assertIn("Realtime remote audio track observed for interviewer playback; avatar SDK PCM16 adapter waits for response feed", body)
+        self.assertIn("SpatialReal SDK owns audible playback for lip-sync", body)
+        self.assertIn("Realtime direct audio muted for lip-sync", body)
         self.assertIn("avatar SDK response feed active from", body)
         self.assertIn("realtime-connected-avatar-checked", body)
         self.assertIn("avatar SDK connection wait before first Realtime question", body)
