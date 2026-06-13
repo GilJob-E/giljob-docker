@@ -95,6 +95,45 @@ class RealtimeSmokeReadinessContractTest(unittest.TestCase):
         self.assertIn("REALTIME_MMM_FORWARD_ENABLED=true", env_example)
         self.assertNotIn("OPENAI_REALTIME_API_KEY", env_example)
 
+    def test_docs_and_env_separate_livekit_free_main_path_from_optional_avatar_media(self) -> None:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        architecture = (REPO_ROOT / "docs" / "architecture.noml").read_text(encoding="utf-8")
+        verification_runbook = (REPO_ROOT / "docs" / "runbooks" / "verification.md").read_text(encoding="utf-8")
+
+        required_readme_terms = [
+            "LiveKit is not required for the main Realtime/MMM path",
+            "OpenAI Realtime owns STT/VAD/interviewer audio",
+            "turn 1 bootstrap",
+            "turn N>=2",
+            "exact prior-turn full MMM readiness",
+            "SpatialReal SDK Mode",
+            "Host Mode fallback",
+            "Avatar disabled/deferred",
+        ]
+        for term in required_readme_terms:
+            with self.subTest(term=term):
+                self.assertIn(term, readme)
+
+        self.assertIn("Default Realtime/MMM variables", env_example)
+        self.assertIn("Optional legacy LiveKit/AvatarKit RTC variables", env_example)
+        self.assertLess(env_example.index("OPENAI_REALTIME_PRIMARY=true"), env_example.index("Optional legacy LiveKit/AvatarKit RTC variables"))
+        self.assertIn("LIVEKIT_REQUIRED=false", env_example)
+        self.assertIn("ANALYSIS_ENGINE_ENABLE_SUBSCRIBER=false", env_example)
+        self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED=false", env_example)
+        self.assertIn("SPATIALREAL_SDK_MODE_OUTCOME=sdk_mode_deferred", env_example)
+
+        forbidden_main_path_claims = [
+            "LiveKit candidate join token 발급",
+            "LiveKit 자동 join",
+            "LIVEKIT_PUBLIC_URL is required for the main Realtime/MMM path",
+            "SpatialReal avatar is production lip-sync ready",
+        ]
+        combined = "\n".join([readme, architecture, verification_runbook])
+        for phrase in forbidden_main_path_claims:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, combined)
+
 
 if __name__ == "__main__":
     unittest.main()

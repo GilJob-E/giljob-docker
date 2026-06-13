@@ -17,12 +17,14 @@ class RealtimeMigrationInfraContractTest(unittest.TestCase):
         self.assertNotIn('"7881:7881"', base_compose)
         self.assertNotIn('"50000-50100:50000-50100/udp"', base_compose)
         self.assertIn("LIVEKIT_REQUIRED: ${LIVEKIT_REQUIRED:-false}", base_compose)
+        self.assertIn("LIVEKIT_MEDIA_OVERLAY_ENABLED: ${LIVEKIT_MEDIA_OVERLAY_ENABLED:-false}", base_compose)
 
     def test_media_overlay_is_explicit_fail_closed_compatibility_path(self) -> None:
         media_compose = (INFRA_ROOT / "docker-compose.media.yml").read_text(encoding="utf-8")
         self.assertIn("Optional media ingress overlay", media_compose)
         self.assertIn("fail-closed", media_compose)
         self.assertIn('LIVEKIT_REQUIRED: "true"', media_compose)
+        self.assertIn('LIVEKIT_MEDIA_OVERLAY_ENABLED: "true"', media_compose)
         self.assertIn("LIVEKIT_PUBLIC_URL:?set LIVEKIT_PUBLIC_URL", media_compose)
         self.assertIn("LIVEKIT_API_KEY:?set LIVEKIT_API_KEY", media_compose)
         self.assertIn("LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET", media_compose)

@@ -11,7 +11,7 @@ This module owns the session/token API scaffold. Follow the root `AGENTS.md` plu
 - Fail closed for production secret requirements and required LiveKit configuration.
 - Broker browser-facing interview question, TTS, and avatar-session routes to internal `ai-engine` routes; never expose provider keys, raw session tokens, or internal upstream error bodies.
 - Broker OpenAI Realtime session metadata and WebRTC SDP attach with server-only provider keys. Return only redacted route/session metadata; do not require browser-direct provider calls.
-- Record bounded Realtime transcript/prosody/vision sideband events and expose `full_mmm_ready` gating; do not accept or log raw audio/video media through these routes.
+- Record bounded Realtime transcript/prosody/vision sideband events and expose `full_mmm_ready` gating. Transcript text and low-resolution vision samples may travel only on the internal API→analysis-engine sideband; do not persist or log raw transcript/audio/video media through these routes.
 - Keep direct `/ai/*`, `/tts/*`, and `/avatar/*` provider paths blocked at ingress; browser code should use `/api/interviews/...` routes.
 
 ## Forbidden changes

@@ -96,6 +96,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("질문 준비 중", body)
         self.assertIn("current-question-title", body)
         self.assertIn("transcript-body", body)
+        self.assertIn("mmm-debug-summary", body)
+        self.assertIn("Operator MMM debug", body)
+        self.assertIn("readiness/response", body)
         self.assertIn("interviewer-question-text", body)
         self.assertIn("avatar-surface", body)
         self.assertIn("avatar-status-text", body)
@@ -128,25 +131,46 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);", body)
         self.assertIn(".room-context-drawer {", body)
         self.assertIn("position: static;", body)
-        self.assertIn("#transcript-body { white-space: pre-wrap; }", body)
+        self.assertIn("#transcript-body {", body)
+        self.assertIn("max-height: min(36vh, 420px);", body)
+        self.assertIn(".mmm-debug-summary {", body)
+        self.assertIn("max-height: min(34vh, 360px);", body)
+        self.assertIn(".room-debug-drawer details {", body)
+        self.assertIn("overscroll-behavior: contain;", body)
         self.assertNotIn("right: 24px;", body)
         self.assertNotIn("bottom: 24px;", body)
 
-    def test_app_js_uses_browser_public_url_and_hides_tokens_from_log(self) -> None:
+    def test_app_js_default_room_is_livekit_free_and_hides_tokens_from_log(self) -> None:
         status, content_type, body = self._get("/app.js")
         self.assertEqual(status, 200)
         self.assertIn("text/javascript", content_type)
-        self.assertIn("livekit-client.esm.mjs", body)
-        self.assertIn("@spatialwalk/avatarkit", body)
-        self.assertIn("@spatialwalk/avatarkit-rtc", body)
-        self.assertIn("setLogLevel", body)
-        self.assertIn('setLogLevel("silent")', body)
-        self.assertIn("publicUrl", body)
-        self.assertIn("candidateToken", body)
-        self.assertIn("tokens hidden", body)
+
+        # Default interview path is Realtime + API sideband MMM. It must not join
+        # LiveKit or instantiate AvatarKit RTC before Realtime can start.
+        forbidden_default_livekit_shapes = [
+            "livekit-client.esm.mjs",
+            "@spatialwalk/avatarkit-rtc",
+            'setLogLevel("silent")',
+            "function autoJoinRoomRoute",
+            "function sessionLiveKitConfig",
+            "function joinRoom",
+            "new Room",
+            "activeRoom.connect",
+            "candidateToken",
+            "avatarClientToken",
+            "new LiveKitProvider",
+            "new AvatarPlayer",
+            "DrivingServiceMode.host",
+            "publishAudio",
+            "unpublishAudio",
+            "Avatar RTC media muted",
+        ]
+        for forbidden in forbidden_default_livekit_shapes:
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, body)
+
         self.assertIn("function interviewIdFromPath", body)
         self.assertIn("function isProductionRoomPath", body)
-        self.assertIn("function autoJoinRoomRoute", body)
         self.assertIn("data-interview-route", body)
         self.assertIn("navigator.mediaDevices", body)
         self.assertIn("setMicrophoneEnabled", body)
@@ -156,35 +180,39 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("candidate answer turn", body)
         self.assertIn("giljob:interviewer-question-ended", body)
         self.assertIn("lastAnswer", body)
-        self.assertIn("GilJobE analysis-engine", body)
-        self.assertIn("/analysis/signals", body)
-        self.assertIn("candidate-answer-ended-analysis-flushed", body)
-        self.assertIn("function startRealtimeAnalysisTurn", body)
-        self.assertIn("function flushRealtimeAnalysisTurn", body)
-        self.assertIn("await startRealtimeAnalysisTurn(sessionId)", body)
-        self.assertIn("await flushRealtimeAnalysisTurn(analysisSessionId())", body)
-        self.assertIn("turnHandoff not ready after flush", body)
-        self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${currentTurnIndex}/question", body)
+        self.assertIn("candidate-answer-ended-browser-clean-boundary", body)
+        self.assertIn("API sideband", body)
+        self.assertIn("browser analysis control disabled", body)
+        self.assertIn("const mmmDebugSummary", body)
+        self.assertIn("function renderMmmDebug", body)
+        self.assertIn("isForbiddenDebugKey", body)
+        self.assertIn("/mmm-ready", body)
+        self.assertIn("/realtime/response", body)
+        self.assertIn("analysisResult.confidence", body)
+        self.assertIn("analysisEngine.endpoint", body)
+        self.assertIn("captureInternalVisionFrame", body)
+        self.assertIn("visionFrame", body)
+        self.assertIn("internalVisionFrameIncluded", body)
+        self.assertIn("raw media not logged", body)
+        self.assertIn("LiveKit-free Realtime main path", body)
+        self.assertIn("Avatar disabled/deferred", body)
+        self.assertIn("SpatialReal SDK Mode", body)
+
+        # Browser must relay API-owned Realtime commands and never author prompts,
+        # provider calls, or analysis workers itself.
+        self.assertNotIn("subscriber", body)
+        self.assertNotIn("/analysis/subscriber", body)
+        self.assertNotIn("/subscriber/start", body)
+        self.assertNotIn("/subscriber/stop", body)
+        self.assertNotIn("/analysis/signals", body)
+        self.assertNotIn("function startRealtimeAnalysisTurn", body)
+        self.assertNotIn("function flushRealtimeAnalysisTurn", body)
+        self.assertNotIn("function sendRealtimeTranscriptToConversation", body)
+        self.assertNotIn("conversation.item.create", body)
+        self.assertNotIn("Realtime transcript injected into conversation context", body)
         self.assertNotIn("/ai/interview/next-question", body)
-        self.assertIn("function requestAvatarSession", body)
-        self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/avatar/session", body)
-        self.assertIn("session token hidden", body)
-        self.assertIn("renderAvatarState", body)
-        self.assertIn("post-TTS WAV/PCM audio", body)
-        self.assertIn("OpenAI Realtime remote audio는 SpatialReal에 주입하지 않으며", body)
-        self.assertIn("Realtime interviewer audio와 별개", body)
-        self.assertIn("Avatar RTC media muted to avoid dual-audio drift with OpenAI Realtime output", body)
-        self.assertNotIn("Realtime remote audio is injected into SpatialReal", body)
-        self.assertIn("function initializeAvatarRtc", body)
-        self.assertIn("AvatarSDK.initialize", body)
-        self.assertIn("DrivingServiceMode.host", body)
-        self.assertIn("new LiveKitProvider", body)
-        self.assertIn("new AvatarPlayer", body)
-        self.assertIn("avatarClientToken", body)
-        self.assertIn("tokens hidden", body)
         self.assertIn("function playInterviewerQuestion", body)
         self.assertIn("function markInterviewerQuestionEnded", body)
-        self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/tts", body)
         self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/realtime/response", body)
         self.assertNotIn("/realtime-response", body)
         self.assertIn("Realtime WebRTC SDP attached through API call broker", body)
@@ -197,13 +225,10 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("peerConnection.addTrack(track, localStream)", body)
         self.assertNotIn('peerConnection.addTransceiver("audio", { direction: "recvonly" })', body)
         self.assertIn("interviewerAudio.play", body)
-        self.assertIn("interviewer tts ready", body)
         self.assertIn("audio hidden", body)
         self.assertNotIn("candidate-answer-ended-no-stt", body)
         self.assertNotIn("/stt/", body)
         self.assertIn("answer start blocked until interviewer question ends", body)
-        self.assertIn("function failClosedAfterJoinMediaError", body)
-        self.assertIn("disconnecting room fail-closed", body)
         self.assertIn("Promise.allSettled", body)
         self.assertIn("aria-pressed", body)
         self.assertIn("setContextDrawerOpen", body)
@@ -218,8 +243,57 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("innerHTML", body)
         self.assertNotIn("localStorage", body)
         self.assertNotIn("SPATIALREAL_API_KEY", body)
+        self.assertNotIn("OPENAI_API_KEY", body)
+        self.assertNotIn("client_secret.value", body)
         self.assertNotIn("/ai/tts", body)
         self.assertNotIn("/tts/synthesize", body)
+
+    def test_app_js_gates_spatialreal_sdk_mode_without_livekit_rtc(self) -> None:
+        status, content_type, body = self._get("/app.js")
+        self.assertEqual(status, 200)
+        self.assertIn("text/javascript", content_type)
+
+        # Any avatar spike must be non-default SDK Mode Web, not the previous
+        # AvatarKit RTC/LiveKit bridge. It remains disabled/deferred unless an
+        # explicit SDK Mode feature flag is enabled.
+        self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED", body)
+        self.assertIn("sdk_mode_deferred", body)
+        self.assertIn("Avatar disabled/deferred", body)
+        self.assertIn("providerSecretsExposed === false", body)
+        self.assertIn("rawMediaExposed === false", body)
+        self.assertNotIn("experimental-openai-realtime-audio-to-avatar", body)
+        self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", body)
+        self.assertNotIn("AvatarPlayer.publishAudio", body)
+        self.assertNotIn("publishAudio(track", body)
+        self.assertNotIn("LiveKitProvider", body)
+        self.assertNotIn("livekit-client", body)
+
+        forbidden_bridge_shapes = [
+            "SPATIALREAL_API_KEY",
+            "OPENAI_API_KEY",
+            "server_secret",
+            "raw offer",
+            "raw media bytes",
+            "raw transcript",
+            "MediaRecorder",
+        ]
+        for forbidden in forbidden_bridge_shapes:
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, body)
+
+    def test_app_js_realtime_lifecycle_order_matrix_is_explicit(self) -> None:
+        body = (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        order_pairs = [
+            ("remoteStream.addTrack(event.track)", "captureRealtimeRemoteAudioTrack(event.track)"),
+            ("remoteStream.addTrack(event.track)", "attachRealtimeRemoteAudio(remoteStream)"),
+            ("response.done", "markInterviewerQuestionEnded"),
+            ("disconnectRealtimeRoom", "realtimeRemoteAudioTrack = null"),
+        ]
+        for before, after in order_pairs:
+            with self.subTest(before=before, after=after):
+                self.assertIn(before, body)
+                self.assertIn(after, body)
+                self.assertLess(body.index(before), body.rindex(after))
 
     def test_styles_are_served_and_path_traversal_is_rejected(self) -> None:
         status, content_type, body = self._get("/styles.css")
@@ -248,28 +322,35 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn('payload["livekit"]', smoke_script)
         self.assertNotIn('candidateToken"], payload', smoke_script)
 
-    def test_package_declares_spatialreal_rtc_compatible_dependencies(self) -> None:
+    def test_package_keeps_livekit_and_avatarkit_rtc_out_of_default_dependencies(self) -> None:
         package_json = json.loads((WEB_ROOT / "package.json").read_text())
-        self.assertEqual(package_json["dependencies"]["livekit-client"], "2.16.1")
-        self.assertEqual(package_json["dependencies"]["@spatialwalk/avatarkit"], "1.0.0-beta.104")
-        self.assertEqual(package_json["dependencies"]["@spatialwalk/avatarkit-rtc"], "1.0.0-beta.10")
+        dependencies = package_json.get("dependencies", {})
+        optional_dependencies = package_json.get("optionalDependencies", {})
+        self.assertNotIn("livekit-client", dependencies)
+        self.assertNotIn("@spatialwalk/avatarkit-rtc", dependencies)
+        # Non-LiveKit SDK Mode Web may keep the base AvatarKit package, but RTC stays optional/legacy-only.
+        if "@spatialwalk/avatarkit" in dependencies:
+            self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED", (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8"))
+        self.assertNotIn("livekit-client", optional_dependencies)
+        self.assertNotIn("@spatialwalk/avatarkit-rtc", optional_dependencies)
 
-    def test_web_dockerfile_vendors_spatialreal_rtc_assets(self) -> None:
+    def test_web_dockerfile_does_not_vendor_livekit_rtc_assets_for_default_path(self) -> None:
         dockerfile = (WEB_ROOT / "Dockerfile").read_text()
-        self.assertIn("node_modules/livekit-client/dist", dockerfile)
-        self.assertIn("node_modules/@spatialwalk/avatarkit/dist", dockerfile)
-        self.assertIn("node_modules/@spatialwalk/avatarkit-rtc/dist", dockerfile)
+        self.assertNotIn("node_modules/livekit-client/dist", dockerfile)
+        self.assertNotIn("node_modules/@spatialwalk/avatarkit-rtc/dist", dockerfile)
+        if "node_modules/@spatialwalk/avatarkit/dist" in dockerfile:
+            self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED", (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8"))
 
-    def test_web_server_serves_allowed_spatialreal_vendor_assets(self) -> None:
+    def test_web_server_does_not_serve_legacy_livekit_rtc_vendor_assets(self) -> None:
         status, content_type, body = self._get("/vendor/@spatialwalk/avatarkit-rtc/dist/index.js")
-        self.assertEqual(status, 200)
-        self.assertIn("text/javascript", content_type)
-        self.assertIn("AvatarPlayer", body)
+        self.assertEqual(status, 404)
+        self.assertIn("application/json", content_type)
+        self.assertEqual(json.loads(body)["error"], "not_found")
 
-        status, content_type, body = self._get("/vendor/@spatialwalk/avatarkit/dist/index.js")
-        self.assertEqual(status, 200)
-        self.assertIn("text/javascript", content_type)
-        self.assertIn("AvatarSDK", body)
+        status, content_type, body = self._get("/vendor/livekit-client/dist/livekit-client.esm.mjs")
+        self.assertEqual(status, 404)
+        self.assertIn("application/json", content_type)
+        self.assertEqual(json.loads(body)["error"], "not_found")
 
 
 if __name__ == "__main__":

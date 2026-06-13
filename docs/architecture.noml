@@ -8,8 +8,9 @@
 
 [<external> 후보자 브라우저|
   /interviews/:id/room
-  LiveKit candidate participant
-  AvatarKit RTC viewer
+  OpenAI Realtime WebRTC participant
+  STT/prosody/vision sideband sender
+  avatar disabled/deferred by default
 ]
 
 [<service> Caddy Ingress|
@@ -22,7 +23,8 @@
 [<service> Web App|
   vanilla HTML/CSS/JS
   production room shell
-  LiveKit 자동 join
+  OpenAI Realtime/MMM primary UI
+  optional legacy LiveKit join
   push-to-talk answer turn UI
   token-safe hidden diagnostics
 ]
@@ -31,10 +33,12 @@
   POST /api/sessions
   session/report token 발급
   purpose-separated hash contract
-  LiveKit candidate token 발급
-  AvatarKit RTC viewer token 발급
+  Realtime session/call broker
+  optional LiveKit token only for media overlay
+  AvatarKit RTC viewer token is legacy/deferred
   /api/interviews/:id/* broker
   Realtime MMM sideband forward
+  exact-turn result gate
 ]
 
 [<store> Postgres|
@@ -59,10 +63,11 @@
 ]
 
 [<analysis> Analysis Engine Service\n(GilJobE)|
-  LiveKit room subscribe participant
-  candidate audio/video track consume
-  GemmaNativeTranscriber STT
-  transcript_full + structured signal emit
+  Realtime sideband MMM/RNAS owner
+  exact-turn result readiness
+  structured candidate-safe result
+  legacy LiveKit subscriber only for compatibility
+  transcript/prosody/vision signal emit
 ]
 
 [<service> OpenAI Realtime API|
@@ -81,10 +86,9 @@
 ]
 
 [<media> SpatialReal Cloud|
-  session token API
-  AvatarKit RTC assets/session
-  TTS audio -> avatar stream
-  LiveKit room publish
+  SDK Mode / Host Mode candidate
+  RTC Mode deprecated/deferred
+  no production lip-sync claim
 ]
 
 [<future> Main LLM / Interview Controller|
@@ -97,22 +101,23 @@
 [Caddy Ingress] - static pages -> [Web App]
 [Caddy Ingress] - /api/* -> [API Service]
 [API Service] - token hash 저장 -> [Postgres]
-[API Service] - candidate room URL + token -> [후보자 브라우저]
-[API Service] - avatar viewer URL + token -> [후보자 브라우저]
-[후보자 브라우저] - direct WebRTC publish/subscribe -> [LiveKit Server]
-[후보자 브라우저] - AvatarKit RTC subscribe -> [LiveKit Server]
+[API Service] - Realtime session/call metadata -> [후보자 브라우저]
+[API Service] - optional media/avatar token only when overlay enabled -> [후보자 브라우저]
+[후보자 브라우저] - optional legacy WebRTC publish/subscribe -> [LiveKit Server]
+[후보자 브라우저] - deprecated AvatarKit RTC subscribe -> [LiveKit Server]
 [후보자 브라우저] - push-to-talk turn_start/turn_end -> [API Service]
 [API Service] - server key -> ephemeral Realtime secret -> [OpenAI Realtime API]
 [후보자 브라우저] - ephemeral SDP attach only -> [OpenAI Realtime API]
 [OpenAI Realtime API] - interviewer audio/transcript events -> [후보자 브라우저]
-[후보자 브라우저] - transcript/prosody/vision sideband -> [API Service]
+[후보자 브라우저] - STT transcript/prosody/low-res vision sideband -> [API Service]
 [API Service] - full_mmm_ready gate -> [후보자 브라우저]
-[API Service] - sanitized MMM events /realtime/turn-events -> [Analysis Engine Service\n(GilJobE)]
-[LiveKit Server] - candidate audio/video tracks -> [Analysis Engine Service\n(GilJobE)]
+[API Service] - internal MMM events /realtime/turn-events -> [Analysis Engine Service\n(GilJobE)]
+[Analysis Engine Service\n(GilJobE)] - exact-turn candidate-safe result -> [API Service]
+[LiveKit Server] - legacy media tracks -> [Analysis Engine Service\n(GilJobE)]
 [Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [API Service]
 [AI Engine] - compatibility TTS/avatar metadata -> [API Service]
-[AI Engine] - session token / egress audio -> [SpatialReal Cloud]
-[SpatialReal Cloud] - avatar stream publish -> [LiveKit Server]
+[AI Engine] - optional post-TTS egress audio -> [SpatialReal Cloud]
+[SpatialReal Cloud] - legacy RTC avatar stream if enabled -> [LiveKit Server]
 [API Service] - response policy context -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
 [후보자 브라우저] - relay 필요 시 -> [coturn]

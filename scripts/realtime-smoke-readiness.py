@@ -194,10 +194,11 @@ def check_mmm_gate(api_url: str, interview_id: str) -> dict[str, Any]:
     })
 
     events = [
-        ("turn_event", "/events", {"type": "analysis.transcript.completed", "normalizedType": "transcript.completed", "transcript": "redacted smoke transcript"}),
-        ("turn_end", "/events", {"type": "turn.answer.end", "normalizedType": "turn.answer_ended", "detail": {"transcriptAvailable": True}}),
+        ("turn_start", "/events", {"type": "turn.answer.start", "normalizedType": "turn.answer_started"}),
+        ("turn_event", "/events", {"type": "analysis.transcript.completed", "normalizedType": "transcript.completed", "detail": {"transcript": "redacted smoke transcript", "itemId": "realtime-smoke-transcript"}}),
         ("vision", "/vision-events", {"type": "vision_metadata", "normalizedType": "vision.frame_metrics", "rawMediaIncluded": False, "video": {"cameraEnabled": True, "width": 640, "height": 480}}),
         ("prosody", "/events", {"type": "prosody.window", "normalizedType": "prosody.window_metrics"}),
+        ("turn_end", "/events", {"type": "turn.answer.end", "normalizedType": "turn.answer_ended", "detail": {"transcriptAvailable": True}}),
     ]
     events_ok = True
     for name, suffix, body in events:
