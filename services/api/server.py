@@ -52,6 +52,7 @@ MAX_REALTIME_VISION_FRAME_BYTES = int(os.getenv("MAX_REALTIME_VISION_FRAME_BYTES
 REALTIME_MMM_EVENT_LOG_PATH = os.getenv("REALTIME_MMM_EVENT_LOG_PATH", "/tmp/giljob-realtime-mmm-events.jsonl")
 REALTIME_MMM_FORWARD_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_FORWARD_TIMEOUT_SECONDS", "2"))
 REALTIME_MMM_RESULT_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_RESULT_TIMEOUT_SECONDS", "1.2"))
+HASHIMOTO_STRATEGY_TIMEOUT_SECONDS = float(os.getenv("HASHIMOTO_STRATEGY_TIMEOUT_SECONDS", "0.5"))
 MAX_REALTIME_INSTRUCTIONS_CHARS = 2_000
 MAX_REALTIME_PROMPT_FRAGMENT_CHARS = 900
 MAX_SDP_CHARS = 64_000
@@ -227,6 +228,125 @@ def _feed_hashimoto_turn(session_id: str, turn_index: int, transcript: str) -> d
     if status in (200, 202):
         return {"attempted": True, "status": status, "endpoint": "/submit_turn"}
     return {"attempted": True, "status": status, "endpoint": "/submit_turn", "error": "hashimoto_feed_failed"}
+
+
+def _hashimoto_turn_id(turn_index: int) -> str:
+    return f"turn_{turn_index:04d}"
+
+
+def _fetch_hashimoto_strategy(session_id: str, expected_turn_id: str) -> tuple[dict[str, Any] | None, dict[str, object]]:
+    base = _hashimoto_base_url()
+    source: dict[str, object] = {
+        "attempted": bool(base),
+        "endpoint": "/strategy",
+        "expectedTurnId": expected_turn_id,
+        "used": False,
+    }
+    if not base:
+        source["reason"] = "disabled"
+        return None, source
+    endpoint = f"{base}/strategy?{urllib.parse.urlencode({'session_id': session_id})}"
+    request = urllib.request.Request(endpoint, method="GET", headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=HASHIMOTO_STRATEGY_TIMEOUT_SECONDS) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            source["status"] = response.status
+    except urllib.error.HTTPError as error:
+        error.read()
+        source["status"] = error.code
+        source["error"] = "hashimoto_strategy_rejected"
+        return None, source
+    except Exception:
+        source["error"] = "hashimoto_strategy_unavailable"
+        return None, source
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        source["error"] = "invalid_hashimoto_strategy"
+        return None, source
+    if not isinstance(parsed, dict):
+        source["error"] = "invalid_hashimoto_strategy"
+        return None, source
+    source["ready"] = bool(parsed.get("ready", False))
+    source["asOfTurnId"] = _safe_str(parsed.get("as_of_turn_id") or parsed.get("asOfTurnId"), 120)
+    source["sessionComplete"] = bool(parsed.get("session_complete") or parsed.get("sessionComplete"))
+    if not source["ready"]:
+        source["reason"] = "not_ready"
+        return None, source
+    if source["asOfTurnId"] != expected_turn_id:
+        source["reason"] = "turn_mismatch"
+        return None, source
+    strategy = parsed.get("interaction_strategy")
+    if not isinstance(strategy, dict):
+        source["reason"] = "missing_strategy"
+        return None, source
+    return strategy, source
+
+
+def _hashimoto_strategy_guidance(strategy: dict[str, Any]) -> str:
+    lines: list[str] = []
+    logic_goal = _candidate_safe_fragment(strategy.get("logic_goal"))
+    if logic_goal:
+        lines.append(f"Goal: {logic_goal}")
+    gap = _candidate_safe_fragment(strategy.get("logical_gap_to_bridge"))
+    if gap:
+        lines.append(f"Gap to clarify: {gap}")
+    persona = strategy.get("interviewer_persona_guidance")
+    if isinstance(persona, dict):
+        intent = _candidate_safe_fragment(persona.get("intent"))
+        if intent:
+            lines.append(f"Intent: {intent}")
+        focus = _candidate_safe_fragment(persona.get("focus_point"))
+        if focus:
+            lines.append(f"Focus: {focus}")
+        emotion = _candidate_safe_fragment(persona.get("emotion_direction"))
+        if emotion:
+            lines.append(f"Tone: {emotion}")
+    context = strategy.get("current_context")
+    if isinstance(context, dict):
+        topic = _candidate_safe_fragment(context.get("topic"))
+        depth = context.get("depth_level")
+        if topic and isinstance(depth, (int, float)):
+            lines.append(f"Current topic: {topic}, depth {int(depth)}")
+        elif topic:
+            lines.append(f"Current topic: {topic}")
+        transition = _candidate_safe_fragment(context.get("transition_hint"))
+        if transition:
+            lines.append(f"Transition hint: {transition}")
+        if context.get("topic_changed") is True:
+            lines.append("The strategy indicates a topic transition; make the next question feel natural.")
+        resolved = context.get("resolved_history")
+        if isinstance(resolved, list) and resolved:
+            summarized: list[str] = []
+            for item in resolved[:3]:
+                if not isinstance(item, dict):
+                    continue
+                proposition = _candidate_safe_fragment(item.get("proposition"))
+                status = _candidate_safe_fragment(item.get("status"))
+                if proposition and status:
+                    summarized.append(f"{proposition} ({status})")
+                elif proposition:
+                    summarized.append(proposition)
+            if summarized:
+                lines.append("Avoid re-asking resolved points: " + "; ".join(summarized))
+    guidance = "\n".join(lines)
+    return _candidate_safe_fragment(guidance)
+
+
+def _safe_hashimoto_strategy_debug(source: dict[str, object] | None) -> dict[str, object]:
+    source = source or {}
+    return {
+        "attempted": bool(source.get("attempted", False)),
+        "endpoint": _safe_str(source.get("endpoint"), 120),
+        "status": source.get("status") if isinstance(source.get("status"), int) else None,
+        "ready": bool(source.get("ready", False)),
+        "used": bool(source.get("used", False)),
+        "asOfTurnId": _safe_str(source.get("asOfTurnId"), 120),
+        "expectedTurnId": _safe_str(source.get("expectedTurnId"), 120),
+        "sessionComplete": bool(source.get("sessionComplete", False)),
+        "reason": _safe_str(source.get("reason"), 120),
+        "error": _safe_str(source.get("error"), 120),
+    }
 
 
 def _redact_provider_error(text: str) -> str:
@@ -1114,17 +1234,42 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
     _log_latency_span("api.analysis.result.ready", 0, status=200, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
+    expected_hashimoto_turn_id = _hashimoto_turn_id(analysis_turn_index)
+    strategy_start = time.perf_counter()
+    hashimoto_strategy, hashimoto_source = _fetch_hashimoto_strategy(interview_id, expected_hashimoto_turn_id)
+    _log_latency_span(
+        "api.hashimoto.strategy.wait",
+        _duration_ms(strategy_start),
+        status=hashimoto_source.get("status") if isinstance(hashimoto_source.get("status"), int) else (200 if hashimoto_strategy else 204),
+        sessionId=interview_id,
+        turnIndex=analysis_turn_index,
+        traceId=_trace_id(interview_id, analysis_turn_index),
+        provider="hashimoto",
+    )
+    strategy_guidance = _hashimoto_strategy_guidance(hashimoto_strategy) if hashimoto_strategy else ""
+    if strategy_guidance:
+        hashimoto_source["used"] = True
+    elif hashimoto_strategy:
+        hashimoto_source["reason"] = "no_safe_guidance"
     instructions = (
         "Use this candidate-safe guidance from the previous answer to ask the next Korean interview question. "
         "Do not mention internal infrastructure, private gating, or analysis labels. "
         f"Guidance: {fragment}"
     )
+    if strategy_guidance:
+        instructions = (
+            f"{instructions}\n\n"
+            "Interview strategy guidance:\n"
+            f"{strategy_guidance}"
+        )
     command = _realtime_response_create_command(instructions)
     analysis_summary = _analysis_result_public_summary(result)
+    hashimoto_summary = _safe_hashimoto_strategy_debug(hashimoto_source)
     REALTIME_RESPONSE_COMMANDS.setdefault(interview_id, {})[turn_index] = {
         "commandType": "response.create",
         "analysisTurnIndex": analysis_turn_index,
         "analysis": analysis_summary,
+        "hashimotoStrategy": hashimoto_summary,
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     _log_latency_span("api.realtime.context.inject", 0, status=200, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="openai-realtime")
@@ -1137,6 +1282,7 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
         "status": "response_create_queued",
         "analysisResult": analysis_summary,
         "analysisEngine": source,
+        "hashimotoStrategy": hashimoto_summary,
         "responseCreate": response_create,
         "mmmDebug": _mmm_debug_envelope(
             interview_id,

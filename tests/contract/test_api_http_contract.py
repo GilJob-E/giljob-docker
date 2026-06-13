@@ -35,6 +35,7 @@ LIVEKIT_ENV_NAMES = (
     "REALTIME_MMM_EVENT_LOG_PATH",
     "REALTIME_MMM_FORWARD_ENABLED",
     "REALTIME_MMM_RESULT_TIMEOUT_SECONDS",
+    "HASHIMOTO_BASE_URL",
     "GILJOBE_VISION",
     "GILJOBE_PROSODY",
     "ELEVENLABS_API_KEY",
@@ -132,6 +133,40 @@ class ApiHttpContractTest(unittest.TestCase):
         self.addCleanup(cleanup)
         host, port = fake_server.server_address
         api_server.ANALYSIS_ENGINE_INTERNAL_URL = f"http://{host}:{port}"
+        return captured
+
+    def _start_fake_hashimoto_strategy(self, payload: dict[str, object], *, status: int = 200) -> list[dict[str, object]]:
+        captured: list[dict[str, object]] = []
+
+        class FakeHashimotoHandler(BaseHTTPRequestHandler):
+            def do_GET(inner_self) -> None:  # noqa: N802 - stdlib callback name
+                captured.append({
+                    "method": "GET",
+                    "path": inner_self.path,
+                    "body": "",
+                })
+                body = json.dumps(payload).encode("utf-8")
+                inner_self.send_response(status)
+                inner_self.send_header("Content-Type", "application/json")
+                inner_self.send_header("Content-Length", str(len(body)))
+                inner_self.end_headers()
+                inner_self.wfile.write(body)
+
+            def log_message(inner_self, format: str, *args: object) -> None:
+                return None
+
+        fake_server = ThreadingHTTPServer(("127.0.0.1", 0), FakeHashimotoHandler)
+        fake_thread = threading.Thread(target=fake_server.serve_forever, daemon=True)
+        fake_thread.start()
+
+        def cleanup() -> None:
+            fake_server.shutdown()
+            fake_server.server_close()
+            fake_thread.join(timeout=2)
+
+        self.addCleanup(cleanup)
+        host, port = fake_server.server_address
+        os.environ["HASHIMOTO_BASE_URL"] = f"http://{host}:{port}"
         return captured
 
     def test_create_session_routes_return_public_tokens_and_store_hashes_only(self) -> None:
@@ -454,6 +489,117 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertNotIn("raw text must not be returned", body)
         for forbidden in ("MMM", "analysis-engine", "backend", "readiness gate"):
             self.assertNotIn(forbidden, payload["sideband"]["command"]["response"]["instructions"])
+
+    def test_realtime_response_create_merges_exact_hashimoto_strategy_guidance(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidateSafePromptFragment": {
+                "schemaVersion": "2026-06-12.candidate-safe-prompt-fragment.v1",
+                "text": "Ask one concise follow-up about production ownership.",
+                "containsRawTranscript": False,
+                "containsRawMedia": False,
+                "containsSecrets": False,
+            },
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        hashimoto = self._start_fake_hashimoto_strategy({
+            "ready": True,
+            "session_id": "local-demo",
+            "as_of_turn_id": "turn_0001",
+            "session_complete": False,
+            "interaction_strategy": {
+                "logic_goal": "Confirm the candidate personally owned a production incident.",
+                "logical_gap_to_bridge": "The prior answer did not explain the decision criteria.",
+                "interviewer_persona_guidance": {
+                    "intent": "Ask for one concrete incident.",
+                    "focus_point": "Their role, decision, and tradeoff.",
+                    "emotion_direction": "Calm and specific.",
+                },
+                "current_context": {
+                    "topic": "production operations",
+                    "depth_level": 2,
+                    "topic_changed": False,
+                    "transition_hint": "Stay on the same topic for one deeper question.",
+                    "resolved_history": [
+                        {"proposition": "They used FastAPI", "status": "covered"},
+                    ],
+                },
+            },
+        })
+
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        instructions = payload["sideband"]["command"]["response"]["instructions"]
+        self.assertIn("Ask one concise follow-up about production ownership.", instructions)
+        self.assertIn("Confirm the candidate personally owned a production incident.", instructions)
+        self.assertIn("Their role, decision, and tradeoff.", instructions)
+        self.assertEqual(payload["hashimotoStrategy"]["used"], True)
+        self.assertEqual(payload["hashimotoStrategy"]["asOfTurnId"], "turn_0001")
+        self.assertEqual(payload["hashimotoStrategy"]["expectedTurnId"], "turn_0001")
+        self.assertEqual(payload["hashimotoStrategy"]["sessionComplete"], False)
+        self.assertEqual(hashimoto[-1]["method"], "GET")
+        self.assertIn("/strategy", hashimoto[-1]["path"])
+        self.assertIn("session_id=local-demo", hashimoto[-1]["path"])
+
+    def test_realtime_response_create_ignores_stale_hashimoto_strategy(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidateSafePromptFragment": {
+                "schemaVersion": "2026-06-12.candidate-safe-prompt-fragment.v1",
+                "text": "Ask from the analysis fragment only.",
+                "containsRawTranscript": False,
+                "containsRawMedia": False,
+                "containsSecrets": False,
+            },
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        self._start_fake_hashimoto_strategy({
+            "ready": True,
+            "session_id": "local-demo",
+            "as_of_turn_id": "turn_0000",
+            "session_complete": False,
+            "interaction_strategy": {
+                "logic_goal": "STALE_STRATEGY_MUST_NOT_APPEAR",
+            },
+        })
+
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"))
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"))
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        instructions = payload["sideband"]["command"]["response"]["instructions"]
+        self.assertIn("Ask from the analysis fragment only.", instructions)
+        self.assertNotIn("STALE_STRATEGY_MUST_NOT_APPEAR", instructions)
+        self.assertEqual(payload["hashimotoStrategy"]["used"], False)
+        self.assertEqual(payload["hashimotoStrategy"]["reason"], "turn_mismatch")
+        self.assertEqual(payload["hashimotoStrategy"]["asOfTurnId"], "turn_0000")
+        self.assertEqual(payload["hashimotoStrategy"]["expectedTurnId"], "turn_0001")
 
     def test_realtime_response_create_rejects_wrong_or_stale_turn_analysis_result(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
