@@ -1312,6 +1312,16 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertNotIn("ai-engine:", compose)
         self.assertIn("ANALYSIS_ENGINE_INTERNAL_URL", compose)
         self.assertIn("http://analysis-engine:8200", compose)
+        for sdk_env_name in (
+            "SPATIALREAL_SDK_MODE_WEB_ENABLED",
+            "SPATIALREAL_APP_ID",
+            "SPATIALREAL_AVATAR_ID",
+            "SPATIALREAL_SESSION_TOKEN",
+            "SPATIALREAL_ENVIRONMENT",
+        ):
+            with self.subTest(sdk_env_name=sdk_env_name):
+                self.assertIn(f"{sdk_env_name}: ${{{sdk_env_name}", compose)
+        self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", compose)
 
 
 if __name__ == "__main__":
