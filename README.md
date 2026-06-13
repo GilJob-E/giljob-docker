@@ -55,7 +55,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 - final report generator
 - production domain/TLS/hardening
 - Redis/event bus 전환
-- SpatialReal avatar/lip-sync production claim. Current outcome is `sdk_mode_deferred`; the next non-LiveKit proof should evaluate SpatialReal SDK Mode Web first, with Host Mode as fallback. Legacy AvatarKit RTC still needs public LiveKit reachability and remains outside the default success claim.
+- SpatialReal avatar/lip-sync production claim. Default outcome is `sdk_mode_deferred`; when explicitly enabled/configured the API should return `sdk_mode_ready`, and the remaining proof is browser SDK initialization plus lip-sync verification. Legacy AvatarKit RTC still needs public LiveKit reachability and remains outside the default success claim.
 
 ## Production UX 기준
 
@@ -82,7 +82,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 Realtime session metadata를 중개하고, 브라우저의 WebRTC SDP attach도 `/api/interviews/:id/realtime/call`을 통해 서버가 수행합니다. 표준 OpenAI API key와 provider route는 브라우저에 노출하지 않습니다.
 7. Realtime turn loop는 `turn 1 bootstrap`만 MMM 없이 시작하고, `turn N>=2`는 직전 답변의 exact-turn RNAS result가 `ready`일 때만 API-authored `response.create`를 허용합니다. 즉 ordinary follow-up은 `exact prior-turn full MMM readiness`가 필요합니다. 브라우저는 API-approved command를 data channel로 relay할 뿐 prompt나 `response.create`를 직접 작성하지 않습니다.
 8. Legacy question/TTS routes are removed from the default path: API returns `deprecated_ai_engine_removed` with `reason=realtime_only`, and OpenAI Realtime-only owns live interviewer voice. Gemini fallback is not supported.
-9. SpatialReal/AvatarKit은 Realtime/MMM 성공 조건과 분리된 opt-in avatar path입니다. 기본값은 `sdk_mode_deferred`지만, `SPATIALREAL_SDK_MODE_WEB_ENABLED=true`와 서버측 `SPATIALREAL_API_KEY`가 있으면 API가 short-lived SpatialReal session token을 발급해 `/api/interviews/:id/avatar/session`에서 browser-approved SDK metadata만 반환합니다.
+9. SpatialReal/AvatarKit은 Realtime/MMM 성공 조건과 분리된 opt-in avatar path입니다. 기본값은 `sdk_mode_deferred`지만, `SPATIALREAL_SDK_MODE_WEB_ENABLED=true`와 서버측 `SPATIALREAL_API_KEY`가 있으면 API가 short-lived SpatialReal session token을 발급해 `/api/interviews/:id/avatar/session`에서 `sdk_mode_ready` browser-approved SDK metadata만 반환합니다.
 10. SpatialReal SDK Mode Web은 LiveKit 없이 브라우저에서 `@spatialwalk/avatarkit`을 초기화하고, OpenAI Realtime output audio의 muted PCM16 copy를 avatar controller에 feed하는 구조입니다. 이 token broker는 provider key를 브라우저에 노출하지 않으며, production lip-sync claim은 kiostation browser proof가 있어야만 가능합니다.
 11. `SPATIALREAL_RTC_LIVEKIT_URL`은 legacy RTC egress를 켤 때만 필요하며 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다. OpenAI Realtime remote audio를 SpatialReal에 주입하는 production bridge가 아니므로 Realtime avatar lip-sync claim에 쓰지 않습니다.
 12. Legacy AvatarKit RTC/LiveKit bridge flags are not part of the default Realtime/MMM/SDK path. Do not reintroduce `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED` or browser-direct provider routes for this path.
@@ -337,7 +337,7 @@ npm run check:js
 cd ../..
 ```
 
-Default Realtime/MMM 개발은 SpatialReal/LiveKit package 설치나 `LIVEKIT_PUBLIC_URL`에 의존하지 않습니다. `@spatialwalk/avatarkit-rtc` / `livekit-client` 호환성은 legacy avatar RTC path에서만 lockfile과 contract tests 기준으로 유지합니다. SDK Mode Web spike는 별도 증거가 생기기 전까지 `sdk_mode_deferred`입니다.
+Default Realtime/MMM 개발은 SpatialReal/LiveKit package 설치나 `LIVEKIT_PUBLIC_URL`에 의존하지 않습니다. `@spatialwalk/avatarkit-rtc` / `livekit-client` 호환성은 legacy avatar RTC path에서만 lockfile과 contract tests 기준으로 유지합니다. SDK Mode Web spike는 feature flag/credentials 없이는 `sdk_mode_deferred`이고, flag/credentials가 있으면 API bootstrap은 `sdk_mode_ready`여야 합니다.
 
 ### 5. Compose config 확인
 
@@ -426,11 +426,11 @@ Kiostation evidence rule:
 
 ### SpatialReal SDK Mode Web spike status
 
-Current default outcome: `sdk_mode_deferred`. When explicitly enabled and configured, the API uses server-side `SPATIALREAL_API_KEY` to mint a short-lived SpatialReal session token and returns `client.spatialrealSdk` from `/api/interviews/{id}/avatar/session`. The token broker sends an explicit `SPATIALREAL_TOKEN_BROKER_USER_AGENT` because Python urllib's default signature can be blocked by SpatialReal's Cloudflare layer. The browser then initializes `@spatialwalk/avatarkit`, mutes SDK playback, and feeds a PCM16 mono 16 kHz copy of OpenAI Realtime output to the avatar controller. Record `sdk_mode_verified`, `sdk_mode_blocked_provider_token_broker`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred` from kiostation browser QA; do not claim production lip-sync until that proof exists.
+Current default outcome: `sdk_mode_deferred`. When explicitly enabled and configured, the API uses server-side `SPATIALREAL_API_KEY` to mint a short-lived SpatialReal session token and returns `sdk_mode_ready` plus `client.spatialrealSdk` from `/api/interviews/{id}/avatar/session`. The token broker sends an explicit `SPATIALREAL_TOKEN_BROKER_USER_AGENT` because Python urllib's default signature can be blocked by SpatialReal's Cloudflare layer. The browser then initializes `@spatialwalk/avatarkit`, mutes SDK playback, and feeds a PCM16 mono 16 kHz copy of OpenAI Realtime output to the avatar controller. Record `sdk_mode_ready`, `sdk_mode_verified`, `sdk_mode_blocked_provider_token_broker`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred` from kiostation browser QA; do not claim production lip-sync until that proof exists.
 
 ### SpatialReal SDK Mode / Host Mode fallback status
 
-`SPATIALREAL_SDK_MODE_WEB_ENABLED=false` and `SPATIALREAL_SDK_MODE_OUTCOME=sdk_mode_deferred` keep the stable default unchanged: OpenAI Realtime remains the only audible interviewer voice path, MMM readiness still gates ordinary `response.create`, and avatar rendering is disabled/deferred. The browser may display only safe SDK Mode status metadata; it must not expose provider secrets, raw media, transcripts, or direct provider routes. If SDK Mode Web cannot be verified on kiostation, Host Mode fallback is the next evaluation path.
+`SPATIALREAL_SDK_MODE_WEB_ENABLED=false` keeps the stable default `sdk_mode_deferred` unchanged: OpenAI Realtime remains the only audible interviewer voice path, MMM readiness still gates ordinary `response.create`, and avatar rendering is disabled/deferred. The browser may display only safe SDK Mode status metadata; it must not expose provider secrets, raw media, transcripts, or direct provider routes. If SDK Mode Web cannot be verified on kiostation, Host Mode fallback is the next evaluation path.
 
 임시 개발용 quick tunnel 예시:
 
