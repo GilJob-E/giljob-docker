@@ -74,6 +74,17 @@ The AI engine pulls `/strategy` with a short timeout and merges the package into
 
 > `as_of_turn_id` reports the turn whose analysis the returned package was actually computed from (set when the background worker completes), **not** merely the last submitted turn. A turn that was submitted but not yet analyzed is never reported here, so `as_of_turn_id` always matches the package contents.
 
+## Feed (Realtime API producer side)
+The API is the producer in the realtime runtime: it receives each completed answer
+transcript on `/api/interviews/{interviewId}/turns/{turnIndex}/events`, seeds
+hashimoto with `POST /session` once (from `/api/sessions` fields such as
+`candidateProfile`, `resumeText`, and URL-valued `job`), then forwards the completed
+answer with `POST /submit_turn`. The feed is best-effort, gated on
+`HASHIMOTO_BASE_URL`, and exposes only metadata such as `attempted`, `status`, and
+`reason` in the public API response; raw transcript text is never echoed back.
+`session_id` is the interview/session id and `turn_id` is `turn_{turnIndex:04d}`, so
+hashimoto's `(session_id, turn_id)` dedup absorbs retries.
+
 ## JD (job-description) focus keywords
 Optional. Pass `job_url` to `POST /session`; the posting is fetched once at engine
 creation and analyzed into session focus keywords carried as metadata in the strategy

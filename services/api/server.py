@@ -62,6 +62,9 @@ SESSION_HASH_STORE: dict[str, dict[str, object]] = {}
 REALTIME_TURN_STATE: dict[str, dict[int, dict[str, object]]] = {}
 REALTIME_RESPONSE_COMMANDS: dict[str, dict[int, dict[str, object]]] = {}
 REALTIME_MMM_EVENT_LOG_LOCK = threading.Lock()
+HASHIMOTO_SESSION_SEEDS: dict[str, dict[str, str]] = {}
+HASHIMOTO_BOOTSTRAPPED_SESSIONS: set[str] = set()
+HASHIMOTO_FEED_LOCK = threading.Lock()
 
 
 def _duration_ms(start: float) -> int:
@@ -142,6 +145,88 @@ def _safe_sdp(value: object, max_len: int = MAX_SDP_CHARS) -> str:
     if normalized:
         normalized += "\r\n"
     return normalized[:max_len]
+
+
+def _hashimoto_base_url() -> str:
+    return os.getenv("HASHIMOTO_BASE_URL", "").strip().rstrip("/")
+
+
+def _post_hashimoto(path: str, body: dict[str, object], timeout: float = 0.5) -> int | None:
+    base = _hashimoto_base_url()
+    if not base:
+        return None
+    request = urllib.request.Request(
+        f"{base}{path}",
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response.read()
+            return response.status
+    except urllib.error.HTTPError as error:
+        error.read()
+        return error.code
+    except Exception:
+        return None
+
+
+def _hashimoto_seed_from_session_payload(payload: dict[str, Any]) -> dict[str, str]:
+    seed: dict[str, str] = {}
+    resume_text = _safe_str(
+        payload.get("resume_text")
+        or payload.get("resumeText")
+        or payload.get("candidateProfile")
+        or "",
+        20_000,
+    ).strip()
+    if resume_text:
+        seed["resume_text"] = resume_text
+    job = _safe_str(payload.get("job_url") or payload.get("jobUrl") or payload.get("job") or "", 2_048).strip()
+    if job[:4].lower() == "http":
+        seed["job_url"] = job
+    return seed
+
+
+def _ensure_hashimoto_session(session_id: str) -> bool:
+    with HASHIMOTO_FEED_LOCK:
+        if session_id in HASHIMOTO_BOOTSTRAPPED_SESSIONS:
+            return True
+        seed = dict(HASHIMOTO_SESSION_SEEDS.get(session_id, {}))
+    if not seed:
+        return False
+    body: dict[str, object] = {"session_id": session_id, **seed}
+    if _post_hashimoto("/session", body, timeout=4.0) not in (200, 201):
+        return False
+    with HASHIMOTO_FEED_LOCK:
+        HASHIMOTO_BOOTSTRAPPED_SESSIONS.add(session_id)
+    return True
+
+
+def _feed_hashimoto_turn(session_id: str, turn_index: int, transcript: str) -> dict[str, object]:
+    if not _hashimoto_base_url():
+        return {"attempted": False, "reason": "disabled"}
+    if not transcript.strip():
+        return {"attempted": False, "reason": "empty_transcript"}
+    if not _ensure_hashimoto_session(session_id):
+        return {"attempted": False, "reason": "missing_session_seed"}
+    turn_id = f"turn_{turn_index:04d}"
+    status = _post_hashimoto(
+        "/submit_turn",
+        {"session_id": session_id, "turn_id": turn_id, "text": transcript},
+    )
+    if status == 404:
+        with HASHIMOTO_FEED_LOCK:
+            HASHIMOTO_BOOTSTRAPPED_SESSIONS.discard(session_id)
+        if _ensure_hashimoto_session(session_id):
+            status = _post_hashimoto(
+                "/submit_turn",
+                {"session_id": session_id, "turn_id": turn_id, "text": transcript},
+            )
+    if status in (200, 202):
+        return {"attempted": True, "status": status, "endpoint": "/submit_turn"}
+    return {"attempted": True, "status": status, "endpoint": "/submit_turn", "error": "hashimoto_feed_failed"}
 
 
 def _redact_provider_error(text: str) -> str:
@@ -230,6 +315,15 @@ def _contains_non_empty_transcript(payload: dict[str, Any]) -> bool:
     if isinstance(detail, dict):
         candidates.extend([detail.get("transcript"), detail.get("text")])
     return any(_safe_str(value, 400).strip() for value in candidates)
+
+
+def _transcript_from_realtime_event(payload: dict[str, Any]) -> str:
+    detail = payload.get("detail")
+    if isinstance(detail, dict):
+        transcript = _safe_str(detail.get("transcript") or detail.get("text") or "", 8_000)
+        if transcript:
+            return transcript
+    return _safe_str(payload.get("transcript") or payload.get("text") or "", 8_000)
 
 
 def _env_enabled(name: str, default: str = "true") -> bool:
@@ -1090,6 +1184,7 @@ def record_realtime_turn_event(interview_id: str, turn_index: int, payload: dict
         state["vision_observed"] = True
     if kind == "readiness_gate.full_mmm_ready":
         state["readiness_marker_observed"] = True
+    engine_detail = _sideband_detail_for_engine(payload)
     public = {
         "interviewId": interview_id,
         "turnIndex": turn_index,
@@ -1099,8 +1194,10 @@ def record_realtime_turn_event(interview_id: str, turn_index: int, payload: dict
         "rawTranscriptLogged": False,
         "delivery": _realtime_delivery("api-mediated-realtime-turn-event"),
         "readiness": _readiness_payload(interview_id, turn_index),
-        "ingress": _record_realtime_mmm_ingress(interview_id, turn_index, kind, "turn-events", engine_detail=_sideband_detail_for_engine(payload)),
+        "ingress": _record_realtime_mmm_ingress(interview_id, turn_index, kind, "turn-events", engine_detail=engine_detail),
     }
+    if kind in {"transcript.completed", "analysis.transcript.completed"}:
+        public["hashimoto"] = _feed_hashimoto_turn(interview_id, turn_index, _transcript_from_realtime_event(payload))
     return _return_with_latency(202, public, start, "api.realtime.turn_event.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
 
 
@@ -1551,6 +1648,11 @@ class Handler(BaseHTTPRequestHandler):
         stored = issued["stored"]
         public = issued["public"]
         session_id = str(public.get("sessionId") or stored["sessionId"])
+        seed = _hashimoto_seed_from_session_payload(body)
+        if seed:
+            with HASHIMOTO_FEED_LOCK:
+                HASHIMOTO_SESSION_SEEDS[session_id] = seed
+                HASHIMOTO_BOOTSTRAPPED_SESSIONS.discard(session_id)
         public["realtime"] = _realtime_route_config(session_id)
         public["realtimeAvatarBridge"] = _avatar_bridge_metadata()
         SESSION_HASH_STORE[str(stored["sessionId"])] = stored
