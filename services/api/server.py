@@ -451,15 +451,26 @@ def _env_enabled(name: str, default: str = "true") -> bool:
     return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
-def _avatar_sdk_mode_metadata() -> dict[str, object]:
-    enabled = _env_enabled("SPATIALREAL_SDK_MODE_WEB_ENABLED", "false")
-    outcome = os.getenv("SPATIALREAL_SDK_MODE_OUTCOME", "sdk_mode_deferred").strip() or "sdk_mode_deferred"
+def _spatialreal_sdk_audio_format() -> dict[str, object]:
     return {
-        "enabled": enabled,
+        "encoding": "pcm16",
+        "channelCount": 1,
+        "sampleRateHz": 16000,
+        "source": "openai-realtime-output-audio",
+        "mutedUntilVerified": True,
+    }
+
+
+def _avatar_sdk_mode_metadata(*, enabled: bool | None = None, status: str | None = None, outcome: str | None = None, reason: str | None = None) -> dict[str, object]:
+    sdk_enabled = _env_enabled("SPATIALREAL_SDK_MODE_WEB_ENABLED", "false") if enabled is None else enabled
+    resolved_status = status or ("ready" if sdk_enabled else "deferred")
+    resolved_outcome = outcome or ("sdk_mode_ready" if resolved_status == "ready" else "sdk_mode_deferred")
+    metadata: dict[str, object] = {
+        "enabled": sdk_enabled,
         "mode": "spatialreal-sdk-mode-web",
         "transport": "spatialreal-sdk-websocket",
-        "status": "enabled" if enabled else "deferred",
-        "outcome": outcome,
+        "status": resolved_status,
+        "outcome": resolved_outcome,
         "livekitRequired": False,
         "directProviderRoutes": "blocked",
         "requiresFeatureFlag": "SPATIALREAL_SDK_MODE_WEB_ENABLED",
@@ -470,16 +481,37 @@ def _avatar_sdk_mode_metadata() -> dict[str, object]:
         "tokenHidden": True,
         "rawMediaLogged": False,
         "requiresKiostationBrowserProof": True,
-        "audioFormat": {
-            "encoding": "pcm16",
-            "channelCount": 1,
-            "sampleRateHz": 16000,
-            "source": "openai-realtime-output-audio",
-            "mutedUntilVerified": True,
-        },
-        "description": "Browser-safe SpatialReal SDK Mode metadata; disabled/deferred until kiostation proof verifies the non-LiveKit PCM audio-feed lifecycle.",
+        "audioFormat": _spatialreal_sdk_audio_format(),
+        "description": "Browser-safe SpatialReal SDK Mode metadata for non-LiveKit AvatarKit SDK Mode Web.",
         "blockedOutcome": "sdk_mode_deferred until SDK Mode Web package/API and muted PCM16 audio feed are verified on kiostation.",
     }
+    if reason:
+        metadata["reason"] = reason
+    return metadata
+
+
+def _spatialreal_sdk_client_config() -> tuple[dict[str, object] | None, list[str]]:
+    app_id = os.getenv("SPATIALREAL_APP_ID", "").strip()
+    avatar_id = os.getenv("SPATIALREAL_AVATAR_ID", "").strip()
+    session_token = os.getenv("SPATIALREAL_SESSION_TOKEN", "").strip()
+    environment = os.getenv("SPATIALREAL_ENVIRONMENT", "intl").strip() or "intl"
+    missing = [
+        name for name, value in (
+            ("SPATIALREAL_APP_ID", app_id),
+            ("SPATIALREAL_AVATAR_ID", avatar_id),
+            ("SPATIALREAL_SESSION_TOKEN", session_token),
+        ) if not value
+    ]
+    if missing:
+        return None, missing
+    return {
+        "appId": app_id,
+        "avatarId": avatar_id,
+        "sessionToken": session_token,
+        "environment": environment,
+        "audioFormat": {"encoding": "pcm16", "channelCount": 1, "sampleRateHz": 16000},
+        "tokenPolicy": "qa-only-manual-session-token-or-api-brokered-short-lived-token",
+    }, []
 
 
 def _readiness_payload(interview_id: str, turn_index: int) -> dict[str, object]:
@@ -2056,24 +2088,72 @@ def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[i
     start = time.perf_counter()
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
+
+    if not _env_enabled("SPATIALREAL_SDK_MODE_WEB_ENABLED", "false"):
+        return _return_with_latency(
+            202,
+            {
+                "interviewId": interview_id,
+                "provider": "spatialreal",
+                "ready": False,
+                "status": "deferred",
+                "reason": "sdk_flag_disabled",
+                "sdkMode": _avatar_sdk_mode_metadata(enabled=False, status="deferred", outcome="sdk_mode_deferred", reason="sdk_flag_disabled"),
+                "delivery": {
+                    "mode": "api-owned-avatar-session",
+                    "source": "api",
+                    "publicDirectAvatarRoutes": "blocked",
+                },
+            },
+            start,
+            "api.avatar_session.deferred",
+            session_id=interview_id,
+            provider="api-owned",
+        )
+
+    client_config, missing = _spatialreal_sdk_client_config()
+    if client_config is None:
+        return _return_with_latency(
+            409,
+            {
+                "interviewId": interview_id,
+                "provider": "spatialreal",
+                "ready": False,
+                "status": "blocked",
+                "reason": "spatialreal_config_missing",
+                "missing": missing,
+                "sdkMode": _avatar_sdk_mode_metadata(enabled=True, status="blocked", outcome="sdk_mode_blocked_missing_provider_token", reason="spatialreal_config_missing"),
+                "delivery": {
+                    "mode": "api-owned-avatar-session",
+                    "source": "api",
+                    "publicDirectAvatarRoutes": "blocked",
+                },
+            },
+            start,
+            "api.avatar_session.blocked",
+            session_id=interview_id,
+            provider="api-owned",
+        )
+
     return _return_with_latency(
-        202,
+        200,
         {
             "interviewId": interview_id,
             "provider": "spatialreal",
-            "ready": False,
-            "status": "deferred",
-            "error": "deprecated_ai_engine_removed",
-            "reason": "realtime_only",
-            "sdkMode": _avatar_sdk_mode_metadata(),
+            "ready": True,
+            "status": "ready",
+            "reason": "sdk_mode_ready",
+            "client": {"spatialrealSdk": client_config},
+            "sdkMode": _avatar_sdk_mode_metadata(enabled=True, status="ready", outcome="sdk_mode_ready"),
             "delivery": {
                 "mode": "api-owned-avatar-session",
                 "source": "api",
                 "publicDirectAvatarRoutes": "blocked",
+                "livekitRequired": False,
             },
         },
         start,
-        "api.avatar_session.deferred",
+        "api.avatar_session.ready",
         session_id=interview_id,
         provider="api-owned",
     )

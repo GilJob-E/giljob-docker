@@ -57,7 +57,7 @@ RUNBOOK_SPECIFIC_TERMS = {
         "Avatar metadata is API-owned",
         "disabled/deferred",
         "does not ingest OpenAI Realtime remote audio",
-        "No OpenAI Realtime remote-audio injection into SpatialReal",
+        "feature-flagged SpatialReal SDK Mode Web receiving a muted PCM16 copy",
         "Do not downgrade `livekit-client`",
     ],
     "docs/source-manifest.md": [

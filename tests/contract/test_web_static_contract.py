@@ -309,13 +309,13 @@ class WebStaticContractTest(unittest.TestCase):
             "AvatarSDK.initialize",
             "AvatarSDK.setSessionToken",
             "AvatarManager.shared.load",
-            "new AvatarView",
+            "new sdk.AvatarView",
             "controller.setVolume(0)",
             "controller.send",
             "PCM16",
-            "send(chunk, false)",
+            "controller.send(pcm, false)",
             "response.done",
-            "avatar.audio.end",
+            "avatarSdkEndResponseFeed",
         ]
         for marker in required_activation_markers:
             with self.subTest(marker=marker):
@@ -328,7 +328,8 @@ class WebStaticContractTest(unittest.TestCase):
             "sdk_mode_blocked_wasm_mime",
             "sdk_mode_blocked_dynamic_import",
             "sdk_mode_blocked_double_audio_or_mute",
-            "sdk_mode_blocked_pcm_feed",
+            "sdk_mode_blocked_pcm_feed_setup_failed",
+            "sdk_mode_blocked_pcm_send_failed",
         ]
         for reason in safe_blocked_reasons:
             with self.subTest(reason=reason):
