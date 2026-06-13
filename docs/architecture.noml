@@ -10,7 +10,7 @@
   /interviews/:id/room
   OpenAI Realtime WebRTC participant
   STT/prosody/vision sideband sender
-  avatar disabled/deferred by default
+  SpatialReal SDK avatar renderer gated/deferred
 ]
 
 [<service> Caddy Ingress|
@@ -24,7 +24,7 @@
   vanilla HTML/CSS/JS
   production room shell
   OpenAI Realtime/MMM primary UI
-  optional legacy LiveKit join
+  SpatialReal SDK Mode Web adapter
   push-to-talk answer turn UI
   token-safe hidden diagnostics
 ]
@@ -34,8 +34,8 @@
   session/report token 발급
   purpose-separated hash contract
   Realtime session/call broker
-  optional LiveKit token only for media overlay
-  AvatarKit RTC viewer token is legacy/deferred
+  SpatialReal SDK session bootstrap metadata
+  optional LiveKit token only for legacy media overlay
   /api/interviews/:id/* broker
   Realtime MMM sideband forward
   exact-turn result gate
@@ -48,10 +48,8 @@
 ]
 
 [<media> LiveKit Server|
-  self-hosted signaling/media
-  browser candidate participant
-  analysis subscriber participant
-  avatar publisher/viewer participants
+  optional legacy signaling/media only
+  not required for default Realtime/MMM
   7880/tcp WebSocket
   7881/tcp ICE/TCP
   50000-50100/udp media
@@ -79,9 +77,10 @@
 
 
 [<media> SpatialReal Cloud|
-  SDK Mode / Host Mode candidate
-  RTC Mode deprecated/deferred
-  no production lip-sync claim
+  SDK Mode Web avatar runtime
+  Host Mode fallback candidate
+  RTC Mode legacy/deferred
+  no production lip-sync claim until QA
 ]
 
 [<future> Main LLM / Interview Controller|
@@ -95,9 +94,9 @@
 [Caddy Ingress] - /api/* -> [API Service]
 [API Service] - token hash 저장 -> [Postgres]
 [API Service] - Realtime session/call metadata -> [후보자 브라우저]
-[API Service] - optional media/avatar token only when overlay enabled -> [후보자 브라우저]
-[후보자 브라우저] - optional legacy WebRTC publish/subscribe -> [LiveKit Server]
-[후보자 브라우저] - deprecated AvatarKit RTC subscribe -> [LiveKit Server]
+[API Service] - avatarSdkMode/sdkMode + short-lived SDK client metadata -> [후보자 브라우저]
+[후보자 브라우저] - optional legacy WebRTC publish/subscribe only when overlay enabled -> [LiveKit Server]
+[후보자 브라우저] - muted PCM16 Realtime output copy -> [SpatialReal Cloud]
 [후보자 브라우저] - push-to-talk turn_start/turn_end -> [API Service]
 [API Service] - server key -> ephemeral Realtime secret -> [OpenAI Realtime API]
 [후보자 브라우저] - ephemeral SDP attach only -> [OpenAI Realtime API]
@@ -108,7 +107,7 @@
 [Analysis Engine Service\n(GilJobE)] - exact-turn candidate-safe result -> [API Service]
 [LiveKit Server] - legacy media tracks -> [Analysis Engine Service\n(GilJobE)]
 [Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [API Service]
-[SpatialReal Cloud] - legacy RTC avatar stream if enabled -> [LiveKit Server]
+[SpatialReal Cloud] - SDK avatar render/control events -> [후보자 브라우저]
 [API Service] - response policy context -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
 [후보자 브라우저] - relay 필요 시 -> [coturn]

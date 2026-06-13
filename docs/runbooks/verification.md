@@ -82,12 +82,12 @@ Archive/runtime note: `git archive HEAD` does not include `apps/web/node_modules
 
 ## SpatialReal non-LiveKit spike evidence
 
-Current docs/infra outcome: `sdk_mode_deferred`. The worker checkout declares `@spatialwalk/avatarkit` but lacks installed package files, so SDK Mode Web exports/method names and audio-feed lifecycle were not locally verifiable. Future SDK Mode verification must prove package/API availability and a muted PCM16 mono audio feed without LiveKit before changing avatar status from disabled/deferred. Valid outcomes are `sdk_mode_verified`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred`.
+Current docs/infra outcome: `sdk_mode_deferred`. The worker checkout declares `@spatialwalk/avatarkit` but lacks installed package files, so SDK Mode Web exports/method names and audio-feed lifecycle were not locally verifiable. Future SDK Mode verification must prove package/API availability and a muted PCM16 mono audio feed without LiveKit before changing avatar status from disabled/deferred. Valid outcomes are `sdk_mode_verified`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_missing_provider_token`, `sdk_mode_blocked_by_audio_feed`, `sdk_mode_blocked_double_audio_or_mute`, or `sdk_mode_deferred`.
 
 ## Interviewer voice and avatar provider contract
 
 - Non-Realtime LLM/TTS provider fallback must stay removed from env, compose, supported docs, and default runtime services.
-- `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` is the stable default. If explicitly enabled, it exposes API-owned metadata only and still requires kiostation browser evidence before any avatar lip-sync claim.
+- `SPATIALREAL_SDK_MODE_WEB_ENABLED=false` is the stable default. If enabled, `/api/interviews/{id}/avatar/session` must expose SDK-shaped, API-owned metadata only and still requires kiostation browser evidence before any avatar lip-sync claim.
 - SpatialReal/avatar provider credentials and legacy RTC egress variables are not part of the default runtime env. Reintroducing them requires a separate compatibility-gated change and must not make LiveKit or avatar egress a Realtime/MMM prerequisite.
 - Public ingress must not expose direct `/tts/*`, `/avatar/*`, `/ai/tts/*`, `/ai/avatar/*`, or broad `/ai/*` provider routes. Legacy TTS/avatar broker routes are disabled/deferred unless explicitly verified as API-owned compatibility surfaces; default Realtime/MMM must not depend on ai-engine.
 
