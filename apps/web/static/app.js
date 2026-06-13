@@ -51,8 +51,6 @@ let lastAnswerTranscript = "";
 let lastAnalysisBlock = ""; // server-owned analysis summary only; browser never starts analysis workers or injects verbatim transcripts.
 let activeAvatarSession = null;
 let avatarSdkModeState = { initialized: false, outcome: "sdk_mode_deferred", reason: "not_started", audioFeed: "pcm16-mono-16000" };
-let avatarSdkRuntime = { module: null, view: null, controller: null, initialized: false, audioStarted: false, feedActive: false, pendingTrack: null, audioContext: null, source: null, processor: null, silenceGain: null, lastTrackId: "", endSentForResponseId: "" };
-let avatarSdkAudioUnlockBound = false;
 let activeRealtimeSession = null;
 let realtimeRemoteAudioTrack = null;
 let activeRealtimeResponseId = "";
@@ -71,8 +69,8 @@ const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
 const SPATIALREAL_SDK_MODE_WEB_ENABLED = "SPATIALREAL_SDK_MODE_WEB_ENABLED";
 const SPATIALREAL_SDK_MODE_OUTCOME = "sdk_mode_deferred";
-const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
-const SPATIALREAL_SDK_TRANSPORT = "spatialreal-sdk-websocket";
+const SPATIALREAL_SDK_MODE = "spatialreal-non-livekit-sdk-mode";
+const SPATIALREAL_SDK_TRANSPORT = "direct-sdk";
 const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
 const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
 const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
@@ -211,19 +209,19 @@ function avatarSdkModeConfig(payload = activeAvatarSession) {
 
 function avatarSdkAudioFeedConfig(payload = activeAvatarSession) {
   const sdkMode = avatarSdkModeConfig(payload);
-  return sdkMode.audioFormat || sdkMode.audioFeed || sdkMode.audio || {};
+  return sdkMode.audioFeed || sdkMode.audio || {};
 }
 
 function normalizeAvatarSdkModeState(payload = activeAvatarSession) {
   const sdkMode = avatarSdkModeConfig(payload);
   const audioFeed = avatarSdkAudioFeedConfig(payload);
-  const audioFormat = audioFeed.format || [audioFeed.encoding, audioFeed.channelCount || audioFeed.channels, audioFeed.sampleRateHz || audioFeed.sampleRate].filter(Boolean).join("-") || SPATIALREAL_SDK_AUDIO_FEED_FORMAT;
+  const audioFormat = audioFeed.format || [audioFeed.encoding, audioFeed.channels, audioFeed.sampleRate].filter(Boolean).join("-") || SPATIALREAL_SDK_AUDIO_FEED_FORMAT;
   const metadataAccepted = sdkMode.enabled === true
     && sdkMode.mode === SPATIALREAL_SDK_MODE
     && sdkMode.transport === SPATIALREAL_SDK_TRANSPORT
     && sdkMode.livekitRequired === false
     && sdkMode.requiresFeatureFlag === SPATIALREAL_SDK_MODE_WEB_ENABLED
-    && ["sdk_mode_ready", SPATIALREAL_SDK_MODE_OUTCOME].includes(String(sdkMode.outcome || ""))
+    && sdkMode.outcome === SPATIALREAL_SDK_MODE_OUTCOME
     && sdkMode.providerSecretsExposed === false
     && sdkMode.rawMediaExposed === false
     && sdkMode.rawTranscriptExposed !== true;
@@ -241,263 +239,6 @@ function normalizeAvatarSdkModeState(payload = activeAvatarSession) {
 
 function isSpatialRealSdkModeEnabled(payload = activeAvatarSession) {
   return normalizeAvatarSdkModeState(payload).metadataAccepted === true;
-}
-
-function avatarSdkClientConfig(payload = activeAvatarSession) {
-  return payload?.client?.spatialrealSdk || {};
-}
-
-function safeAvatarSdkReason(reason) {
-  return String(reason || "sdk_mode_blocked").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 96);
-}
-
-function markAvatarSdkBlocked(reason) {
-  const safeReason = safeAvatarSdkReason(reason);
-  avatarSdkModeState = { ...avatarSdkModeState, initialized: false, reason: safeReason, outcome: safeReason };
-  setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
-  setAvatarPanelMessage(`${AVATAR_DEFERRED_LABEL}: ${safeReason}. OpenAI Realtime remains the audible interviewer path; SpatialReal SDK failed closed.`);
-  appendLog(`SpatialReal SDK Mode blocked: ${safeReason}; tokens hidden; media hidden`);
-}
-
-function float32ToPcm16ArrayBuffer(input, inputSampleRate, targetSampleRate = 16000) {
-  if (!input?.length || !Number.isFinite(inputSampleRate) || inputSampleRate <= 0) {
-    return new ArrayBuffer(0);
-  }
-  const ratio = inputSampleRate / targetSampleRate;
-  const outputLength = Math.max(1, Math.floor(input.length / ratio));
-  const buffer = new ArrayBuffer(outputLength * 2);
-  const view = new DataView(buffer);
-  for (let i = 0; i < outputLength; i += 1) {
-    const start = Math.floor(i * ratio);
-    const end = Math.min(input.length, Math.floor((i + 1) * ratio));
-    let sum = 0;
-    let count = 0;
-    for (let j = start; j < end; j += 1) {
-      sum += input[j];
-      count += 1;
-    }
-    const sample = Math.max(-1, Math.min(1, count ? sum / count : input[start] || 0));
-    view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-  }
-  return buffer;
-}
-
-function disconnectAvatarSdkAudioFeed() {
-  try { avatarSdkRuntime.processor?.disconnect(); } catch {}
-  try { avatarSdkRuntime.source?.disconnect(); } catch {}
-  try { avatarSdkRuntime.silenceGain?.disconnect(); } catch {}
-  avatarSdkRuntime.processor = null;
-  avatarSdkRuntime.source = null;
-  avatarSdkRuntime.silenceGain = null;
-  avatarSdkRuntime.feedActive = false;
-  avatarSdkRuntime.lastTrackId = "";
-}
-
-async function ensureAvatarSdkAudioStarted(reason = "user-gesture") {
-  if (!avatarSdkRuntime.controller) {
-    return false;
-  }
-  if (avatarSdkRuntime.audioStarted) {
-    return true;
-  }
-  try {
-    await avatarSdkRuntime.controller.initializeAudioContext();
-    avatarSdkRuntime.controller.setVolume(0);
-    await avatarSdkRuntime.controller.start();
-    avatarSdkRuntime.audioStarted = true;
-    avatarSdkModeState = { ...avatarSdkModeState, initialized: true, reason: "sdk_audio_started", outcome: "sdk_mode_ready" };
-    appendLog(`SpatialReal SDK audio context started from ${safeAvatarSdkReason(reason)}; SDK volume muted; tokens hidden`);
-    return true;
-  } catch (error) {
-    const message = /gesture|user activation|notallowed|audio context/i.test(errorMessage(error))
-      ? "sdk_audio_context_waiting_for_user_gesture"
-      : "sdk_audio_context_start_failed";
-    avatarSdkModeState = { ...avatarSdkModeState, reason: message };
-    appendLog(`SpatialReal SDK audio start deferred: ${message}; tokens hidden`);
-    return false;
-  }
-}
-
-function bindAvatarSdkAudioUnlockHandlers() {
-  if (avatarSdkAudioUnlockBound) {
-    return;
-  }
-  avatarSdkAudioUnlockBound = true;
-  const unlock = () => {
-    ensureAvatarSdkAudioStarted("trusted-user-gesture")
-      .then((started) => {
-        if (started && avatarSdkRuntime.pendingTrack) {
-          attachAvatarSdkPcmFeedFromTrack(avatarSdkRuntime.pendingTrack);
-        }
-      })
-      .catch((error) => appendLog(`SpatialReal SDK user gesture unlock failed: ${errorMessage(error)}`));
-  };
-  document.addEventListener("pointerdown", unlock, { passive: true });
-  document.addEventListener("keydown", unlock);
-}
-
-function avatarSdkBeginResponseFeed() {
-  avatarSdkRuntime.feedActive = true;
-  avatarSdkRuntime.endSentForResponseId = "";
-}
-
-function avatarSdkEndResponseFeed(responseId = activeRealtimeResponseId) {
-  avatarSdkRuntime.feedActive = false;
-  if (!avatarSdkRuntime.controller || avatarSdkRuntime.endSentForResponseId === responseId) {
-    return;
-  }
-  try {
-    avatarSdkRuntime.controller.send(new ArrayBuffer(0), true);
-    avatarSdkRuntime.endSentForResponseId = responseId || "ended";
-    appendLog("SpatialReal SDK PCM feed end marker sent; media hidden");
-  } catch (error) {
-    markAvatarSdkBlocked("sdk_mode_blocked_pcm_end_failed");
-  }
-}
-
-function attachAvatarSdkPcmFeedFromTrack(track) {
-  if (!track || track.kind !== "audio" || !avatarSdkRuntime.controller) {
-    return;
-  }
-  avatarSdkRuntime.pendingTrack = track;
-  if (!avatarSdkRuntime.audioStarted) {
-    bindAvatarSdkAudioUnlockHandlers();
-    appendLog("SpatialReal SDK PCM feed waiting for trusted user gesture before AudioContext start; media hidden");
-    return;
-  }
-  if (avatarSdkRuntime.lastTrackId === track.id && avatarSdkRuntime.processor) {
-    return;
-  }
-  try {
-    disconnectAvatarSdkAudioFeed();
-    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextCtor) {
-      markAvatarSdkBlocked("sdk_mode_blocked_audio_context_unavailable");
-      return;
-    }
-    const audioContext = avatarSdkRuntime.audioContext || new AudioContextCtor();
-    avatarSdkRuntime.audioContext = audioContext;
-    const source = audioContext.createMediaStreamSource(new MediaStream([track]));
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
-    const silenceGain = audioContext.createGain();
-    silenceGain.gain.value = 0;
-    processor.onaudioprocess = (event) => {
-      if (!avatarSdkRuntime.feedActive || !avatarSdkRuntime.controller) {
-        return;
-      }
-      try {
-        const input = event.inputBuffer.getChannelData(0);
-        const pcm = float32ToPcm16ArrayBuffer(input, audioContext.sampleRate, 16000);
-        if (pcm.byteLength > 0) {
-          avatarSdkRuntime.controller.send(pcm, false);
-        }
-      } catch (error) {
-        markAvatarSdkBlocked("sdk_mode_blocked_pcm_send_failed");
-        disconnectAvatarSdkAudioFeed();
-      }
-    };
-    source.connect(processor);
-    processor.connect(silenceGain);
-    silenceGain.connect(audioContext.destination);
-    avatarSdkRuntime.source = source;
-    avatarSdkRuntime.processor = processor;
-    avatarSdkRuntime.silenceGain = silenceGain;
-    avatarSdkRuntime.lastTrackId = track.id;
-    appendLog("SpatialReal SDK PCM16 muted audio feed attached to Realtime remote track; media hidden");
-  } catch (error) {
-    markAvatarSdkBlocked("sdk_mode_blocked_pcm_feed_setup_failed");
-  }
-}
-
-async function verifySpatialRealSdkVendorAssets() {
-  const indexResponse = await fetch("/vendor/@spatialwalk/avatarkit/dist/index.js", { method: "HEAD" });
-  if (!indexResponse.ok) {
-    throw new Error("sdk_mode_blocked_missing_vendor_asset");
-  }
-  const indexContentType = indexResponse.headers.get("Content-Type") || "";
-  if (!/javascript|ecmascript|text\/plain/i.test(indexContentType)) {
-    throw new Error("sdk_mode_blocked_dynamic_import");
-  }
-  const wasmResponse = await fetch("/vendor/@spatialwalk/avatarkit/dist/avatar_core_wasm-bd762669.wasm", { method: "HEAD" });
-  if (wasmResponse.ok && !/application\/wasm/i.test(wasmResponse.headers.get("Content-Type") || "")) {
-    throw new Error("sdk_mode_blocked_wasm_mime");
-  }
-}
-
-async function initializeSpatialRealSdkAvatar(payload) {
-  if (!payload?.ready || payload?.provider !== "spatialreal") {
-    renderAvatarRtcDegraded("spatialreal_session_not_ready");
-    return;
-  }
-  if (!isSpatialRealSdkModeEnabled(payload)) {
-    renderAvatarRtcDegraded("sdk_mode_deferred");
-    return;
-  }
-  const client = avatarSdkClientConfig(payload);
-  const appId = String(client.appId || "").trim();
-  const sessionToken = String(client.sessionToken || "").trim();
-  const avatarId = String(client.avatarId || "").trim();
-  if (!appId || !sessionToken || !avatarId) {
-    markAvatarSdkBlocked("sdk_mode_blocked_missing_client_metadata");
-    return;
-  }
-  if (!avatarRenderTarget) {
-    markAvatarSdkBlocked("sdk_mode_blocked_missing_vendor_asset");
-    return;
-  }
-  try {
-    await verifySpatialRealSdkVendorAssets();
-    const sdk = await import("@spatialwalk/avatarkit");
-    avatarSdkRuntime.module = sdk;
-    const environment = sdk.Environment?.[client.environment] || sdk.Environment?.intl || "intl";
-    const drivingServiceMode = sdk.DrivingServiceMode?.sdk || "sdk";
-    const logLevel = sdk.LogLevel?.error || "error";
-    sdk.AvatarSDK.setSessionToken(sessionToken);
-    const configuredAudio = client.audioFormat || {};
-    await sdk.AvatarSDK.initialize(appId, {
-      environment,
-      drivingServiceMode,
-      logLevel,
-      audioFormat: {
-        channelCount: Number(configuredAudio.channelCount || 1),
-        sampleRate: Number(configuredAudio.sampleRateHz || configuredAudio.sampleRate || 16000),
-      },
-    });
-    const avatar = await sdk.AvatarManager.shared.load(avatarId);
-    if (avatarRenderTarget) {
-      avatarRenderTarget.textContent = "";
-    }
-    const view = new sdk.AvatarView(avatar, avatarRenderTarget);
-    const controller = view.controller;
-    try {
-      controller.setVolume(0);
-    } catch (error) {
-      markAvatarSdkBlocked("sdk_mode_blocked_double_audio_or_mute");
-      return;
-    }
-    controller.onConnectionState = (state) => appendLog(`SpatialReal SDK connection state ${safeAvatarSdkReason(state)}; tokens hidden`);
-    controller.onConversationState = (state) => appendLog(`SpatialReal SDK conversation state ${safeAvatarSdkReason(state)}; media hidden`);
-    controller.onError = () => markAvatarSdkBlocked("sdk_mode_blocked_provider_error");
-    avatarSdkRuntime.view = view;
-    avatarSdkRuntime.controller = controller;
-    avatarSdkRuntime.initialized = true;
-    avatarSdkModeState = { ...normalizeAvatarSdkModeState(payload), initialized: true, reason: "sdk_loaded_audio_context_pending", outcome: "sdk_mode_ready" };
-    setAvatarRtcState("active", "SpatialReal SDK 준비됨");
-    setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} loaded. Realtime remains audible; SDK receives muted ${SPATIALREAL_SDK_AUDIO_FEED_FORMAT} copy after trusted audio unlock.`);
-    avatarRenderTarget?.classList.add("is-rtc-active");
-    bindAvatarSdkAudioUnlockHandlers();
-    if (realtimeRemoteAudioTrack) {
-      attachAvatarSdkPcmFeedFromTrack(realtimeRemoteAudioTrack);
-    }
-  } catch (error) {
-    const messageText = errorMessage(error);
-    const knownReason = /sdk_mode_blocked_[a-z0-9_]+/i.exec(messageText)?.[0];
-    const message = knownReason
-      || (/wasm|mime/i.test(messageText) ? "sdk_mode_blocked_wasm_mime"
-        : /import|module|fetch/i.test(messageText) ? "sdk_mode_blocked_dynamic_import"
-        : "sdk_mode_blocked_sdk_initialize_failed");
-    markAvatarSdkBlocked(message);
-  }
 }
 
 
@@ -901,8 +642,7 @@ function captureRealtimeRemoteAudioTrack(track) {
     activeRealtimeSession.remoteAudioTrack = track;
   }
   renderAvatarSdkModeStatus();
-  attachAvatarSdkPcmFeedFromTrack(track);
-  appendLog("Realtime remote audio track observed for interviewer playback; SpatialReal SDK muted PCM16 feed will attach when ready; media hidden");
+  appendLog("Realtime remote audio track observed for interviewer playback only; non-LiveKit avatar SDK adapter remains deferred; PCM16 feed not attached; media hidden");
   if (typeof track.addEventListener === "function") {
     track.addEventListener("ended", () => {
       if (realtimeRemoteAudioTrack === track) {
@@ -1312,9 +1052,6 @@ function renderAvatarRtcEgressStatus(avatarRtc) {
 
 async function disconnectAvatarRtc() {
   avatarSdkModeState = { ...avatarSdkModeState, initialized: false, reason: "disconnected", audioFeed: SPATIALREAL_SDK_AUDIO_FEED_FORMAT };
-  disconnectAvatarSdkAudioFeed();
-  try { avatarSdkRuntime.view?.dispose(); } catch {}
-  avatarSdkRuntime = { module: null, view: null, controller: null, initialized: false, audioStarted: false, feedActive: false, pendingTrack: null, audioContext: avatarSdkRuntime.audioContext, source: null, processor: null, silenceGain: null, lastTrackId: "", endSentForResponseId: "" };
   avatarRenderTarget?.classList.remove("is-rtc-active");
   appendLog(`${AVATAR_DEFERRED_LABEL}: disconnected; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} unaffected`);
 }
@@ -1327,7 +1064,18 @@ function renderAvatarRtcDegraded(reason) {
 }
 
 async function initializeAvatarRtc(payload) {
-  await initializeSpatialRealSdkAvatar(payload);
+  if (!payload?.ready || payload?.provider !== "spatialreal") {
+    renderAvatarRtcDegraded("spatialreal_session_not_ready");
+    return;
+  }
+  if (!isSpatialRealSdkModeEnabled(payload)) {
+    renderAvatarRtcDegraded("sdk_mode_deferred");
+    return;
+  }
+  avatarSdkModeState = { ...normalizeAvatarSdkModeState(payload), initialized: false, reason: "pcm_audio_feed_unverified" };
+  setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
+  setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} metadata is browser-safe for ${SPATIALREAL_SDK_TRANSPORT}, but runtime rendering is deferred until a kiostation proof verifies the ${SPATIALREAL_SDK_AUDIO_FEED_FORMAT} lifecycle. ${AVATAR_DEFERRED_LABEL}.`);
+  renderAvatarSdkModeStatus(payload);
 }
 
 function renderAvatarState(payload) {
