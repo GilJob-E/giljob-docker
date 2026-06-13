@@ -66,7 +66,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.contract.test_web_static_con
 node --check apps/web/static/app.js
 ```
 
-Expected result: the room import map may reference only the deferred base SDK path `/vendor/@spatialwalk/avatarkit/dist/index.js`; legacy `/vendor/livekit-client/...` and `/vendor/@spatialwalk/avatarkit-rtc/...` stay 404 on the default path. Allowed SDK JavaScript/MJS assets must be served as `text/javascript`, and allowed SDK `.wasm` assets must be served as `application/wasm`. Package-root reads under `/vendor/` must stay rejected.
+Expected result: the room import map may reference the deferred base SDK path `/vendor/@spatialwalk/avatarkit/dist/index.js`, but the only served SDK vendor prefix is `/vendor/@spatialwalk/avatarkit/dist/`. Legacy `/vendor/livekit-client/...` and `/vendor/@spatialwalk/avatarkit-rtc/...` stay 404 on the default path. Allowed SDK JavaScript/MJS assets must be served as `text/javascript`, and allowed SDK `.wasm` assets must be served as `application/wasm`. Package-root reads under `/vendor/` must stay rejected.
 
 Archive/runtime note: `git archive HEAD` does not include `apps/web/node_modules`, so remote verification that exercises allowed vendor assets must either run `npm --prefix apps/web ci` in the synced checkout or use a runtime tree where those dependencies are already installed. Missing package files should be reported as a vendor install/runtime packaging blocker, not as proof that LiveKit RTC is required.
 
