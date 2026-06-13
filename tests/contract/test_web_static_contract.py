@@ -302,6 +302,43 @@ class WebStaticContractTest(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, body)
 
+    def test_app_js_contains_actual_spatialreal_sdk_activation_and_pcm_bridge_contract(self) -> None:
+        body = (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        required_activation_markers = [
+            'import("@spatialwalk/avatarkit")',
+            "AvatarSDK.initialize",
+            "AvatarSDK.setSessionToken",
+            "AvatarManager.shared.load",
+            "new AvatarView",
+            "controller.setVolume(0)",
+            "controller.send",
+            "PCM16",
+            "send(chunk, false)",
+            "response.done",
+            "avatar.audio.end",
+        ]
+        for marker in required_activation_markers:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, body)
+
+        safe_blocked_reasons = [
+            "sdk_flag_disabled",
+            "spatialreal_config_missing",
+            "sdk_mode_blocked_missing_vendor_asset",
+            "sdk_mode_blocked_wasm_mime",
+            "sdk_mode_blocked_dynamic_import",
+            "sdk_mode_blocked_double_audio_or_mute",
+            "sdk_mode_blocked_pcm_feed",
+        ]
+        for reason in safe_blocked_reasons:
+            with self.subTest(reason=reason):
+                self.assertIn(reason, body)
+
+        self.assertIn("waitForFullMmmReady", body)
+        self.assertLess(body.index("waitForFullMmmReady"), body.index("requestRealtimeNextQuestion"))
+        self.assertNotIn("AvatarPlayer.publishAudio", body)
+        self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", body)
+
     def test_app_js_realtime_lifecycle_order_matrix_is_explicit(self) -> None:
         body = (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8")
         order_pairs = [
