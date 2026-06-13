@@ -56,6 +56,16 @@ Record only redacted summary fields from `scripts/realtime-smoke-readiness.py`:
 
 Do not claim live Realtime readiness from a local Mac/worktree. If `REQUIRE_REALTIME_LIVE=1` fails because provider credentials, DNS, TLS, or network reachability are missing, report it as a kiostation runtime blocker with the redacted category above.
 
+## SpatialReal SDK activation contract
+
+Contract tests must cover the actual SDK activation path, not only deferred metadata:
+
+- Enabled/configured `POST /api/interviews/{id}/avatar/session` returns `ready=true`, `status=ready`, `sdkMode.mode=spatialreal-sdk-mode-web`, `sdkMode.transport=spatialreal-sdk-websocket`, `livekitRequired=false`, and `client.spatialrealSdk` with browser-approved `appId`, short-lived `sessionToken`, `avatarId`, and PCM16 mono 16 kHz `audioFormat`.
+- SDK success responses must not include LiveKit viewer-token fields such as `token`, `url`, `roomName`, `candidateToken`, or `avatarClientToken`.
+- Browser activation must dynamically import `@spatialwalk/avatarkit`, call `AvatarSDK.initialize`, `AvatarSDK.setSessionToken`, `AvatarManager.shared.load`, create `new AvatarView`, set SDK volume to silent or block, feed `controller.send(PCM16,false)`, and emit exactly one safe end marker on Realtime `response.done`.
+- Missing config, missing vendor assets, bad WASM MIME, dynamic import failure, mute failure, or PCM feed failure must become safe blocked/deferred reasons and must not mark avatar active.
+- SDK enabled/ready status never bypasses exact-turn `full_mmm_ready`; ordinary follow-up `response.create` remains API-owned and gated.
+
 ## Web static vendor/WASM/MIME contract
 
 Before blaming Realtime or avatar code for a browser startup failure, verify the static asset contract from a checkout with web dependencies installed:

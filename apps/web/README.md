@@ -13,6 +13,11 @@ Current scope:
 - reads the experimental avatar audio bridge flag only from safe sibling metadata (`activeSession.realtimeAvatarBridge` and avatar-session `bridge.browserAudioBridgeEnabled`), not from token-bearing `client` metadata;
 - keeps raw session/report/LiveKit tokens, Realtime client secrets, SDP bodies, and avatar session tokens out of visible UI/logs.
 
+Actual SDK activation contract:
+- Ready SDK metadata uses API-owned `client.spatialrealSdk` with browser-approved `appId`, short-lived `sessionToken`, `avatarId`, and `audioFormat: { encoding: "pcm16", channelCount: 1, sampleRateHz: 16000 }`; it must not include LiveKit `token`, `url`, or `roomName` fields.
+- The web room must dynamically import `@spatialwalk/avatarkit` only after ready metadata, call `AvatarSDK.initialize`, `AvatarSDK.setSessionToken`, `AvatarManager.shared.load`, create `new AvatarView`, mute SDK playback with `controller.setVolume(0)` or fail closed, feed PCM16 chunks with `controller.send(chunk, false)`, and send one end marker on Realtime `response.done`.
+- Safe blocked reasons include `sdk_flag_disabled`, `spatialreal_config_missing`, `sdk_mode_blocked_missing_vendor_asset`, `sdk_mode_blocked_wasm_mime`, `sdk_mode_blocked_dynamic_import`, `sdk_mode_blocked_double_audio_or_mute`, and `sdk_mode_blocked_pcm_feed`. None of these may bypass `full_mmm_ready`.
+
 Static vendor contract:
 - `@spatialwalk/avatarkit` is the only allowed browser SDK vendor prefix; legacy `livekit-client` and `@spatialwalk/avatarkit-rtc` bundles must stay unserved on the default path.
 - The import map may point at `/vendor/@spatialwalk/avatarkit/dist/index.js` only for deferred SDK Mode Web metadata; it must not imply avatar readiness or expose provider secrets.

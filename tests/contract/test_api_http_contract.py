@@ -46,6 +46,12 @@ LIVEKIT_ENV_NAMES = (
     "GILJOBE_PROSODY",
     "ELEVENLABS_API_KEY",
     "SPATIALREAL_API_KEY",
+    "SPATIALREAL_SDK_MODE_WEB_ENABLED",
+    "SPATIALREAL_APP_ID",
+    "SPATIALREAL_SESSION_TOKEN",
+    "SPATIALREAL_AVATAR_ID",
+    "SPATIALREAL_AUDIO_SAMPLE_RATE",
+    "SPATIALREAL_AUDIO_CHANNEL_COUNT",
 )
 
 
@@ -1189,6 +1195,65 @@ class ApiHttpContractTest(unittest.TestCase):
             self.assertEqual(payload.get("reason"), "realtime_only")
         else:
             self.assertIn(payload.get("status"), {"disabled", "deferred", "session_issued", "not_configured"})
+
+    def test_avatar_session_sdk_enabled_configured_returns_ready_client_metadata_without_livekit(self) -> None:
+        os.environ["SPATIALREAL_SDK_MODE_WEB_ENABLED"] = "true"
+        os.environ["SPATIALREAL_APP_ID"] = "public-app-id-for-browser"
+        os.environ["SPATIALREAL_SESSION_TOKEN"] = "short-lived-spatialreal-session-token"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-demo-01"
+        os.environ["SPATIALREAL_AUDIO_SAMPLE_RATE"] = "16000"
+        os.environ["SPATIALREAL_AUDIO_CHANNEL_COUNT"] = "1"
+
+        status, body = self._post(
+            "/api/interviews/local-demo/avatar/session",
+            json.dumps({"reason": "sdk-ready-contract"}).encode("utf-8"),
+        )
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        self.assertTrue(payload["ready"])
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["provider"], "spatialreal")
+        self.assertIn("client", payload)
+        self.assertIn("sdkMode", payload)
+        self.assertIn("spatialrealSdk", payload["client"])
+
+        sdk_mode = payload["sdkMode"]
+        self.assertTrue(sdk_mode["enabled"])
+        self.assertEqual(sdk_mode["mode"], "spatialreal-sdk-mode-web")
+        self.assertEqual(sdk_mode["transport"], "spatialreal-sdk-websocket")
+        self.assertFalse(sdk_mode["livekitRequired"])
+        self.assertFalse(sdk_mode["providerSecretsExposed"])
+        self.assertFalse(sdk_mode["rawMediaLogged"])
+
+        client_sdk = payload["client"]["spatialrealSdk"]
+        self.assertEqual(client_sdk["appId"], "public-app-id-for-browser")
+        self.assertEqual(client_sdk["sessionToken"], "short-lived-spatialreal-session-token")
+        self.assertEqual(client_sdk["avatarId"], "avatar-demo-01")
+        self.assertEqual(client_sdk["audioFormat"], {"encoding": "pcm16", "channelCount": 1, "sampleRateHz": 16000})
+
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        for forbidden_livekit_field in ("avatarClientToken", "candidateToken", "livekitUrl", "url", "roomName", "participantIdentity"):
+            with self.subTest(forbidden_livekit_field=forbidden_livekit_field):
+                self.assertNotIn(forbidden_livekit_field, serialized)
+        self.assertNotIn("SPATIALREAL_API_KEY", serialized)
+        self.assertNotIn("LIVEKIT_API_SECRET", serialized)
+
+    def test_sdk_enabled_avatar_metadata_does_not_bypass_full_mmm_gate(self) -> None:
+        os.environ["SPATIALREAL_SDK_MODE_WEB_ENABLED"] = "true"
+        os.environ["SPATIALREAL_APP_ID"] = "public-app-id-for-browser"
+        os.environ["SPATIALREAL_SESSION_TOKEN"] = "short-lived-spatialreal-session-token"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-demo-01"
+
+        avatar_status, avatar_body = self._post("/api/interviews/local-demo/avatar/session", b"{}")
+        self.assertIn(avatar_status, {200, 202}, avatar_body)
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/2/realtime/response",
+            json.dumps({"reason": "sdk-enabled-followup"}).encode("utf-8"),
+        )
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "full_mmm_required_for_prior_answer"})
+        self.assertNotIn("avatar", json.dumps(payload, ensure_ascii=False).lower())
 
     def test_avatar_session_route_accepts_caddy_stripped_path_and_bad_id_fails(self) -> None:
         status, body = self._post("/interviews/local-demo/avatar/session", b"{}")
