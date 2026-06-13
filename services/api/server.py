@@ -21,7 +21,6 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from app.livekit_tokens import issue_avatar_viewer_livekit_token
 from app.token_contract import issue_session
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "api")
@@ -457,8 +456,8 @@ def _avatar_sdk_mode_metadata() -> dict[str, object]:
     outcome = os.getenv("SPATIALREAL_SDK_MODE_OUTCOME", "sdk_mode_deferred").strip() or "sdk_mode_deferred"
     return {
         "enabled": enabled,
-        "mode": "spatialreal-non-livekit-sdk-mode",
-        "transport": "direct-sdk",
+        "mode": "spatialreal-sdk-mode-web",
+        "transport": "spatialreal-sdk-websocket",
         "status": "enabled" if enabled else "deferred",
         "outcome": outcome,
         "livekitRequired": False,
@@ -471,9 +470,9 @@ def _avatar_sdk_mode_metadata() -> dict[str, object]:
         "tokenHidden": True,
         "rawMediaLogged": False,
         "requiresKiostationBrowserProof": True,
-        "audioInput": {
-            "format": "pcm16",
-            "channels": 1,
+        "audioFormat": {
+            "encoding": "pcm16",
+            "channelCount": 1,
             "sampleRateHz": 16000,
             "source": "openai-realtime-output-audio",
             "mutedUntilVerified": True,
@@ -2057,12 +2056,6 @@ def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[i
     start = time.perf_counter()
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
-    client = {
-        "livekit": issue_avatar_viewer_livekit_token(
-            room_name=f"giljob-session-{interview_id}",
-            session_id=interview_id,
-        ),
-    }
     return _return_with_latency(
         202,
         {
@@ -2072,7 +2065,6 @@ def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[i
             "status": "deferred",
             "error": "deprecated_ai_engine_removed",
             "reason": "realtime_only",
-            "client": client,
             "sdkMode": _avatar_sdk_mode_metadata(),
             "delivery": {
                 "mode": "api-owned-avatar-session",
