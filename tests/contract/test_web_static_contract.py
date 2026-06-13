@@ -317,10 +317,12 @@ class WebStaticContractTest(unittest.TestCase):
             "controller.setVolume(0)",
             "controller.send",
             "PCM16",
-            "controller.send(pcm, false)",
+            "sendAvatarSdkPcmChunk(controller, pcm, false)",
             "response.done",
             "function avatarSdkBeginResponseFeed",
             "function avatarSdkEndResponseFeed",
+            "AVATAR_PCM_END_GRACE_MS",
+            "avatar SDK PCM chunk",
         ]
         for marker in required_activation_markers:
             with self.subTest(marker=marker):
@@ -341,6 +343,8 @@ class WebStaticContractTest(unittest.TestCase):
                 self.assertIn(reason, body)
 
         self.assertIn("waitForFullMmmReady", body)
+        self.assertIn("avatarSdkPcmStats", body)
+        self.assertIn("avatar SDK response feed grace", body)
         self.assertLess(body.index("waitForFullMmmReady"), body.index("requestRealtimeNextQuestion"))
         self.assertNotIn("AvatarPlayer.publishAudio", body)
         self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", body)
