@@ -41,6 +41,8 @@ class _FakeHashimotoHandler(BaseHTTPRequestHandler):
             self._json(201, {"session_id": body.get("session_id"), "current_topic": "t", "topics": ["t"]})
         elif self.path == "/submit_turn":
             self._json(202, {"accepted": True, "turn_id": body.get("turn_id")})
+        elif self.path == "/session/end":
+            self._json(200, {"session_id": body.get("session_id"), "closed": True})
         else:
             self._json(404, {"error": "not_found"})
 
@@ -128,6 +130,21 @@ class HashimotoFeedTest(unittest.TestCase):
         # must not raise
         ai_engine._feed_hashimoto(
             {"sessionId": "s1", "candidateProfile": "이력서", "lastAnswer": "답변"}, turn_index=2)
+
+    def test_finalize_ends_hashimoto_session_and_submits_last_completed_answer(self) -> None:
+        status, payload = ai_engine.finalize_response({
+            "interviewId": "s1",
+            "sessionId": "s1",
+            "turnIndex": 3,
+            "answer": "마지막으로 완료된 답변",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["hashimoto"]["lastTurnSubmitStatus"], 202)
+        self.assertEqual(payload["hashimoto"]["sessionEndStatus"], 200)
+        self.assertIn("/submit_turn", self._paths())
+        self.assertIn("/session/end", self._paths())
+        self.assertEqual(self._body_for("/submit_turn")["turn_id"], "turn_0003")
+        self.assertEqual(self._body_for("/session/end")["session_id"], "s1")
 
 
 if __name__ == "__main__":

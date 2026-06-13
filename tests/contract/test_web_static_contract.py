@@ -64,6 +64,11 @@ class WebStaticContractTest(unittest.TestCase):
                 self.assertIn("text/html", content_type)
                 for expected in expected_strings:
                     self.assertIn(expected, body)
+                if path.endswith("/report"):
+                    header = body.split("</header>", 1)[0]
+                    self.assertIn('<span class="active" aria-current="page">Report</span>', header)
+                    self.assertNotIn('href="/interviews/local-demo/room"', header)
+                    self.assertNotIn('href="/interviews/local-demo/report"', header)
 
     def test_legacy_interview_room_page_remains_available(self) -> None:
         status, content_type, body = self._get("/interview-room.html")
@@ -106,7 +111,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn('"livekit-client": "/vendor/livekit-client/dist/livekit-client.esm.mjs"', body)
         self.assertIn('"@spatialwalk/avatarkit": "/vendor/@spatialwalk/avatarkit/dist/index.js"', body)
         self.assertIn('src="/app.js"', body)
-        self.assertIn('data-interview-route="report"', body)
+        self.assertIn('<span class="active" aria-current="page">Room</span>', body)
+        self.assertNotIn('data-interview-route="report"', body)
+        self.assertNotIn('href="/interviews/local-demo/report"', body)
         self.assertIn('id="session-summary"', body)
         self.assertIn('id="event-log"', body)
         self.assertNotIn("room-runtime-bar", body)
@@ -147,7 +154,11 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("function interviewIdFromPath", body)
         self.assertIn("function isProductionRoomPath", body)
         self.assertIn("function autoJoinRoomRoute", body)
-        self.assertIn("data-interview-route", body)
+        self.assertIn("function e2eNoLiveKitEnabled", body)
+        self.assertIn("e2eNoLiveKit", body)
+        self.assertIn("function enterE2ENoLiveKitRoom", body)
+        self.assertIn("E2E no-LiveKit room ready", body)
+        self.assertIn('querySelectorAll("a[data-interview-route]")', body)
         self.assertIn("navigator.mediaDevices", body)
         self.assertIn("setMicrophoneEnabled", body)
         self.assertIn("setCameraEnabled", body)
@@ -181,6 +192,10 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("candidate-answer-ended-no-stt", body)
         self.assertNotIn("/stt/", body)
         self.assertIn("answer start blocked until interviewer question ends", body)
+        self.assertIn("async function leaveRoom", body)
+        self.assertIn("진행 중인 마지막 답변은 레포트에 포함되지 않을 수 있습니다", body)
+        self.assertIn("await finalizeInterview()", body)
+        self.assertIn("window.location.assign(productionRouteFor(\"report\"))", body)
         self.assertIn("function failClosedAfterJoinMediaError", body)
         self.assertIn("disconnecting room fail-closed", body)
         self.assertIn("Promise.allSettled", body)
@@ -226,6 +241,18 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("invalid LiveKit candidate token shape", smoke_script)
         self.assertNotIn('payload["livekit"]', smoke_script)
         self.assertNotIn('candidateToken"], payload', smoke_script)
+
+    def test_e2e_test_server_supports_no_livekit_room_flow(self) -> None:
+        e2e_script = (REPO_ROOT / "scripts" / "e2e-test-server.py").read_text()
+        self.assertIn("LIVEKIT_STUB_MODULE", e2e_script)
+        self.assertIn("/vendor/livekit-client/dist/livekit-client.esm.mjs", e2e_script)
+        self.assertIn("export class Room", e2e_script)
+        self.assertIn("/interviews/local-demo/room?e2eNoLiveKit=1", e2e_script)
+        self.assertIn("GILJOB_E2E_TRACE", e2e_script)
+        self.assertIn("gateway.proxy", e2e_script)
+        self.assertIn("hashimoto.turn_submitted", e2e_script)
+        self.assertIn("hashimoto.strategy_pulled", e2e_script)
+        self.assertNotIn("LIVEKIT_API_SECRET", e2e_script)
 
     def test_package_declares_spatialreal_rtc_compatible_dependencies(self) -> None:
         package_json = json.loads((WEB_ROOT / "package.json").read_text())

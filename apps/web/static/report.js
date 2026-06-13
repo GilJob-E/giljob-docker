@@ -9,15 +9,22 @@
 //  - API가 아직 없거나 실패하면 예시값을 그대로 둡니다(graceful fallback).
 
 const REPORT_API_BASE = "/api/interviews";
+const reportPagerState = {
+  groupIndex: 0,
+  turns: [],
+  groups: [],
+};
 
 // API를 못 받았을 때(개발 중·권한 없음 등) 차트·애니메이션을 보여주기 위한 예시 데이터.
 const PLACEHOLDER_REPORT = {
   generatedAt: "2026-06-11T00:00:00Z",
-  turnCount: 3,
+  turnCount: 7,
   complete: true,
   turns: [
     {
       turnId: 1,
+      topic: "지원 동기",
+      topicSource: "fallback_transcript_only",
       question: "간단한 자기소개와 지원 동기를 말씀해 주세요.",
       answer: "안녕하세요. 4년 차 백엔드 엔지니어 김지원입니다. 결제 시스템의 정합성 문제를 다루며 분산 트랜잭션에 관심을 갖게 됐고, 이 팀의 도메인이 그 경험과 맞닿아 지원했습니다.",
       feedback: { keyObservations: ["지원 동기와 경험의 연결이 명확합니다."], critique: ["도입부 긴장 신호는 낮은 편입니다."] },
@@ -25,17 +32,57 @@ const PLACEHOLDER_REPORT = {
     },
     {
       turnId: 2,
+      topic: "지원 동기",
+      topicSource: "fallback_transcript_only",
+      question: "GilJob 팀에서 특히 기여하고 싶은 영역은 무엇인가요?",
+      answer: "면접 평가가 주관적으로 흘러가지 않도록 데이터 기반 근거를 남기는 영역에 기여하고 싶습니다. 백엔드 안정성과 리포트 신뢰도를 함께 챙기는 역할이 제 강점과 잘 맞습니다.",
+      feedback: { keyObservations: ["제품 방향과 본인의 역할을 구체적으로 연결했습니다."], critique: ["기여 영역을 하나로 좁혀 말해 설득력이 높습니다."] },
+      metrics: { vocal: { speechRateSylPerSec: 5.4, pitchMeanHz: 229, pauseCount: 1 }, visual: { smileMean: 0.24, gazeOffMean: 0.22, blinkCount: 1 }, coverage: { visualMeasurable: true } },
+    },
+    {
+      turnId: 3,
+      topic: "기술 문제 해결",
+      topicSource: "fallback_transcript_only",
       question: "최근 해결한 가장 어려운 기술 문제는 무엇이었나요?",
       answer: "대량 정산 배치에서 중복 지급이 간헐적으로 발생했습니다. 멱등 키와 상태 머신을 도입해 재처리 안전성을 확보했고, 사고율을 0으로 떨어뜨렸습니다.",
       feedback: { keyObservations: ["문제–원인–해결 흐름이 분명합니다."], critique: ["정량 성과(사고율 0)를 제시했습니다."] },
       metrics: { vocal: { speechRateSylPerSec: 5.9, pitchMeanHz: 250, pauseCount: 0 }, visual: { smileMean: 0.20, gazeOffMean: 0.37, blinkCount: 1 }, coverage: { visualMeasurable: true } },
     },
     {
-      turnId: 3,
+      turnId: 4,
+      topic: "기술 문제 해결",
+      topicSource: "fallback_transcript_only",
+      question: "그 문제의 원인을 어떻게 좁혀 갔나요?",
+      answer: "처음에는 배치 재시도 로직을 의심했지만, 지급 요청 로그와 계좌 상태 변경 로그를 같은 타임라인에 올려 보니 외부 응답 지연 뒤 중복 커밋이 발생한다는 점을 확인했습니다.",
+      feedback: { keyObservations: ["가설을 세우고 로그로 좁혀 간 과정이 드러납니다."], critique: ["관찰한 증거와 판단 근거를 함께 말했습니다."] },
+      metrics: { vocal: { speechRateSylPerSec: 5.1, pitchMeanHz: 221, pauseCount: 2 }, visual: { smileMean: 0.14, gazeOffMean: 0.31, blinkCount: 2 }, coverage: { visualMeasurable: true } },
+    },
+    {
+      turnId: 5,
+      topic: "기술 문제 해결",
+      topicSource: "fallback_transcript_only",
+      question: "같은 문제가 다시 생기지 않도록 어떤 장치를 남겼나요?",
+      answer: "멱등 키 외에도 상태 전이별 알림과 대시보드를 추가했습니다. 장애가 재현되면 어떤 단계에서 멈췄는지 바로 볼 수 있게 해 운영 대응 시간을 줄였습니다.",
+      feedback: { keyObservations: ["해결 이후의 예방 장치까지 설명했습니다."], critique: ["운영 관점의 후속 조치가 좋습니다."] },
+      metrics: { vocal: { speechRateSylPerSec: 4.8, pitchMeanHz: 214, pauseCount: 1 }, visual: { smileMean: 0.17, gazeOffMean: 0.28, blinkCount: 1 }, coverage: { visualMeasurable: true } },
+    },
+    {
+      turnId: 6,
+      topic: "협업 방식",
+      topicSource: "fallback_transcript_only",
       question: "의견이 다른 동료와 협업한 경험을 말씀해 주세요.",
       answer: "스키마 설계에서 이견이 있었는데, 양쪽 안의 트레이드오프를 표로 정리해 함께 검토했습니다. 결국 상대 안을 일부 수용하는 절충안으로 합의했습니다.",
       feedback: { keyObservations: ["상대 관점을 반영한 협업 태도가 드러납니다."], critique: ["갈등 해소 과정이 구체적입니다."] },
       metrics: { vocal: { speechRateSylPerSec: 4.2, pitchMeanHz: 192, pauseCount: 1 }, coverage: { visualMeasurable: false } },
+    },
+    {
+      turnId: 7,
+      topic: "협업 방식",
+      topicSource: "fallback_transcript_only",
+      question: "그 과정에서 본인이 양보하지 않은 기준은 무엇이었나요?",
+      answer: "팀 합의는 유연하게 가져가되, 장애 시 복구 가능한 구조와 데이터 추적 가능성은 꼭 지켜야 한다고 봤습니다. 그래서 절충안에도 감사 로그와 롤백 경로는 남겼습니다.",
+      feedback: { keyObservations: ["협업 속에서도 지켜야 할 기술 기준을 설명했습니다."], critique: ["양보와 원칙의 균형이 비교적 선명합니다."] },
+      metrics: { vocal: { speechRateSylPerSec: 4.6, pitchMeanHz: 201, pauseCount: 1 }, visual: { smileMean: 0.12, gazeOffMean: 0.34, blinkCount: 2 }, coverage: { visualMeasurable: true } },
     },
   ],
 };
@@ -165,6 +212,163 @@ const TREND_FEATURES = [
 function setFeatureVisible(svg, key, visible) {
   svg.querySelectorAll(`[data-feature="${key}"]`).forEach((node) => {
     node.style.display = visible ? "" : "none";
+  });
+}
+
+function fallbackTopicForPosition(position, total) {
+  const labels = [
+    "기본 역량 확인",
+    "경험 회고와 성장 방향",
+    "심화 역량 확인",
+    "추가 응답 확인",
+  ];
+  if (total <= 0) {
+    return labels[0];
+  }
+  const groupCount = Math.max(1, Math.ceil(total / 3));
+  let remaining = total;
+  let cursor = 1;
+  for (let groupIndex = 0; groupIndex < groupCount; groupIndex += 1) {
+    const groupsLeft = groupCount - groupIndex;
+    const size = groupsLeft > 1
+      ? Math.min(3, remaining - 2 * (groupsLeft - 1))
+      : remaining;
+    if (cursor <= position && position < cursor + size) {
+      return labels[groupIndex] || `추가 응답 확인 ${groupIndex + 1}`;
+    }
+    cursor += size;
+    remaining -= size;
+  }
+  return labels[labels.length - 1];
+}
+
+function topicLooksMissing(topic, topicSource) {
+  return !topic || (topic === "미분류" && (!topicSource || topicSource === "fallback_transcript_only"));
+}
+
+function normalizeTurnTopic(turn, index = 0, total = 1) {
+  const topicSource = turn.topicSource || "fallback_transcript_only";
+  if (!topicLooksMissing(turn.topic, topicSource)) {
+    return { ...turn, topic: turn.topic, topicSource };
+  }
+  return {
+    ...turn,
+    topic: fallbackTopicForPosition(index + 1, total),
+    topicSource: "fallback_demo_group",
+  };
+}
+
+function buildTopicGroups(turns) {
+  const groups = [];
+  for (let index = 0; index < turns.length; index += 1) {
+    const rawTurn = turns[index];
+    const turn = normalizeTurnTopic(rawTurn, index, turns.length);
+    const topic = turn.topic;
+    const topicSource = turn.topicSource;
+    const latest = groups[groups.length - 1];
+    if (!latest || latest.topic !== topic) {
+      groups.push({
+        groupId: `topic_${groups.length + 1}`,
+        topic,
+        topicSource,
+        startTurnId: turn.turnId,
+        endTurnId: turn.turnId,
+        turns: [turn],
+      });
+    } else {
+      latest.endTurnId = turn.turnId;
+      latest.turns.push(turn);
+    }
+  }
+  return groups;
+}
+
+function normalizeTopicGroups(report) {
+  const reportTurns = Array.isArray(report.turns) ? report.turns : [];
+  const rebuiltGroups = buildTopicGroups(reportTurns);
+  if (Array.isArray(report.topicGroups) && report.topicGroups.length > 0) {
+    const groups = report.topicGroups
+      .map((group) => ({
+        groupId: group.groupId,
+        topic: group.topic || "미분류",
+        topicSource: group.topicSource || "fallback_transcript_only",
+        startTurnId: group.startTurnId,
+        endTurnId: group.endTurnId,
+        turns: Array.isArray(group.turns)
+          ? group.turns.map((turn, index) => normalizeTurnTopic(turn, index, group.turns.length))
+          : [],
+      }))
+      .filter((group) => group.turns.length > 0);
+    const singleMissingGroup = groups.length === 1 && topicLooksMissing(groups[0].topic, groups[0].topicSource);
+    if (singleMissingGroup && rebuiltGroups.length > 1) {
+      return rebuiltGroups;
+    }
+    if (groups.length > 0) {
+      return groups;
+    }
+  }
+  return rebuiltGroups;
+}
+
+function currentGroup() {
+  return reportPagerState.groups[reportPagerState.groupIndex] || {
+    topic: "미분류",
+    startTurnId: null,
+    endTurnId: null,
+    turns: reportPagerState.turns,
+  };
+}
+
+function groupStatusText() {
+  if (reportPagerState.groups.length === 0) {
+    return "표시할 주제 없음";
+  }
+  const group = currentGroup();
+  const range = group.startTurnId === group.endTurnId
+    ? `Q${group.startTurnId}`
+    : `Q${group.startTurnId}–Q${group.endTurnId}`;
+  return `${reportPagerState.groupIndex + 1}/${reportPagerState.groups.length} · ${group.topic} · ${range}`;
+}
+
+function updateTopicPagerControls() {
+  const total = reportPagerState.groups.length;
+  for (const kind of ["trend", "dialog"]) {
+    const prev = document.getElementById(`${kind}-prev`);
+    const next = document.getElementById(`${kind}-next`);
+    const status = document.getElementById(`${kind}-page-status`);
+    if (prev) {
+      prev.disabled = total <= 1 || reportPagerState.groupIndex <= 0;
+    }
+    if (next) {
+      next.disabled = total <= 1 || reportPagerState.groupIndex >= total - 1;
+    }
+    if (status) {
+      status.textContent = groupStatusText();
+    }
+  }
+}
+
+function renderTopicGroup() {
+  const group = currentGroup();
+  renderTrendChart(group.turns);
+  const list = document.querySelector(".turn-list");
+  if (list) {
+    const items = group.turns.map((turn, i) => turnItem(turn, i));
+    list.replaceChildren(...items); // 통째 교체 (innerHTML 안 씀)
+  }
+  updateTopicPagerControls();
+}
+
+function wireTopicPager(kind) {
+  const prev = document.getElementById(`${kind}-prev`);
+  const next = document.getElementById(`${kind}-next`);
+  prev?.addEventListener("click", () => {
+    reportPagerState.groupIndex = Math.max(0, reportPagerState.groupIndex - 1);
+    renderTopicGroup();
+  });
+  next?.addEventListener("click", () => {
+    reportPagerState.groupIndex = Math.min(reportPagerState.groups.length - 1, reportPagerState.groupIndex + 1);
+    renderTopicGroup();
   });
 }
 
@@ -415,20 +619,21 @@ function renderReport(report) {
   if (turnsEl && report.turnCount != null) {
     turnsEl.textContent = `${report.turnCount}개`;
   }
+  const dialogTurnCountEl = document.getElementById("dialog-turn-count");
+  if (dialogTurnCountEl && report.turnCount != null) {
+    dialogTurnCountEl.textContent = `${report.turnCount}개 답변`;
+  }
 
   if (Array.isArray(report.turns)) {
+    reportPagerState.turns = report.turns;
+    reportPagerState.groups = normalizeTopicGroups(report);
+    reportPagerState.groupIndex = Math.min(reportPagerState.groupIndex, Math.max(0, reportPagerState.groups.length - 1));
+
     // 종합(평균 비언어 지표) 카드 — 값이 차오르는 애니메이션
     renderSummary(report.turns);
 
-    // 턴별 추이 꺾은선 그래프 — 선이 X축을 따라 그려지는 애니메이션
-    renderTrendChart(report.turns);
-
-    // 다이얼로그: 예시 턴들을 지우고, 실제 턴으로 다시 그립니다.
-    const list = document.querySelector(".turn-list");
-    if (list) {
-      const items = report.turns.map((turn, i) => turnItem(turn, i));
-      list.replaceChildren(...items); // 통째 교체 (innerHTML 안 씀)
-    }
+    // 선택된 주제 그룹의 그래프와 다이얼로그를 함께 그립니다.
+    renderTopicGroup();
   }
 }
 
@@ -456,6 +661,8 @@ function scrollToSummary() {
 }
 
 async function init() {
+  wireTopicPager("trend");
+  wireTopicPager("dialog");
   const interviewId = interviewIdFromPath();
   if (!interviewId) {
     return; // 리포트 라우트가 아니면 아무것도 하지 않음

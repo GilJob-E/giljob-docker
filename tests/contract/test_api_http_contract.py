@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import contextlib
+import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pathlib
 import sys
@@ -14,9 +16,11 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
 import server as api_server  # noqa: E402
+import app.turn_store as turn_store  # noqa: E402
 from server import Handler, SESSION_HASH_STORE  # noqa: E402
 
 DEFAULT_AI_ENGINE_INTERNAL_URL = api_server.AI_ENGINE_INTERNAL_URL
+DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL = api_server.ANALYSIS_ENGINE_INTERNAL_URL
 
 LIVEKIT_ENV_NAMES = (
     "LIVEKIT_REQUIRED",
@@ -26,6 +30,7 @@ LIVEKIT_ENV_NAMES = (
     "LIVEKIT_API_KEY",
     "LIVEKIT_API_SECRET",
     "AI_ENGINE_INTERNAL_URL",
+    "GILJOB_E2E_TRACE",
     "ELEVENLABS_API_KEY",
     "SPATIALREAL_API_KEY",
 )
@@ -34,7 +39,9 @@ LIVEKIT_ENV_NAMES = (
 class ApiHttpContractTest(unittest.TestCase):
     def setUp(self) -> None:
         SESSION_HASH_STORE.clear()
+        turn_store._STORE = None
         api_server.AI_ENGINE_INTERNAL_URL = DEFAULT_AI_ENGINE_INTERNAL_URL
+        api_server.ANALYSIS_ENGINE_INTERNAL_URL = DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL
         self._old_livekit_env = {name: os.environ.get(name) for name in LIVEKIT_ENV_NAMES}
         for name in self._old_livekit_env:
             os.environ.pop(name, None)
@@ -50,7 +57,9 @@ class ApiHttpContractTest(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=2)
         SESSION_HASH_STORE.clear()
+        turn_store._STORE = None
         api_server.AI_ENGINE_INTERNAL_URL = DEFAULT_AI_ENGINE_INTERNAL_URL
+        api_server.ANALYSIS_ENGINE_INTERNAL_URL = DEFAULT_ANALYSIS_ENGINE_INTERNAL_URL
         for name, value in self._old_livekit_env.items():
             if value is None:
                 os.environ.pop(name, None)
@@ -66,6 +75,13 @@ class ApiHttpContractTest(unittest.TestCase):
         )
         try:
             with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status, res.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read().decode("utf-8")
+
+    def _get(self, path: str) -> tuple[int, str]:
+        try:
+            with urllib.request.urlopen(self.base_url + path, timeout=5) as res:
                 return res.status, res.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode("utf-8")
@@ -177,6 +193,143 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(upstream_payload["interviewId"], "local-demo")
         self.assertEqual(upstream_payload["turnIndex"], 1)
         self.assertNotIn("GEMINI_API_KEY", body)
+
+    def test_report_groups_dialog_by_persisted_question_topic_not_hashimoto_as_of(self) -> None:
+        turn_payloads = [
+            {
+                "interviewId": "local-demo",
+                "turnIndex": 1,
+                "question": "지원 동기를 설명해 주세요.",
+                "strategyMetadata": {
+                    "strategyTopicUsed": "지원 동기",
+                    "strategyTopicSource": "hashimoto_strategy",
+                    "strategyAsOfTurnId": None,
+                    "strategyTopicChanged": False,
+                    "strategyReady": True,
+                },
+            },
+            {
+                "interviewId": "local-demo",
+                "turnIndex": 2,
+                "question": "지원 동기를 더 구체적으로 설명해 주세요.",
+                "strategyMetadata": {
+                    "strategyTopicUsed": "지원 동기",
+                    "strategyTopicSource": "hashimoto_strategy",
+                    "strategyAsOfTurnId": "turn_0001",
+                    "strategyTopicChanged": False,
+                    "strategyReady": True,
+                },
+            },
+            {
+                "interviewId": "local-demo",
+                "turnIndex": 3,
+                "question": "프로젝트 문제 해결을 설명해 주세요.",
+                "strategyMetadata": {
+                    "strategyTopicUsed": "문제 해결",
+                    "strategyTopicSource": "hashimoto_strategy",
+                    "strategyAsOfTurnId": "turn_0002",
+                    "strategyTopicChanged": True,
+                    "strategyReady": True,
+                },
+            },
+        ]
+        for payload in turn_payloads:
+            api_server.record_turn_question(
+                "local-demo",
+                int(payload["turnIndex"]),
+                payload["question"],
+                None,
+                payload,
+            )
+
+        status, body = self._get("/api/interviews/local-demo/report")
+        self.assertEqual(status, 200, body)
+        report = json.loads(body)
+        self.assertEqual([group["topic"] for group in report["topicGroups"]], ["지원 동기", "문제 해결"])
+        self.assertEqual(report["topicGroups"][0]["startTurnId"], 1)
+        self.assertEqual(report["topicGroups"][0]["endTurnId"], 2)
+        self.assertEqual(report["topicGroups"][1]["startTurnId"], 3)
+        self.assertEqual(report["turns"][2]["hashimotoAsOfTurnId"], "turn_0002")
+        self.assertEqual(report["turns"][2]["topic"], "문제 해결")
+
+    def test_report_fallback_questions_are_split_into_topic_groups(self) -> None:
+        questions = [
+            "간단한 자기소개와 지원 동기를 말씀해 주세요.",
+            "최근 해결한 가장 어려운 기술 문제는 무엇이었나요?",
+            "의견이 다른 동료와 협업한 경험을 말씀해 주세요.",
+            "실패했던 프로젝트와 거기서 배운 점을 말씀해 주세요.",
+            "마지막으로 입사 후 포부를 말씀해 주세요.",
+        ]
+        for index, question in enumerate(questions, start=1):
+            api_server.record_turn_question("local-demo", index, question, None, {})
+
+        status, body = self._get("/api/interviews/local-demo/report")
+        self.assertEqual(status, 200, body)
+        report = json.loads(body)
+        topics = [group["topic"] for group in report["topicGroups"]]
+        self.assertEqual(topics, [
+            "기본 역량 확인",
+            "경험 회고와 성장 방향",
+        ])
+        self.assertNotEqual(topics, ["미분류"])
+        self.assertEqual(report["topicGroups"][0]["startTurnId"], 1)
+        self.assertEqual(report["topicGroups"][0]["endTurnId"], 3)
+        self.assertEqual(report["topicGroups"][1]["startTurnId"], 4)
+        self.assertEqual(report["topicGroups"][1]["endTurnId"], 5)
+        self.assertEqual(report["turns"][0]["topicSource"], "fallback_demo_group")
+
+    def test_e2e_trace_logs_storage_and_report_steps_without_secret_markers(self) -> None:
+        os.environ["GILJOB_E2E_TRACE"] = "1"
+        api_server.ANALYSIS_ENGINE_INTERNAL_URL = "http://127.0.0.1:9"
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            api_server.record_turn_question(
+                "local-demo",
+                1,
+                "Question text",
+                None,
+                {
+                    "strategyMetadata": {
+                        "strategyTopicUsed": "problem-solving",
+                        "strategyTopicSource": "hashimoto_strategy",
+                        "strategyAsOfTurnId": "turn_0001",
+                        "strategyReady": True,
+                    }
+                },
+            )
+            api_server.record_turn_answer("local-demo", 1, {"answer": "answer text"})
+            api_server.build_report("local-demo")
+
+        output = buffer.getvalue()
+        self.assertIn("[api-trace]", output)
+        self.assertIn("dialog.question_saved", output)
+        self.assertIn("dialog.answer_saved", output)
+        self.assertIn("report.rows_loaded", output)
+        self.assertIn("report.turn_composed", output)
+        self.assertNotIn("LIVEKIT_API_SECRET", output)
+        self.assertNotIn("candidateToken", output)
+
+    def test_finalize_declares_client_end_to_ai_engine_for_report_generation(self) -> None:
+        captured = self._start_fake_ai_engine({
+            "interviewId": "local-demo",
+            "sessionId": "local-demo",
+            "finalized": True,
+            "hashimoto": {"configured": True, "sessionEndStatus": 200},
+        })
+        status, body = self._post(
+            "/api/interviews/local-demo/finalize",
+            json.dumps({"turnIndex": 2, "answer": "완료된 마지막 답변", "reason": "client_leave"}).encode("utf-8"),
+        )
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["finalized"], True)
+        self.assertEqual(payload["answerRecorded"], True)
+        self.assertEqual(payload["aiEngineFinalized"]["ok"], True)
+        self.assertEqual(captured[0]["path"], "/interview/finalize")
+        upstream_payload = json.loads(str(captured[0]["body"]))
+        self.assertEqual(upstream_payload["sessionId"], "local-demo")
+        self.assertEqual(upstream_payload["turnIndex"], 2)
+        self.assertEqual(upstream_payload["answer"], "완료된 마지막 답변")
 
     def test_next_question_route_accepts_caddy_stripped_path_and_bad_id_fails(self) -> None:
         self._start_fake_ai_engine({"interviewId": "local-demo", "turnIndex": 2, "question": "다음 질문입니다."})

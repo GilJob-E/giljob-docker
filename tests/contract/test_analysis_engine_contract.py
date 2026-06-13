@@ -30,6 +30,7 @@ ANALYSIS_ENV_NAMES = (
     "LIVEKIT_SESSION_ID",
     "GILJOBE_GIT_URL",
     "GILJOBE_GIT_REF",
+    "ANALYSIS_ENGINE_DUMMY_SCENARIO",
 )
 
 
@@ -176,6 +177,46 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("runtime", payload)
         self.assertIn("state", payload["runtime"])
 
+    def test_dummy_scenario_replaces_giljobe_runtime_with_signal_contract(self) -> None:
+        old_dummy_runtime = analysis_engine.DUMMY_RUNTIME
+        analysis_engine.DUMMY_RUNTIME = analysis_engine.DummyScenarioRuntime()
+        self.addCleanup(lambda: setattr(analysis_engine, "DUMMY_RUNTIME", old_dummy_runtime))
+        os.environ["ANALYSIS_ENGINE_DUMMY_SCENARIO"] = "hashimoto-report-ui"
+
+        status, payload, body = self._get("/readyz")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["mode"], "dummy-scenario")
+        self.assertNotIn("LIVEKIT_API_SECRET", body)
+
+        start_req = urllib.request.Request(
+            self.base_url + "/subscriber/start",
+            data=json.dumps({"sessionId": "local-demo", "criticMode": "window"}).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(start_req, timeout=5) as res:
+            self.assertEqual(res.status, 202)
+
+        stop_req = urllib.request.Request(
+            self.base_url + "/subscriber/stop",
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(stop_req, timeout=5) as res:
+            self.assertEqual(res.status, 200)
+
+        status, payload, body = self._get("/signals?sessionId=local-demo")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["scenario"], "hashimoto-report-ui")
+        self.assertEqual(payload["recordCount"], 3)
+        self.assertEqual([record["type"] for record in payload["records"]], ["window", "eval", "turn_end"])
+        self.assertIn("objective_vocal", payload["records"][1]["eval"])
+        self.assertIn("objective_visual", payload["records"][1]["eval"])
+        self.assertEqual(payload["rawSecretsExposed"], False)
+        self.assertEqual(payload["rawMediaExposed"], False)
+        self.assertNotIn("LIVEKIT_API_SECRET", body)
 
     def test_runtime_errors_are_redacted_from_public_status_payloads(self) -> None:
         secret = "secret-livekit-token-should-not-leak"

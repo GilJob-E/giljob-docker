@@ -205,7 +205,7 @@ def _candidate_context(payload: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def _pull_hashimoto_strategy(session_id: str, timeout: float = 0.3) -> dict[str, Any] | None:
+def _pull_hashimoto_strategy_package(session_id: str, timeout: float = 0.3) -> dict[str, Any] | None:
     """Reference-only, best-effort pull of hashimoto's latest strategy package.
 
     Disabled unless HASHIMOTO_BASE_URL is set (so existing behavior/tests are
@@ -225,7 +225,32 @@ def _pull_hashimoto_strategy(session_id: str, timeout: float = 0.3) -> dict[str,
     if not isinstance(data, dict) or not data.get("ready"):
         return None
     strategy = data.get("interaction_strategy")
-    return strategy if isinstance(strategy, dict) else None
+    if not isinstance(strategy, dict):
+        return None
+    return data
+
+
+def _strategy_metadata(
+    package: dict[str, Any] | None,
+    *,
+    fallback_topic: str = "미분류",
+) -> dict[str, object]:
+    """Snapshot the strategy metadata actually consumed for this question.
+
+    This is report attribution data, not a token or provider secret. The important
+    invariant is that the topic is captured at question-generation time, so later
+    hashimoto transitions cannot rewrite ownership of an already-asked turn.
+    """
+    strategy = package.get("interaction_strategy") if isinstance(package, dict) else None
+    ctx = strategy.get("current_context") if isinstance(strategy, dict) else None
+    topic = _safe_str((ctx or {}).get("topic") or fallback_topic, 200)
+    return {
+        "strategyTopicUsed": topic or fallback_topic,
+        "strategyTopicSource": "hashimoto_strategy" if isinstance(package, dict) else "fallback_transcript_only",
+        "strategyAsOfTurnId": _safe_str(package.get("as_of_turn_id"), 120) if isinstance(package, dict) else None,
+        "strategyTopicChanged": bool((ctx or {}).get("topic_changed")) if isinstance(ctx, dict) else False,
+        "strategyReady": bool(package.get("ready")) if isinstance(package, dict) else False,
+    }
 
 
 # ── hashimoto feed (write side: push STT answers to hashimoto) ────────────────
@@ -282,6 +307,11 @@ def _push_hashimoto_turn(session_id: str, turn_id: str, text: str, timeout: floa
     return _hashimoto_post(
         "/submit_turn", {"session_id": session_id, "turn_id": turn_id, "text": text}, timeout
     )
+
+
+def _end_hashimoto_session(session_id: str, timeout: float = 1.0) -> int | None:
+    """Tell hashimoto the client intentionally ended the interview."""
+    return _hashimoto_post("/session/end", {"session_id": session_id}, timeout)
 
 
 def _feed_hashimoto(payload: dict[str, Any], turn_index: int) -> None:
@@ -988,7 +1018,8 @@ def question_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
 
     if settings.provider == "gemini":
         # Advisory pull of hashimoto strategy (no-op unless HASHIMOTO_BASE_URL set).
-        strategy = _pull_hashimoto_strategy(_safe_str(payload.get("sessionId") or interview_id, 96))
+        strategy_package = _pull_hashimoto_strategy_package(_safe_str(payload.get("sessionId") or interview_id, 96))
+        strategy = strategy_package.get("interaction_strategy") if isinstance(strategy_package, dict) else None
         try:
             question = generate_gemini_question(settings, payload, turn_index, strategy=strategy)
             provider_status = "ok"
@@ -1000,6 +1031,7 @@ def question_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
                 "message": "provider request failed",
             }
     elif settings.provider == "fake":
+        strategy_package = None
         question = fake_question(payload, turn_index)
         provider_status = "fake"
     else:
@@ -1013,11 +1045,40 @@ def question_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
         "provider": settings.provider,
         "providerStatus": provider_status,
         "model": settings.gemini_model if settings.provider == "gemini" else "fake-interviewer",
+        "strategyMetadata": _strategy_metadata(strategy_package),
         "answerTurn": {
             "boundary": "manual_button",
             "enableEvent": "giljob:interviewer-question-ended",
             "startLabel": "답변 시작",
             "endLabel": "답변 종료",
+        },
+    }
+
+
+def finalize_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
+    interview_id = _safe_str(payload.get("interviewId") or payload.get("sessionId") or "local-demo", 96)
+    if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
+        return 400, {"error": "invalid_interview_id"}
+    session_id = _safe_str(payload.get("sessionId") or interview_id, 96)
+    try:
+        turn_index = int(payload.get("turnIndex") or payload.get("turnId") or 0)
+    except (TypeError, ValueError):
+        turn_index = 0
+    last_answer = _safe_str(payload.get("answer") or payload.get("lastAnswer") or "", 20_000).strip()
+
+    submitted_status = None
+    if _hashimoto_base() and turn_index >= 1 and last_answer:
+        submitted_status = _push_hashimoto_turn(session_id, f"turn_{turn_index:04d}", last_answer)
+    ended_status = _end_hashimoto_session(session_id) if _hashimoto_base() else None
+
+    return 200, {
+        "interviewId": interview_id,
+        "sessionId": session_id,
+        "finalized": True,
+        "hashimoto": {
+            "configured": bool(_hashimoto_base()),
+            "lastTurnSubmitStatus": submitted_status,
+            "sessionEndStatus": ended_status,
         },
     }
 
@@ -1090,6 +1151,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             assert payload is not None
             status, response = question_response(payload)
+            self._json(status, response)
+            return
+        if self.path in {"/interview/finalize", "/ai/interview/finalize"}:
+            payload, error = self._read_json()
+            if error:
+                status = 413 if error == "request_too_large" else 400
+                self._json(status, {"error": error})
+                return
+            assert payload is not None
+            status, response = finalize_response(payload)
             self._json(status, response)
             return
         if self.path == "/avatar/session":

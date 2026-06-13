@@ -48,7 +48,57 @@ SESSION_HASH_STORE: dict[str, dict[str, object]] = {}
 # (session_id, turn_id) key, so these call sites are backend-agnostic.
 
 
-def record_turn_question(session_id: str, turn_index: int, question: object, last_answer: object) -> None:
+def _trace_enabled() -> bool:
+    return os.getenv("GILJOB_E2E_TRACE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trace(event: str, **fields: object) -> None:
+    """Print branch-local E2E trace logs without raw token/media payloads."""
+    if not _trace_enabled():
+        return
+    safe_fields: dict[str, object] = {}
+    for key, value in fields.items():
+        if value is None or isinstance(value, (bool, int, float)):
+            safe_fields[key] = value
+        elif isinstance(value, str):
+            safe_fields[key] = _safe_str(value, 240)
+        elif isinstance(value, (list, tuple)):
+            safe_fields[key] = [_safe_str(item, 120) for item in value[:8]]
+        elif isinstance(value, dict):
+            safe_fields[key] = {
+                _safe_str(k, 80): (_safe_str(v, 160) if isinstance(v, str) else v)
+                for k, v in list(value.items())[:12]
+                if not any(secret in str(k).lower() for secret in ("token", "secret", "key", "jwt"))
+            }
+        else:
+            safe_fields[key] = _safe_str(value, 160)
+    print(
+        "[api-trace] "
+        + json.dumps({"event": event, **safe_fields}, ensure_ascii=False, sort_keys=True),
+        flush=True,
+    )
+
+
+def _strategy_metadata_from_payload(payload: dict[str, Any]) -> dict[str, object]:
+    metadata = payload.get("strategyMetadata")
+    if not isinstance(metadata, dict):
+        return {
+            "topic": "미분류",
+            "topicSource": "fallback_transcript_only",
+            "hashimotoAsOfTurnId": None,
+            "hashimotoTopicChanged": False,
+            "strategyReady": False,
+        }
+    return {
+        "topic": _safe_str(metadata.get("strategyTopicUsed") or "미분류", 200),
+        "topicSource": _safe_str(metadata.get("strategyTopicSource") or "fallback_transcript_only", 80),
+        "hashimotoAsOfTurnId": _safe_str(metadata.get("strategyAsOfTurnId"), 120) or None,
+        "hashimotoTopicChanged": bool(metadata.get("strategyTopicChanged")),
+        "strategyReady": bool(metadata.get("strategyReady")),
+    }
+
+
+def record_turn_question(session_id: str, turn_index: int, question: object, last_answer: object, upstream_payload: dict[str, Any] | None = None) -> None:
     """Persist one turn's brokered question and back-fill the previous turn's answer.
 
     The browser sends ``lastAnswer`` (the transcript of the *previous* turn) when it
@@ -60,12 +110,32 @@ def record_turn_question(session_id: str, turn_index: int, question: object, las
         return
     store = get_turn_store()
     question_text = _safe_str(question, MAX_TURN_TEXT_CHARS)
+    metadata = _strategy_metadata_from_payload(upstream_payload or {})
     if question_text:
-        store.upsert_question(session_id, turn_index, question_text)
+        store.upsert_question(session_id, turn_index, question_text, metadata)
+        _trace(
+            "dialog.question_saved",
+            step="AI question broker response persisted to turn store",
+            sessionId=session_id,
+            turnId=turn_index,
+            questionChars=len(question_text),
+            topic=metadata.get("topic"),
+            topicSource=metadata.get("topicSource"),
+            hashimotoAsOfTurnId=metadata.get("hashimotoAsOfTurnId"),
+            strategyReady=metadata.get("strategyReady"),
+        )
     answer_text = _safe_str(last_answer, MAX_TURN_TEXT_CHARS)
     if answer_text and answer_text != LAST_ANSWER_PLACEHOLDER and turn_index - 1 >= 1:
         # overwrite=False so this back-fill never clobbers a real per-turn answer.
         store.upsert_answer(session_id, turn_index - 1, answer_text, overwrite=False)
+        _trace(
+            "dialog.previous_answer_backfilled",
+            step="Previous answer transcript back-filled from next-question request",
+            sessionId=session_id,
+            turnId=turn_index - 1,
+            answerChars=len(answer_text),
+            overwrite=False,
+        )
 
 
 def finalize_interview(session_id: str, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
@@ -84,16 +154,101 @@ def finalize_interview(session_id: str, payload: dict[str, Any]) -> tuple[int, d
     except (TypeError, ValueError):
         turn_index = 0
     answer_text = _safe_str(payload.get("answer") or payload.get("lastAnswer") or "", MAX_TURN_TEXT_CHARS)
+    answer_recorded = False
     if turn_index >= 1 and answer_text and answer_text != LAST_ANSWER_PLACEHOLDER:
         get_turn_store().upsert_answer(session_id, turn_index, answer_text)
+        answer_recorded = True
+        _trace(
+            "dialog.final_answer_saved",
+            step="Finalize payload contained a last answer, persisted before report build",
+            sessionId=session_id,
+            turnId=turn_index,
+            answerChars=len(answer_text),
+        )
+
+    _trace(
+        "finalize.started",
+        step="Client requested interview end; stopping analysis and hashimoto-side work",
+        sessionId=session_id,
+        turnId=turn_index,
+        answerRecorded=answer_recorded,
+    )
+    analysis_stopped = _stop_analysis_subscriber()
+    ai_engine_finalize = _finalize_ai_engine(session_id, turn_index, answer_text)
 
     ingested_turns = 0
     try:
         ingested_turns = ingest_session_signals(session_id, _fetch_analysis_signals(session_id))
     except Exception:  # noqa: BLE001 - finalize stays resilient to analysis outages
         ingested_turns = 0
+    _trace(
+        "finalize.completed",
+        step="Finalize completed; report endpoint will read turn store and aggregate features",
+        sessionId=session_id,
+        answerRecorded=answer_recorded,
+        signalsIngestedTurns=ingested_turns,
+        analysisStopped=analysis_stopped,
+        aiEngineFinalized=ai_engine_finalize,
+    )
 
-    return 200, {"interviewId": session_id, "finalized": True, "signalsIngestedTurns": ingested_turns}
+    return 200, {
+        "interviewId": session_id,
+        "finalized": True,
+        "answerRecorded": answer_recorded,
+        "signalsIngestedTurns": ingested_turns,
+        "analysisStopped": analysis_stopped,
+        "aiEngineFinalized": ai_engine_finalize,
+    }
+
+
+def _post_json(url: str, body: dict[str, Any], timeout: float) -> tuple[int | None, dict[str, object]]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            parsed = json.loads(response.read().decode("utf-8") or "{}")
+            return response.status, parsed if isinstance(parsed, dict) else {}
+    except urllib.error.HTTPError as error:
+        try:
+            parsed = json.loads(error.read().decode("utf-8", errors="replace") or "{}")
+        except json.JSONDecodeError:
+            parsed = {}
+        return error.code, parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return None, {}
+
+
+def _stop_analysis_subscriber() -> dict[str, object]:
+    status, payload = _post_json(f"{ANALYSIS_ENGINE_INTERNAL_URL}/subscriber/stop", {}, timeout=10)
+    return {
+        "attempted": True,
+        "ok": status is not None and 200 <= status < 300,
+        "status": status,
+        "state": _safe_str(payload.get("status") or payload.get("state") or "", 80) or None,
+    }
+
+
+def _finalize_ai_engine(session_id: str, turn_index: int, answer_text: str) -> dict[str, object]:
+    body: dict[str, Any] = {
+        "interviewId": session_id,
+        "sessionId": session_id,
+        "reason": "client_leave",
+    }
+    if turn_index >= 1 and answer_text and answer_text != LAST_ANSWER_PLACEHOLDER:
+        body["turnIndex"] = turn_index
+        body["answer"] = answer_text
+    status, payload = _post_json(f"{AI_ENGINE_INTERNAL_URL}/interview/finalize", body, timeout=10)
+    hashimoto = payload.get("hashimoto") if isinstance(payload, dict) else None
+    return {
+        "attempted": True,
+        "ok": status is not None and 200 <= status < 300,
+        "status": status,
+        "hashimoto": hashimoto if isinstance(hashimoto, dict) else {},
+    }
 
 
 def record_turn_signals(session_id: str, turn_index: int, evals: list[dict[str, Any]], giljobe_ref: object = None) -> None:
@@ -107,6 +262,14 @@ def record_turn_signals(session_id: str, turn_index: int, evals: list[dict[str, 
         return
     clean_evals = [e for e in (evals or []) if isinstance(e, dict)]
     get_turn_store().upsert_signals(session_id, turn_index, clean_evals, giljobe_ref)
+    _trace(
+        "features.signals_saved",
+        step="Analysis eval windows persisted to turn feature store",
+        sessionId=session_id,
+        turnId=turn_index,
+        evalWindowCount=len(clean_evals),
+        giljobeRef=giljobe_ref,
+    )
 
 
 def ingest_session_signals(session_id: str, signals_payload: dict[str, Any]) -> int:
@@ -125,6 +288,13 @@ def ingest_session_signals(session_id: str, signals_payload: dict[str, Any]) -> 
     if not isinstance(records, list):
         return 0
     giljobe_ref = signals_payload.get("giljobeRef") or signals_payload.get("giljobe_ref")
+    _trace(
+        "features.ingest_started",
+        step="Fetched analysis-engine /signals and started segmenting eval windows by turn_end",
+        sessionId=session_id,
+        recordCount=len(records),
+        giljobeRef=giljobe_ref,
+    )
 
     turn_index = 1
     current_evals: list[dict[str, Any]] = []
@@ -144,6 +314,12 @@ def ingest_session_signals(session_id: str, signals_payload: dict[str, Any]) -> 
     if current_evals:
         record_turn_signals(session_id, turn_index, current_evals, giljobe_ref)
         ingested += 1
+    _trace(
+        "features.ingest_completed",
+        step="Signal stream segmented into per-turn feature rows",
+        sessionId=session_id,
+        ingestedTurns=ingested,
+    )
     return ingested
 
 
@@ -186,6 +362,13 @@ def record_turn_answer(session_id: str, turn_index: int, payload: dict[str, Any]
     if not answer_text or answer_text == LAST_ANSWER_PLACEHOLDER:
         return 400, {"error": "missing_answer"}
     get_turn_store().upsert_answer(session_id, turn_index, answer_text)
+    _trace(
+        "dialog.answer_saved",
+        step="Candidate answer transcript persisted to turn store",
+        sessionId=session_id,
+        turnId=turn_index,
+        answerChars=len(answer_text),
+    )
     _ingest_signals_async(session_id)
     return 200, {"interviewId": session_id, "turnId": turn_index, "recorded": True}
 
@@ -268,6 +451,60 @@ def aggregate_turn_signals(evals: list[dict[str, Any]]) -> dict[str, object] | N
     }
 
 
+def build_topic_groups(turns: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Group consecutive dialog turns by the persisted question-generation topic."""
+    groups: list[dict[str, object]] = []
+    for turn in turns:
+        topic = _safe_str(turn.get("topic") or "미분류", 200)
+        source = _safe_str(turn.get("topicSource") or "fallback_transcript_only", 80)
+        if not groups or groups[-1].get("topic") != topic:
+            groups.append({
+                "groupId": f"topic_{len(groups) + 1:02d}",
+                "topic": topic,
+                "topicSource": source,
+                "startTurnId": turn.get("turnId"),
+                "endTurnId": turn.get("turnId"),
+                "turns": [turn],
+            })
+        else:
+            groups[-1]["endTurnId"] = turn.get("turnId")
+            group_turns = groups[-1].get("turns")
+            if isinstance(group_turns, list):
+                group_turns.append(turn)
+    return groups
+
+
+def _fallback_topic_for_position(position: int, total: int) -> str:
+    labels = [
+        "기본 역량 확인",
+        "경험 회고와 성장 방향",
+        "심화 역량 확인",
+        "추가 응답 확인",
+    ]
+    if total <= 0:
+        return labels[0]
+    group_count = max(1, (total + 2) // 3)
+    remaining = total
+    cursor = 1
+    for group_index in range(group_count):
+        groups_left = group_count - group_index
+        size = min(3, remaining - 2 * (groups_left - 1)) if groups_left > 1 else remaining
+        if cursor <= position < cursor + size:
+            return labels[group_index] if group_index < len(labels) else f"추가 응답 확인 {group_index + 1}"
+        cursor += size
+        remaining -= size
+    return labels[-1]
+
+
+def _report_topic_from_row(row: dict[str, object], position: int, total: int) -> tuple[str, str]:
+    raw_topic = _safe_str(row.get("topic"), 200)
+    raw_source = _safe_str(row.get("topicSource"), 80)
+    if raw_topic and (raw_topic != "미분류" or raw_source not in ("", "fallback_transcript_only")):
+        return raw_topic, raw_source or "fallback_transcript_only"
+
+    return _fallback_topic_for_position(position, total), "fallback_demo_group"
+
+
 def build_report(session_id: str) -> tuple[int, dict[str, object]]:
     """Assemble the report payload the browser (report.js) consumes.
 
@@ -284,17 +521,39 @@ def build_report(session_id: str) -> tuple[int, dict[str, object]]:
     if not INTERVIEW_ID_PATTERN.fullmatch(session_id):
         return 400, {"error": "invalid_interview_id"}
 
+    _trace(
+        "report.refresh_started",
+        step="Report endpoint called; refreshing analysis signals before reading store",
+        sessionId=session_id,
+    )
     try:
         ingest_session_signals(session_id, _fetch_analysis_signals(session_id, timeout=8))
     except Exception:  # noqa: BLE001 - read-through refresh is best-effort
-        pass
+        _trace(
+            "report.refresh_skipped",
+            step="Analysis refresh failed or analysis-engine unavailable; using stored rows",
+            sessionId=session_id,
+        )
 
+    rows = list(get_turn_store().report_rows(session_id))
+    _trace(
+        "report.rows_loaded",
+        step="Loaded dialog rows joined with feature rows from turn store",
+        sessionId=session_id,
+        rowCount=len(rows),
+    )
     turns: list[dict[str, object]] = []
-    for row in get_turn_store().report_rows(session_id):
+    for position, row in enumerate(rows, start=1):
+        topic, topic_source = _report_topic_from_row(row, position, len(rows))
         turn: dict[str, object] = {
             "turnId": row.get("turnId"),
             "question": row.get("question"),
             "answer": row.get("answer"),
+            "topic": topic,
+            "topicSource": topic_source,
+            "hashimotoAsOfTurnId": row.get("hashimotoAsOfTurnId"),
+            "hashimotoTopicChanged": bool(row.get("hashimotoTopicChanged")),
+            "strategyReady": bool(row.get("strategyReady")),
         }
         stored_signals = row.get("signals")
         if isinstance(stored_signals, list):
@@ -302,6 +561,29 @@ def build_report(session_id: str) -> tuple[int, dict[str, object]]:
             if aggregated:
                 turn["feedback"] = aggregated["feedback"]
                 turn["metrics"] = aggregated["metrics"]
+                metric_groups = list((aggregated.get("metrics") or {}).keys()) if isinstance(aggregated, dict) else []
+                _trace(
+                    "report.features_aggregated",
+                    step="Per-window eval features collapsed into one report turn summary",
+                    sessionId=session_id,
+                    turnId=row.get("turnId"),
+                    windowCount=aggregated.get("windowCount"),
+                    metricGroups=metric_groups,
+                    visualMeasurable=_dig(aggregated.get("metrics"), "coverage", "visualMeasurable"),
+                )
+        _trace(
+            "report.turn_composed",
+            step="Report turn composed from dialog, hashimoto topic metadata, and feature summary",
+            sessionId=session_id,
+            turnId=turn.get("turnId"),
+            hasQuestion=bool(turn.get("question")),
+            hasAnswer=bool(turn.get("answer")),
+            hasMetrics=bool(turn.get("metrics")),
+            topic=topic,
+            topicSource=topic_source,
+            hashimotoAsOfTurnId=turn.get("hashimotoAsOfTurnId"),
+            strategyReady=turn.get("strategyReady"),
+        )
         turns.append(turn)
 
     # Readiness: every answered turn should also have metrics. If some answered turn
@@ -309,11 +591,22 @@ def build_report(session_id: str) -> tuple[int, dict[str, object]]:
     answered = [turn for turn in turns if turn.get("answer")]
     complete = bool(turns) and all("metrics" in turn for turn in answered)
 
+    topic_groups = build_topic_groups(turns)
+    _trace(
+        "report.completed",
+        step="Final report payload assembled for browser",
+        sessionId=session_id,
+        turnCount=len(turns),
+        topicGroupCount=len(topic_groups),
+        complete=complete,
+    )
+
     return 200, {
         "interviewId": session_id,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "turnCount": len(turns),
         "complete": complete,
+        "topicGroups": topic_groups,
         "turns": turns,
         "rawMediaExposed": False,
         "rawSecretsExposed": False,
@@ -362,6 +655,7 @@ def request_next_question(interview_id: str, turn_index: int, payload: dict[str,
         return 400, {"error": "invalid_turn_index"}
     request_payload = json.dumps({
         "interviewId": interview_id,
+        "sessionId": interview_id,
         "turnIndex": turn_index,
         "persona": _safe_str(payload.get("persona") or "차분하고 명확한 한국어 면접관", 500),
         "candidateProfile": _safe_str(payload.get("candidateProfile") or "not provided in this slice", 2_000),
@@ -634,7 +928,7 @@ class Handler(BaseHTTPRequestHandler):
             status, payload = request_next_question(session_id, turn_index, body)
             if status == 200:
                 try:
-                    record_turn_question(session_id, turn_index, payload.get("question"), body.get("lastAnswer"))
+                    record_turn_question(session_id, turn_index, payload.get("question"), body.get("lastAnswer"), payload)
                 except Exception:  # noqa: BLE001 - storage must never break the brokered response
                     pass
             self._json(status, payload)

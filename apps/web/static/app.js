@@ -59,6 +59,7 @@ let answerTurnAvailable = false;
 let nextQuestionRequested = false;
 let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
+let lastAnswerTurnIndex = 0;
 let currentQuestionText = "";
 let captionPollTimer = null;
 let captionPollInFlight = false;
@@ -91,8 +92,13 @@ function productionRouteFor(screen) {
   return `/interviews/${encodeURIComponent(activeInterviewId)}/${screen}`;
 }
 
+function e2eNoLiveKitEnabled() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("e2eNoLiveKit") === "1";
+}
+
 function hydrateProductionRoutes() {
-  document.querySelectorAll("[data-interview-route]").forEach((link) => {
+  document.querySelectorAll("a[data-interview-route]").forEach((link) => {
     const screen = link.dataset.interviewRoute;
     if (!screen) {
       return;
@@ -1007,17 +1013,34 @@ async function submitTurnAnswer(turnIndex, answer) {
 }
 
 async function finalizeInterview() {
-  // Interview over: ask the API for a final signal-ingest sweep (captures the
-  // last turn's eval windows). Best-effort; never blocks leaving the room.
+  // Interview over: declare client intent to end the session and ask the API to
+  // stop analysis/hashimoto-side work before the report page reads final rows.
+  const body = {
+    reason: "client_leave",
+    currentTurnIndex,
+    interrupted: micEnabled,
+  };
+  if (lastAnswerTurnIndex >= 1 && lastAnswerTranscript) {
+    body.turnIndex = lastAnswerTurnIndex;
+    body.answer = lastAnswerTranscript;
+  }
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 12_000);
   try {
-    await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/finalize`, {
+    const response = await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/finalize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ turnIndex: currentTurnIndex, answer: lastAnswerTranscript }),
+      body: JSON.stringify(body),
+      signal: controller.signal,
     });
+    if (!response.ok) {
+      throw new Error(`finalize HTTP ${response.status}`);
+    }
     appendLog("interview finalized; final signal ingest requested");
   } catch (error) {
     appendLog(`finalize skipped: ${errorMessage(error)}`);
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 
@@ -1029,8 +1052,10 @@ async function finishAnswerAndRequestNextQuestion() {
   const sessionId = analysisSessionId();
   renderTranscriptStatus("답변 종료. GilJobE analysis-engine에서 최종 전사를 가져오는 중입니다.");
   const transcript = await flushAnalysisTurn(sessionId);
+  const completedTurnIndex = currentTurnIndex;
   lastAnswerTranscript = transcript || "전사 결과가 비어 있습니다.";
-  submitTurnAnswer(currentTurnIndex, transcript);
+  lastAnswerTurnIndex = completedTurnIndex;
+  await submitTurnAnswer(completedTurnIndex, transcript);
   currentTurnIndex += 1;
   nextQuestionRequested = false;
   setAnswerTurnAvailability(false, "candidate answer ended; waiting for next interviewer question");
@@ -1083,10 +1108,36 @@ function sessionLiveKitConfig(session) {
   const url = livekit?.publicUrl ?? livekit?.url;
   const token = livekit?.candidateToken;
   if (!url || !token) {
+    if (e2eNoLiveKitEnabled()) {
+      return null;
+    }
     const reason = livekit?.deferredReason ?? "missing LiveKit URL/token";
     throw new Error(`LiveKit join is not available: ${reason}`);
   }
   return { url, token };
+}
+
+function enterE2ENoLiveKitRoom(session) {
+  const localParticipant = {
+    async setMicrophoneEnabled() {},
+    async setCameraEnabled() {},
+  };
+  activeRoom = {
+    localParticipant,
+    disconnect() {
+      appendLog("E2E no-LiveKit room disconnected");
+    },
+  };
+  setRoomMode("connected");
+  setStatus("E2E no-LiveKit room ready", "connected");
+  if (leaveButton) {
+    leaveButton.disabled = false;
+  }
+  if (joinButton) {
+    joinButton.disabled = true;
+  }
+  appendLog(`E2E no-LiveKit room ready for ${session?.sessionId || activeInterviewId}; media skipped`);
+  requestNextQuestion("e2e-no-livekit-room-connected");
 }
 
 async function createSession() {
@@ -1189,7 +1240,7 @@ async function failClosedAfterJoinMediaError(room, error) {
 
 async function joinRoom() {
   const session = activeSession ?? (await createSession());
-  const { url, token } = sessionLiveKitConfig(session);
+  const livekitConfig = sessionLiveKitConfig(session);
   try {
     await restartAnalysisSubscriber(session.sessionId || activeInterviewId);
   } catch (error) {
@@ -1201,6 +1252,11 @@ async function joinRoom() {
   }
 
   setRoomMode("connecting");
+  if (!livekitConfig) {
+    enterE2ENoLiveKitRoom(session);
+    return;
+  }
+  const { url, token } = livekitConfig;
   setStatus("connecting to LiveKit...", "connecting");
   activeRoom = new Room();
   bindRoomEvents(activeRoom);
@@ -1231,23 +1287,27 @@ async function autoJoinRoomRoute() {
   }
 }
 
-function leaveRoom() {
+async function leaveRoom() {
   if (!activeRoom) {
     return;
   }
   // Leave now doubles as "end interview + open report"; confirm before tearing down.
-  if (!window.confirm("현재 면접을 종료하고 지금까지의 레포트를 확인합니다.")) {
+  const notice = micEnabled
+    ? "현재 답변 중입니다. 지금 종료하면 진행 중인 마지막 답변은 레포트에 포함되지 않을 수 있습니다.\n\n면접을 종료하고 레포트로 이동할까요?"
+    : "현재 면접을 종료하고 지금까지 저장된 답변으로 레포트를 확인합니다.\n\n면접을 종료할까요?";
+  if (!window.confirm(notice)) {
     return;
   }
   appendLog("leaving LiveKit room");
+  setStatus("면접 종료 및 레포트 준비 중...", "connecting");
   stopCaptionPolling();
-  finalizeInterview();
-  disconnectAvatarRtc();
-  activeRoom.disconnect();
-  activeRoom = null;
   if (leaveButton) {
     leaveButton.disabled = true;
   }
+  await finalizeInterview();
+  disconnectAvatarRtc();
+  activeRoom.disconnect();
+  activeRoom = null;
   if (joinButton) {
     joinButton.disabled = false;
   }

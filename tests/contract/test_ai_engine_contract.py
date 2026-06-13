@@ -56,6 +56,7 @@ LLM_ENV_NAMES = (
     "LIVEKIT_PUBLIC_URL",
     "LIVEKIT_API_KEY",
     "LIVEKIT_API_SECRET",
+    "HASHIMOTO_BASE_URL",
 )
 
 
@@ -495,6 +496,54 @@ class AIEngineContractTest(unittest.TestCase):
         self.assertIn("models/gemini-3.5-flash:generateContent", request.full_url)
         self.assertEqual(request.headers["X-goog-api-key"], "secret-gemini-key")
         self.assertNotIn("secret-gemini-key", body)
+
+    def test_question_response_snapshots_consumed_hashimoto_topic_metadata(self) -> None:
+        os.environ["LLM_PROVIDER"] = "gemini"
+        os.environ["GEMINI_API_KEY"] = "secret-gemini-key"
+        os.environ["GEMINI_MODEL"] = "gemini-3.5-flash"
+        os.environ["HASHIMOTO_BASE_URL"] = "http://hashimoto.internal"
+
+        class _StrategyResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({
+                    "ready": True,
+                    "session_id": "local-demo",
+                    "as_of_turn_id": "turn_0003",
+                    "interaction_strategy": {
+                        "logic_goal": "probe depth",
+                        "current_context": {
+                            "topic": "시스템 설계",
+                            "topic_changed": True,
+                            "resolved_history": [],
+                        },
+                    },
+                }).encode("utf-8")
+
+        def _fake_urlopen(request, *args, **kwargs):
+            url = request.full_url if hasattr(request, "full_url") else str(request)
+            if "/strategy?" in url:
+                return _StrategyResponse()
+            return _FakeResponse()
+
+        with patch.object(ai_engine, "_feed_hashimoto", lambda *args, **kwargs: None), \
+             patch.object(ai_engine.urllib.request, "urlopen", side_effect=_fake_urlopen):
+            status, payload = ai_engine.question_response({"interviewId": "local-demo", "turnIndex": 5})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["strategyMetadata"], {
+            "strategyTopicUsed": "시스템 설계",
+            "strategyTopicSource": "hashimoto_strategy",
+            "strategyAsOfTurnId": "turn_0003",
+            "strategyTopicChanged": True,
+            "strategyReady": True,
+        })
 
     def test_gemini_provider_fails_closed_without_key(self) -> None:
         os.environ["LLM_PROVIDER"] = "gemini"
