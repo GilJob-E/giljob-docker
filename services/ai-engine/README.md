@@ -37,6 +37,38 @@ LLM_PROVIDER=fake
 
 Any non-`fake` `LLM_PROVIDER` is rejected. Do not add a non-Realtime LLM fallback to this service without first changing the accepted architecture.
 
+## Coach feedback LLM contract
+
+The interview-room coach feedback path is separate from the main interviewer voice/question loop. It consumes the internal `turnHandoff` payload through `POST /coach/feedback` and returns only the panel-ready `coachFeedback` object. It does not expose raw handoff blocks to the browser.
+
+Default keyless smoke mode:
+
+```env
+COACH_LLM_PROVIDER=fake
+```
+
+Live coach feedback can use OpenAI or Gemini. OpenAI uses the same server-side key already used by the API service:
+
+```env
+OPENAI_API_KEY=replace-me-openai-server-key
+OPENAI_API_BASE=https://api.openai.com/v1
+COACH_LLM_PROVIDER=openai
+COACH_LLM_MODEL=gpt-4.1-mini
+COACH_LLM_TIMEOUT_SECONDS=15
+```
+
+Gemini uses a coach-scoped key:
+
+```env
+COACH_GEMINI_API_KEY=replace-me-gemini-key
+GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta
+COACH_LLM_PROVIDER=gemini
+COACH_LLM_MODEL=gemini-2.5-flash
+COACH_LLM_TIMEOUT_SECONDS=15
+```
+
+`COACH_LLM_PROVIDER=openai` calls the OpenAI Responses API, and `COACH_LLM_PROVIDER=gemini` calls the Gemini `generateContent` API from this internal service only. These settings do not change `LLM_PROVIDER`, OpenAI Realtime brokering, TTS, avatar, or analysis-engine behavior.
+
 ## Realtime boundary
 
 This service does not broker OpenAI Realtime ephemeral sessions, SDP attach, or MMM readiness. Those browser-facing routes are API-owned:

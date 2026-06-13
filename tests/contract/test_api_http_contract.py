@@ -88,6 +88,13 @@ class ApiHttpContractTest(unittest.TestCase):
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode("utf-8")
 
+    def _get(self, path: str) -> tuple[int, str]:
+        try:
+            with urllib.request.urlopen(self.base_url + path, timeout=5) as res:
+                return res.status, res.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read().decode("utf-8")
+
     def _start_fake_ai_engine(self, response_payload: dict[str, object], *, status: int = 200) -> list[dict[str, object]]:
         captured: list[dict[str, object]] = []
 
@@ -288,6 +295,141 @@ class ApiHttpContractTest(unittest.TestCase):
         persisted = pathlib.Path(event_log_path).read_text()
         self.assertNotIn("bounded candidate answer", body)
         self.assertNotIn("bounded candidate answer", persisted)
+
+    def test_coach_feedback_reads_turn_handoff_without_exposing_raw_analysis(self) -> None:
+        analysis = self._start_fake_analysis_engine(result_payload={
+            "sessionId": "local-demo",
+            "recordCount": 8,
+            "turnHandoff": {
+                "prompt_block": [
+                    "raw transcript must not leak",
+                    "candidate looked away during key point",
+                ],
+                "meta": {
+                    "coverage": {
+                        "transcript": True,
+                        "vision": True,
+                        "prosody": True,
+                    },
+                },
+            },
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        coach_llm = self._start_fake_ai_engine({
+            "interviewId": "local-demo",
+            "turnIndex": 1,
+            "provider": "fake",
+            "providerStatus": "fake",
+            "model": "fake-coach",
+            "coachFeedback": {
+                "ready": True,
+                "summary": "LLM coach summary",
+                "answerEvaluation": "LLM answer evaluation",
+                "multimodalEvaluation": "LLM multimodal evaluation",
+                "bullets": ["LLM bullet one", "LLM bullet two"],
+            },
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["interviewId"], "local-demo")
+        self.assertEqual(payload["turnIndex"], 1)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["delivery"]["mode"], "api-mediated-coach-feedback")
+        self.assertTrue(payload["coachFeedback"]["ready"])
+        self.assertEqual(payload["coachFeedback"]["summary"], "LLM coach summary")
+        self.assertEqual(payload["coachFeedback"]["answerEvaluation"], "LLM answer evaluation")
+        self.assertEqual(payload["coachFeedback"]["multimodalEvaluation"], "LLM multimodal evaluation")
+        self.assertEqual(payload["coachFeedback"]["bullets"], ["LLM bullet one", "LLM bullet two"])
+        self.assertEqual(payload["coachLlm"]["provider"], "fake")
+        self.assertEqual(payload["coachLlm"]["providerStatus"], "fake")
+        self.assertEqual(payload["coachLlm"]["model"], "fake-coach")
+        self.assertTrue(payload["analysis"]["turnHandoffPresent"])
+        self.assertEqual(payload["analysis"]["promptBlockLineCount"], 2)
+        self.assertEqual(payload["analysis"]["coverage"], {"prosody": True, "transcript": True, "vision": True})
+        self.assertEqual(analysis[-1]["method"], "GET")
+        self.assertIn("/signals?sessionId=local-demo", analysis[-1]["path"])
+        self.assertEqual(coach_llm[-1]["path"], "/coach/feedback")
+        coach_request = json.loads(str(coach_llm[-1]["body"]))
+        self.assertEqual(coach_request["interviewId"], "local-demo")
+        self.assertEqual(coach_request["turnIndex"], 1)
+        self.assertEqual(coach_request["turnHandoff"]["prompt_block"][0], "raw transcript must not leak")
+        self.assertNotIn('"turnHandoff":', body)
+        self.assertNotIn("prompt_block", body)
+        self.assertNotIn("raw transcript must not leak", body)
+        self.assertNotIn("candidate looked away during key point", body)
+
+    def test_coach_feedback_reports_actual_handoff_coverage_keys(self) -> None:
+        self._start_fake_analysis_engine(result_payload={
+            "sessionId": "local-demo",
+            "recordCount": 9,
+            "turnHandoff": {
+                "type": "turn_handoff",
+                "schema_version": 2,
+                "prompt_block": [
+                    "[음성 전달 실측치]",
+                    "- 발화 속도: 조음 6.18 음절/초",
+                ],
+                "transcript": "안녕하십니까. 프로젝트 경험을 설명드리겠습니다.",
+                "sentences": [{"text": "안녕하십니까."}],
+                "speech": {"duration_s": 33.55},
+                "visual": {"face_seen_ratio": 1.0},
+                "nonverbal": {"states": {"neutral": 4}},
+                "meta": {
+                    "coverage": {
+                        "speech": 6,
+                        "visual": 8,
+                        "nv": 8,
+                    },
+                },
+            },
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        self._start_fake_ai_engine({
+            "interviewId": "local-demo",
+            "turnIndex": 1,
+            "provider": "fake",
+            "providerStatus": "fake",
+            "model": "fake-coach",
+            "coachFeedback": {
+                "ready": True,
+                "summary": "LLM coach summary",
+                "answerEvaluation": "LLM answer evaluation",
+                "multimodalEvaluation": "LLM multimodal evaluation",
+                "bullets": [],
+            },
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["analysis"]["promptBlockLineCount"], 2)
+        self.assertEqual(payload["analysis"]["coverage"], {"nv": True, "speech": True, "visual": True})
+        self.assertNotIn("프로젝트 경험을 설명", body)
+        self.assertNotIn("prompt_block", body)
+
+    def test_coach_feedback_is_pending_until_turn_handoff_exists(self) -> None:
+        captured = self._start_fake_analysis_engine(result_payload={
+            "sessionId": "local-demo",
+            "recordCount": 3,
+            "turnHandoff": None,
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["status"], "pending")
+        self.assertFalse(payload["coachFeedback"]["ready"])
+        self.assertFalse(payload["analysis"]["turnHandoffPresent"])
+        self.assertEqual(captured[-1]["method"], "GET")
+        self.assertIn("/signals?sessionId=local-demo", captured[-1]["path"])
+        self.assertNotIn('"turnHandoff":', body)
 
 
     def test_realtime_response_create_allows_bootstrap_first_question_without_mmm_gate(self) -> None:

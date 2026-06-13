@@ -277,8 +277,16 @@ OPENAI_REALTIME_MODEL=gpt-realtime-2
 OPENAI_REALTIME_VOICE=marin
 OPENAI_REALTIME_CALL_BROKER_ENABLED=true
 OPENAI_API_KEY=replace-me-openai-server-key
+OPENAI_API_BASE=https://api.openai.com/v1
+COACH_GEMINI_API_KEY=replace-me-gemini-key
+GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta
 
 LLM_PROVIDER=fake
+COACH_LLM_PROVIDER=openai
+# Or: COACH_LLM_PROVIDER=gemini
+COACH_LLM_MODEL=gpt-4.1-mini
+# Gemini example: COACH_LLM_MODEL=gemini-2.5-flash
+COACH_LLM_TIMEOUT_SECONDS=15
 VOICE_PROVIDER=fake
 REALTIME_MMM_FORWARD_ENABLED=true
 AVATAR_PROVIDER=spatialreal

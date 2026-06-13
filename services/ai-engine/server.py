@@ -38,6 +38,25 @@ class LLMSettings:
 
 
 @dataclass(frozen=True)
+class CoachLLMSettings:
+    provider: str
+    model: str
+    timeout_seconds: float
+    openai_api_key: str
+    openai_api_base: str
+    gemini_api_key: str
+    gemini_api_base: str
+
+    @property
+    def openai_key_configured(self) -> bool:
+        return bool(self.openai_api_key and not self.openai_api_key.startswith("replace-me"))
+
+    @property
+    def gemini_key_configured(self) -> bool:
+        return bool(self.gemini_api_key and not self.gemini_api_key.startswith("replace-me"))
+
+
+@dataclass(frozen=True)
 class TTSSettings:
     provider: str
     elevenlabs_api_key: str
@@ -163,6 +182,22 @@ def load_llm_settings() -> LLMSettings:
     )
 
 
+def load_coach_llm_settings() -> CoachLLMSettings:
+    provider = os.getenv("COACH_LLM_PROVIDER", "fake").strip().lower() or "fake"
+    default_model = "gemini-2.5-flash" if provider == "gemini" else "gpt-4.1-mini"
+    openai_api_base = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").strip().rstrip("/")
+    gemini_api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta").strip().rstrip("/")
+    return CoachLLMSettings(
+        provider=provider,
+        model=os.getenv("COACH_LLM_MODEL", "").strip() or default_model,
+        timeout_seconds=float(os.getenv("COACH_LLM_TIMEOUT_SECONDS", "15")),
+        openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        openai_api_base=openai_api_base or "https://api.openai.com/v1",
+        gemini_api_key=(os.getenv("COACH_GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip(),
+        gemini_api_base=gemini_api_base or "https://generativelanguage.googleapis.com/v1beta",
+    )
+
+
 def _safe_str(value: object, max_len: int = 4_000) -> str:
     text = "" if value is None else str(value)
     text = re.sub(r"\s+", " ", text).strip()
@@ -222,6 +257,341 @@ def fake_question(payload: dict[str, Any], turn_index: int) -> str:
     if turn_index <= 1:
         return "먼저 본인의 핵심 경험 하나를 선택해서, 지원한 직무와 어떻게 연결되는지 설명해 주세요."
     return f"방금 답변을 바탕으로, {context['job']} 관점에서 가장 어려웠던 의사결정과 그 결과를 구체적으로 설명해 주세요."
+
+
+def _coach_coverage(payload: dict[str, Any]) -> dict[str, bool]:
+    handoff = payload.get("turnHandoff")
+    if not isinstance(handoff, dict):
+        return {}
+    meta = handoff.get("meta")
+    coverage = meta.get("coverage") if isinstance(meta, dict) else None
+    if not isinstance(coverage, dict):
+        return {}
+    safe: dict[str, bool] = {}
+    for key in ("transcript", "vision", "prosody", "speech", "visual", "nv"):
+        if key in coverage:
+            safe[key] = bool(coverage.get(key))
+    return safe
+
+
+def _coach_prompt_line_count(payload: dict[str, Any]) -> int:
+    handoff = payload.get("turnHandoff")
+    if not isinstance(handoff, dict):
+        return 0
+    prompt_block = handoff.get("prompt_block")
+    if not isinstance(prompt_block, list):
+        return 0
+    return sum(1 for line in prompt_block if _safe_str(line, 1_200))
+
+
+def fake_coach_feedback(payload: dict[str, Any], turn_index: int) -> dict[str, object]:
+    coverage = _coach_coverage(payload)
+    missing: list[str] = []
+    for label, key in (
+        ("전사", "transcript"),
+        ("시각", "vision"),
+        ("음성", "prosody"),
+        ("음성", "speech"),
+        ("시각", "visual"),
+        ("비언어", "nv"),
+    ):
+        if coverage.get(key) is False and label not in missing:
+            missing.append(label)
+    coverage_note = (
+        f"{', '.join(missing)} 신호가 부족하므로 다음 답변에서는 해당 단서를 보수적으로 다시 확인하세요."
+        if missing
+        else "전사, 시각, 음성 신호가 함께 들어온 상태로 답변 코칭을 정리했습니다."
+    )
+    prompt_line_count = _coach_prompt_line_count(payload)
+    return {
+        "ready": True,
+        "summary": f"{turn_index}번째 답변을 코치 LLM 경계에서 평가했습니다. 분석 블록 {prompt_line_count}개를 기준으로 요약했습니다.",
+        "answerEvaluation": "답변의 결론, 본인 역할, 실행 과정, 결과 근거가 한 흐름으로 이어지는지 중심으로 보완하세요.",
+        "multimodalEvaluation": f"시선 안정감, 발화 속도, 음성 에너지처럼 전달 품질에 영향을 주는 신호를 함께 점검했습니다. {coverage_note}",
+        "bullets": [
+            "다음 답변은 결론을 먼저 말한 뒤 근거를 한 가지 사례로 좁히세요.",
+            "성과는 수치, 비교, 기간 중 하나를 붙여 면접관이 검증하기 쉽게 만드세요.",
+            "긴 문장은 중간에 끊어 말해 발화 속도와 전달 안정감을 유지하세요.",
+        ],
+    }
+
+
+def build_coach_feedback_prompt(payload: dict[str, Any], turn_index: int) -> str:
+    handoff = payload.get("turnHandoff")
+    handoff_json = json.dumps(handoff if isinstance(handoff, dict) else {}, ensure_ascii=False, sort_keys=True, default=str)
+    return f"""
+너는 GilJob 면접 코치다. 아래 내부 분석 handoff를 보고 후보자에게 보여줄 짧은 한국어 피드백만 만든다.
+
+규칙:
+- 답변 내용 평가는 답변의 구조, 근거, 역할, 결과 명확성 중심으로 한다.
+- 멀티모달 평가는 전사/시각/음성 신호가 있는 범위 안에서만 말한다.
+- raw transcript, prompt_block 원문, 내부 필드명, 토큰, 키, 식별자는 그대로 인용하지 않는다.
+- 후보자가 바로 다음 답변에 적용할 수 있는 말로 쓴다.
+- JSON 객체만 반환한다. Markdown이나 설명 문장은 붙이지 않는다.
+
+JSON schema:
+{{
+  "summary": "한 문장 요약",
+  "answerEvaluation": "답변 평가",
+  "multimodalEvaluation": "멀티모달 평가",
+  "bullets": ["개선점 1", "개선점 2", "개선점 3"]
+}}
+
+turnIndex: {turn_index}
+turnHandoff:
+{handoff_json}
+""".strip()
+
+
+def _coach_raw_markers(payload: dict[str, Any]) -> list[str]:
+    handoff = payload.get("turnHandoff")
+    if not isinstance(handoff, dict):
+        return []
+    markers: list[str] = []
+    prompt_block = handoff.get("prompt_block")
+    if isinstance(prompt_block, list):
+        for line in prompt_block:
+            marker = _safe_str(line, 1_200)
+            if len(marker) >= 12:
+                markers.append(marker)
+    return markers
+
+
+def _redact_internal_markers(text: str, markers: list[str]) -> str:
+    redacted = text
+    for marker in markers:
+        redacted = redacted.replace(marker, "[internal analysis omitted]")
+    return redacted
+
+
+def _parse_json_object_from_text(text: str) -> dict[str, Any] | None:
+    clean = text.strip()
+    if clean.startswith("```"):
+        lines = clean.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        clean = "\n".join(lines).strip()
+    try:
+        parsed = json.loads(clean)
+    except json.JSONDecodeError:
+        start = clean.find("{")
+        end = clean.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            parsed = json.loads(clean[start:end + 1])
+        except json.JSONDecodeError:
+            return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _extract_openai_output_text(response_payload: dict[str, Any]) -> str:
+    direct = response_payload.get("output_text")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    chunks: list[str] = []
+    output = response_payload.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "output_text" and isinstance(item.get("text"), str):
+                chunks.append(item["text"])
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") in {"output_text", "text"} and isinstance(part.get("text"), str):
+                    chunks.append(part["text"])
+    return "\n".join(chunk for chunk in chunks if chunk.strip()).strip()
+
+
+def _extract_gemini_output_text(response_payload: dict[str, Any]) -> str:
+    chunks: list[str] = []
+    candidates = response_payload.get("candidates")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            content = candidate.get("content")
+            if not isinstance(content, dict):
+                continue
+            parts = content.get("parts")
+            if not isinstance(parts, list):
+                continue
+            for part in parts:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    chunks.append(part["text"])
+    return "\n".join(chunk for chunk in chunks if chunk.strip()).strip()
+
+
+def _coerce_coach_feedback(feedback_payload: dict[str, Any], source_payload: dict[str, Any]) -> dict[str, object]:
+    markers = _coach_raw_markers(source_payload)
+
+    def clean_field(name: str, fallback: str) -> str:
+        value = _safe_str(feedback_payload.get(name), 1_200)
+        if not value:
+            value = fallback
+        return _redact_internal_markers(value, markers)
+
+    bullets: list[str] = []
+    raw_bullets = feedback_payload.get("bullets")
+    if isinstance(raw_bullets, list):
+        for bullet in raw_bullets:
+            value = _safe_str(bullet, 600)
+            if value:
+                bullets.append(_redact_internal_markers(value, markers))
+            if len(bullets) >= 5:
+                break
+    if not bullets:
+        bullets = ["다음 답변에서는 결론, 근거, 결과를 더 분명한 순서로 연결하세요."]
+
+    return {
+        "ready": True,
+        "summary": clean_field("summary", "답변과 전달 신호를 기준으로 코칭 피드백을 생성했습니다."),
+        "answerEvaluation": clean_field("answerEvaluation", "답변의 결론, 근거, 본인 역할, 결과가 명확히 이어지는지 보완하세요."),
+        "multimodalEvaluation": clean_field("multimodalEvaluation", "사용 가능한 전사, 시각, 음성 신호 범위 안에서 전달 품질을 점검했습니다."),
+        "bullets": bullets,
+    }
+
+
+def openai_coach_feedback(settings: CoachLLMSettings, payload: dict[str, Any], turn_index: int) -> tuple[int, dict[str, object]]:
+    if not settings.openai_key_configured:
+        return 503, {
+            "error": "coach_llm_provider_unavailable",
+            "provider": "openai",
+            "reason": "missing_api_key",
+        }
+
+    request_payload = {
+        "model": settings.model,
+        "instructions": "Return only valid JSON for the requested Korean interview coaching feedback.",
+        "input": build_coach_feedback_prompt(payload, turn_index),
+        "store": False,
+    }
+    request = urllib.request.Request(
+        f"{settings.openai_api_base}/responses",
+        data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {settings.openai_api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
+            response_body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        error.read()
+        return 502, {
+            "error": "coach_llm_provider_failed",
+            "provider": "openai",
+            "statusCode": error.code,
+            "message": "provider request failed",
+        }
+    except urllib.error.URLError:
+        return 502, {
+            "error": "coach_llm_provider_failed",
+            "provider": "openai",
+            "message": "provider request failed",
+        }
+
+    try:
+        response_payload = json.loads(response_body)
+    except json.JSONDecodeError:
+        return 502, {"error": "coach_llm_provider_failed", "provider": "openai", "message": "invalid provider response"}
+    if not isinstance(response_payload, dict):
+        return 502, {"error": "coach_llm_provider_failed", "provider": "openai", "message": "invalid provider response"}
+
+    output_text = _extract_openai_output_text(response_payload)
+    feedback_payload = _parse_json_object_from_text(output_text)
+    if feedback_payload is None:
+        return 502, {"error": "coach_llm_provider_failed", "provider": "openai", "message": "invalid coach feedback response"}
+
+    return 200, {
+        "interviewId": _safe_str(payload.get("interviewId") or "local-demo", 96),
+        "turnIndex": turn_index,
+        "provider": "openai",
+        "providerStatus": "live",
+        "model": _safe_str(response_payload.get("model") or settings.model, 120),
+        "coachFeedback": _coerce_coach_feedback(feedback_payload, payload),
+    }
+
+
+def gemini_coach_feedback(settings: CoachLLMSettings, payload: dict[str, Any], turn_index: int) -> tuple[int, dict[str, object]]:
+    if not settings.gemini_key_configured:
+        return 503, {
+            "error": "coach_llm_provider_unavailable",
+            "provider": "gemini",
+            "reason": "missing_api_key",
+        }
+
+    model_name = settings.model if settings.model.startswith("models/") else f"models/{settings.model}"
+    request_payload = {
+        "systemInstruction": {
+            "parts": [{"text": "Return only valid JSON for the requested Korean interview coaching feedback."}],
+        },
+        "contents": [{
+            "role": "user",
+            "parts": [{"text": build_coach_feedback_prompt(payload, turn_index)}],
+        }],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+        },
+    }
+    request = urllib.request.Request(
+        f"{settings.gemini_api_base}/{model_name}:generateContent",
+        data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+        headers={
+            "x-goog-api-key": settings.gemini_api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
+            response_body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        error.read()
+        return 502, {
+            "error": "coach_llm_provider_failed",
+            "provider": "gemini",
+            "statusCode": error.code,
+            "message": "provider request failed",
+        }
+    except urllib.error.URLError:
+        return 502, {
+            "error": "coach_llm_provider_failed",
+            "provider": "gemini",
+            "message": "provider request failed",
+        }
+
+    try:
+        response_payload = json.loads(response_body)
+    except json.JSONDecodeError:
+        return 502, {"error": "coach_llm_provider_failed", "provider": "gemini", "message": "invalid provider response"}
+    if not isinstance(response_payload, dict):
+        return 502, {"error": "coach_llm_provider_failed", "provider": "gemini", "message": "invalid provider response"}
+
+    output_text = _extract_gemini_output_text(response_payload)
+    feedback_payload = _parse_json_object_from_text(output_text)
+    if feedback_payload is None:
+        return 502, {"error": "coach_llm_provider_failed", "provider": "gemini", "message": "invalid coach feedback response"}
+
+    return 200, {
+        "interviewId": _safe_str(payload.get("interviewId") or "local-demo", 96),
+        "turnIndex": turn_index,
+        "provider": "gemini",
+        "providerStatus": "live",
+        "model": _safe_str(response_payload.get("modelVersion") or settings.model, 120),
+        "coachFeedback": _coerce_coach_feedback(feedback_payload, payload),
+    }
 
 
 def _parse_output_format(output_format: str) -> tuple[str, int | None]:
@@ -681,6 +1051,54 @@ def question_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
     }
 
 
+def coach_feedback_response(payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
+    settings = load_coach_llm_settings()
+    interview_id = _safe_str(payload.get("interviewId") or "local-demo", 96)
+    if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
+        return 400, {"error": "invalid_interview_id"}
+    try:
+        turn_index = int(payload.get("turnIndex") or 1)
+    except (TypeError, ValueError):
+        return 400, {"error": "invalid_turn_index"}
+    if turn_index < 1:
+        return 400, {"error": "invalid_turn_index"}
+    if not isinstance(payload.get("turnHandoff"), dict):
+        return 202, {
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "provider": settings.provider,
+            "providerStatus": "pending",
+            "model": None,
+            "coachFeedback": {
+                "ready": False,
+                "summary": "분석 결과를 기다리는 중입니다.",
+                "answerEvaluation": "",
+                "multimodalEvaluation": "",
+                "bullets": [],
+            },
+        }
+
+    if settings.provider == "fake":
+        feedback = fake_coach_feedback(payload, turn_index)
+        provider_status = "fake"
+        model = "fake-coach"
+    elif settings.provider == "openai":
+        return openai_coach_feedback(settings, payload, turn_index)
+    elif settings.provider == "gemini":
+        return gemini_coach_feedback(settings, payload, turn_index)
+    else:
+        return 400, {"error": "unsupported_coach_llm_provider", "provider": settings.provider}
+
+    return 200, {
+        "interviewId": interview_id,
+        "turnIndex": turn_index,
+        "provider": settings.provider,
+        "providerStatus": provider_status,
+        "model": model,
+        "coachFeedback": feedback,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "GilJobV2AIEngine/0.2"
 
@@ -744,6 +1162,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             assert payload is not None
             status, response = question_response(payload)
+            self._json(status, response)
+            return
+        if self.path == "/coach/feedback":
+            payload, error = self._read_json()
+            if error:
+                status = 413 if error == "request_too_large" else 400
+                self._json(status, {"error": error})
+                return
+            assert payload is not None
+            status, response = coach_feedback_response(payload)
             self._json(status, response)
             return
         if self.path == "/avatar/session":

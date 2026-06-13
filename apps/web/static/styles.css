@@ -404,6 +404,21 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
 .panel-card h3 { font-size: 1rem; letter-spacing: -0.01em; }
 .panel-card p:not(.badge-pill) { color: var(--color-body); font-size: 0.92rem; line-height: 1.55; }
 #transcript-body { white-space: pre-wrap; }
+#current-question-body,
+#transcript-body,
+#coach-feedback-body,
+.coach-feedback-list {
+  overflow-wrap: anywhere;
+}
+.coach-feedback-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--color-body);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
 .current-question { background: var(--color-canvas); border-color: var(--color-hairline); }
 .room-control-bar {
   display: flex;
@@ -941,9 +956,23 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
 }
 .drawer-panel-stack {
   min-height: 0;
-  align-content: start;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 2fr);
   gap: 12px;
   overflow: hidden;
+}
+.feedback-panel-region,
+.question-answer-panel-region {
+  display: grid;
+  min-height: 0;
+  gap: 12px;
+}
+.feedback-panel-region {
+  overflow-y: auto;
+}
+.question-answer-panel-region {
+  align-content: start;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 .room-context-drawer .panel-card {
   border-color: var(--color-hairline-soft);

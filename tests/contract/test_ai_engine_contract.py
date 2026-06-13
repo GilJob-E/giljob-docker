@@ -25,6 +25,14 @@ spec.loader.exec_module(ai_engine)
 
 LLM_ENV_NAMES = (
     "LLM_PROVIDER",
+    "COACH_LLM_PROVIDER",
+    "COACH_LLM_MODEL",
+    "COACH_LLM_TIMEOUT_SECONDS",
+    "OPENAI_API_KEY",
+    "OPENAI_API_BASE",
+    "COACH_GEMINI_API_KEY",
+    "GEMINI_API_KEY",
+    "GEMINI_API_BASE",
     "VOICE_PROVIDER",
     "ELEVENLABS_API_KEY",
     "ELEVENLABS_VOICE_ID",
@@ -359,6 +367,237 @@ class AIEngineContractTest(unittest.TestCase):
         self.assertIn("question", payload)
         self.assertNotIn("ELEVENLABS_API_KEY", body)
 
+    def test_fake_coach_feedback_route_returns_llm_shaped_feedback_without_raw_handoff(self) -> None:
+        os.environ["LLM_PROVIDER"] = "fake"
+        status, payload, body = self._post("/coach/feedback", {
+            "interviewId": "local-demo",
+            "turnIndex": 1,
+            "turnHandoff": {
+                "prompt_block": [
+                    "raw candidate transcript should stay internal",
+                    "raw visual note should stay internal",
+                ],
+                "meta": {
+                    "coverage": {
+                        "transcript": True,
+                        "vision": True,
+                        "prosody": False,
+                    },
+                },
+            },
+        })
+        self.assertEqual(status, 200, body)
+        self.assertEqual(payload["provider"], "fake")
+        self.assertEqual(payload["providerStatus"], "fake")
+        self.assertEqual(payload["model"], "fake-coach")
+        feedback = cast(dict[str, object], payload["coachFeedback"])
+        self.assertTrue(feedback["ready"])
+        self.assertIn("summary", feedback)
+        self.assertIn("answerEvaluation", feedback)
+        self.assertIn("multimodalEvaluation", feedback)
+        self.assertGreaterEqual(len(cast(list[object], feedback["bullets"])), 2)
+        self.assertNotIn("turnHandoff", body)
+        self.assertNotIn("prompt_block", body)
+        self.assertNotIn("raw candidate transcript should stay internal", body)
+        self.assertNotIn("raw visual note should stay internal", body)
+
+    def test_fake_coach_feedback_understands_actual_handoff_coverage_keys(self) -> None:
+        status, payload, body = self._post("/coach/feedback", {
+            "interviewId": "local-demo",
+            "turnIndex": 1,
+            "turnHandoff": {
+                "prompt_block": ["[음성 전달 실측치]", "- 시선 안정성 관찰"],
+                "meta": {
+                    "coverage": {
+                        "speech": 0,
+                        "visual": 8,
+                        "nv": 0,
+                    },
+                },
+            },
+        })
+
+        self.assertEqual(status, 200, body)
+        feedback = cast(dict[str, object], payload["coachFeedback"])
+        self.assertIn("음성", str(feedback["multimodalEvaluation"]))
+        self.assertIn("비언어", str(feedback["multimodalEvaluation"]))
+
+    def test_openai_coach_feedback_route_calls_responses_api_without_key_or_raw_handoff_leak(self) -> None:
+        os.environ["COACH_LLM_PROVIDER"] = "openai"
+        os.environ["COACH_LLM_MODEL"] = "gpt-coach-test"
+        os.environ["OPENAI_API_KEY"] = "secret-openai-key"
+        captured: list[urllib.request.Request] = []
+
+        class _OpenAIResponse:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args: object) -> None:
+                return None
+            def read(self) -> bytes:
+                return json.dumps({
+                    "id": "resp_coach_123",
+                    "model": "gpt-coach-test",
+                    "output": [{
+                        "type": "message",
+                        "content": [{
+                            "type": "output_text",
+                            "text": json.dumps({
+                                "summary": "OpenAI coach summary",
+                                "answerEvaluation": "OpenAI answer evaluation",
+                                "multimodalEvaluation": "OpenAI multimodal evaluation",
+                                "bullets": ["OpenAI bullet one", "OpenAI bullet two"],
+                            }),
+                        }],
+                    }],
+                    "usage": {"total_tokens": 123},
+                }).encode("utf-8")
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> _OpenAIResponse:
+            captured.append(request)
+            return _OpenAIResponse()
+
+        with patch.object(ai_engine.urllib.request, "urlopen", side_effect=fake_urlopen):
+            status, payload = ai_engine.coach_feedback_response({
+                "interviewId": "local-demo",
+                "turnIndex": 1,
+                "turnHandoff": {
+                    "prompt_block": [
+                        "raw candidate transcript should stay internal",
+                        "raw visual note should stay internal",
+                    ],
+                    "meta": {"coverage": {"transcript": True, "vision": True, "prosody": True}},
+                },
+            })
+        body = json.dumps(payload, ensure_ascii=False)
+
+        self.assertEqual(status, 200, body)
+        self.assertEqual(payload["provider"], "openai")
+        self.assertEqual(payload["providerStatus"], "live")
+        self.assertEqual(payload["model"], "gpt-coach-test")
+        feedback = cast(dict[str, object], payload["coachFeedback"])
+        self.assertEqual(feedback["summary"], "OpenAI coach summary")
+        self.assertEqual(feedback["answerEvaluation"], "OpenAI answer evaluation")
+        self.assertEqual(feedback["multimodalEvaluation"], "OpenAI multimodal evaluation")
+        self.assertEqual(feedback["bullets"], ["OpenAI bullet one", "OpenAI bullet two"])
+        request = captured[0]
+        self.assertEqual(request.full_url, "https://api.openai.com/v1/responses")
+        self.assertEqual(request.headers["Authorization"], "Bearer secret-openai-key")
+        upstream_payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(upstream_payload["model"], "gpt-coach-test")
+        self.assertFalse(upstream_payload["store"])
+        self.assertIn("turnHandoff", json.dumps(upstream_payload, ensure_ascii=False))
+        self.assertNotIn("secret-openai-key", body)
+        self.assertNotIn("turnHandoff", body)
+        self.assertNotIn("prompt_block", body)
+        self.assertNotIn("raw candidate transcript should stay internal", body)
+        self.assertNotIn("raw visual note should stay internal", body)
+
+    def test_openai_coach_feedback_fails_closed_without_server_key(self) -> None:
+        os.environ["COACH_LLM_PROVIDER"] = "openai"
+        status, payload = ai_engine.coach_feedback_response({
+            "interviewId": "local-demo",
+            "turnIndex": 1,
+            "turnHandoff": {"prompt_block": ["safe bounded handoff"]},
+        })
+        body = json.dumps(payload, ensure_ascii=False)
+        self.assertEqual(status, 503, body)
+        self.assertEqual(payload["error"], "coach_llm_provider_unavailable")
+        self.assertEqual(payload["provider"], "openai")
+        self.assertNotIn("OPENAI_API_KEY", body)
+
+    def test_gemini_coach_feedback_route_calls_generate_content_without_key_or_raw_handoff_leak(self) -> None:
+        os.environ["COACH_LLM_PROVIDER"] = "gemini"
+        os.environ["COACH_LLM_MODEL"] = "gemini-coach-test"
+        os.environ["COACH_GEMINI_API_KEY"] = "secret-gemini-key"
+        captured: list[urllib.request.Request] = []
+
+        class _GeminiResponse:
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *args: object) -> None:
+                return None
+            def read(self) -> bytes:
+                return json.dumps({
+                    "candidates": [{
+                        "content": {
+                            "parts": [{
+                                "text": json.dumps({
+                                    "summary": "Gemini coach summary",
+                                    "answerEvaluation": "Gemini answer evaluation",
+                                    "multimodalEvaluation": "Gemini multimodal evaluation",
+                                    "bullets": ["Gemini bullet one", "Gemini bullet two"],
+                                }),
+                            }],
+                            "role": "model",
+                        },
+                        "finishReason": "STOP",
+                        "index": 0,
+                    }],
+                    "modelVersion": "gemini-coach-test",
+                    "usageMetadata": {"totalTokenCount": 123},
+                }).encode("utf-8")
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> _GeminiResponse:
+            captured.append(request)
+            return _GeminiResponse()
+
+        with patch.object(ai_engine.urllib.request, "urlopen", side_effect=fake_urlopen):
+            status, payload = ai_engine.coach_feedback_response({
+                "interviewId": "local-demo",
+                "turnIndex": 1,
+                "turnHandoff": {
+                    "prompt_block": [
+                        "raw candidate transcript should stay internal",
+                        "raw visual note should stay internal",
+                    ],
+                    "meta": {"coverage": {"transcript": True, "vision": True, "prosody": True}},
+                },
+            })
+        body = json.dumps(payload, ensure_ascii=False)
+
+        self.assertEqual(status, 200, body)
+        self.assertEqual(payload["provider"], "gemini")
+        self.assertEqual(payload["providerStatus"], "live")
+        self.assertEqual(payload["model"], "gemini-coach-test")
+        feedback = cast(dict[str, object], payload["coachFeedback"])
+        self.assertEqual(feedback["summary"], "Gemini coach summary")
+        self.assertEqual(feedback["answerEvaluation"], "Gemini answer evaluation")
+        self.assertEqual(feedback["multimodalEvaluation"], "Gemini multimodal evaluation")
+        self.assertEqual(feedback["bullets"], ["Gemini bullet one", "Gemini bullet two"])
+        request = captured[0]
+        self.assertEqual(request.full_url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-coach-test:generateContent")
+        self.assertEqual(request.headers["X-goog-api-key"], "secret-gemini-key")
+        upstream_payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(upstream_payload["generationConfig"]["responseMimeType"], "application/json")
+        self.assertIn("turnHandoff", json.dumps(upstream_payload, ensure_ascii=False))
+        self.assertNotIn("secret-gemini-key", body)
+        self.assertNotIn("turnHandoff", body)
+        self.assertNotIn("prompt_block", body)
+        self.assertNotIn("raw candidate transcript should stay internal", body)
+        self.assertNotIn("raw visual note should stay internal", body)
+
+    def test_gemini_coach_feedback_fails_closed_without_server_key(self) -> None:
+        os.environ["COACH_LLM_PROVIDER"] = "gemini"
+        status, payload = ai_engine.coach_feedback_response({
+            "interviewId": "local-demo",
+            "turnIndex": 1,
+            "turnHandoff": {"prompt_block": ["safe bounded handoff"]},
+        })
+        body = json.dumps(payload, ensure_ascii=False)
+        self.assertEqual(status, 503, body)
+        self.assertEqual(payload["error"], "coach_llm_provider_unavailable")
+        self.assertEqual(payload["provider"], "gemini")
+        self.assertNotIn("GEMINI_API_KEY", body)
+
+    def test_coach_llm_model_default_tracks_selected_provider(self) -> None:
+        os.environ["COACH_LLM_PROVIDER"] = "openai"
+        self.assertEqual(ai_engine.load_coach_llm_settings().model, "gpt-4.1-mini")
+
+        os.environ["COACH_LLM_PROVIDER"] = "gemini"
+        self.assertEqual(ai_engine.load_coach_llm_settings().model, "gemini-2.5-flash")
+
 
 
     def test_caddy_blocks_public_ai_prefix_after_api_broker_migration(self) -> None:
@@ -418,6 +657,14 @@ class AIEngineContractTest(unittest.TestCase):
     def test_compose_wires_tts_and_avatar_env_to_ai_engine(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
         for name in (
+            "OPENAI_API_KEY",
+            "OPENAI_API_BASE",
+            "COACH_GEMINI_API_KEY",
+            "GEMINI_API_KEY",
+            "GEMINI_API_BASE",
+            "COACH_LLM_PROVIDER",
+            "COACH_LLM_MODEL",
+            "COACH_LLM_TIMEOUT_SECONDS",
             "VOICE_PROVIDER",
             "ELEVENLABS_API_KEY",
             "ELEVENLABS_VOICE_ID",

@@ -36,6 +36,7 @@ OPENAI_REALTIME_TRANSCRIPTION_MODEL = os.getenv("OPENAI_REALTIME_TRANSCRIPTION_M
 OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE = os.getenv("OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE", "ko").strip()
 OPENAI_REALTIME_TRANSCRIPTION_DELAY = os.getenv("OPENAI_REALTIME_TRANSCRIPTION_DELAY", "low").strip()
 OPENAI_REALTIME_TIMEOUT_SECONDS = float(os.getenv("OPENAI_REALTIME_TIMEOUT_SECONDS", "15"))
+COACH_LLM_TIMEOUT_SECONDS = float(os.getenv("COACH_LLM_TIMEOUT_SECONDS", "8"))
 INTERVIEW_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 TTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/tts/?$")
 AVATAR_SESSION_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/avatar/session/?$")
@@ -46,6 +47,7 @@ REALTIME_TURN_EVENTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z
 REALTIME_VISION_EVENTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/vision-events/?$")
 REALTIME_MMM_READY_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/mmm-ready/?$")
 REALTIME_RESPONSE_CREATE_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/realtime/response/?$")
+COACH_FEEDBACK_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/coach-feedback/?$")
 MAX_TTS_TEXT_CHARS = 1_200
 MAX_REALTIME_EVENT_BYTES = int(os.getenv("MAX_REALTIME_EVENT_BYTES", "8192"))
 REALTIME_MMM_EVENT_LOG_PATH = os.getenv("REALTIME_MMM_EVENT_LOG_PATH", "/tmp/giljob-realtime-mmm-events.jsonl")
@@ -489,6 +491,227 @@ def _fetch_analysis_result(interview_id: str, turn_index: int) -> tuple[dict[str
     if not isinstance(parsed, dict):
         return None, {"attempted": True, "status": status, "endpoint": "/realtime/turn-results", "error": "invalid_analysis_result"}
     return _extract_analysis_result(parsed), {"attempted": True, "status": status, "endpoint": "/realtime/turn-results"}
+
+
+def _analysis_signals_query(interview_id: str) -> str:
+    return urllib.parse.urlencode({"sessionId": interview_id})
+
+
+def _fetch_analysis_signals(interview_id: str) -> tuple[dict[str, Any] | None, dict[str, object]]:
+    endpoint = f"{ANALYSIS_ENGINE_INTERNAL_URL}/signals?{_analysis_signals_query(interview_id)}"
+    request = urllib.request.Request(endpoint, method="GET", headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=REALTIME_MMM_RESULT_TIMEOUT_SECONDS) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            status = response.status
+    except urllib.error.HTTPError as error:
+        error.read()
+        return None, {"attempted": True, "status": error.code, "endpoint": "/signals", "error": "analysis_signals_rejected"}
+    except urllib.error.URLError:
+        return None, {"attempted": True, "endpoint": "/signals", "error": "analysis_engine_unavailable"}
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return None, {"attempted": True, "status": status, "endpoint": "/signals", "error": "invalid_analysis_signals"}
+    if not isinstance(parsed, dict):
+        return None, {"attempted": True, "status": status, "endpoint": "/signals", "error": "invalid_analysis_signals"}
+    return parsed, {"attempted": True, "status": status, "endpoint": "/signals"}
+
+
+def _turn_handoff_from_signals(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("turnHandoff")
+    return value if isinstance(value, dict) else None
+
+
+def _turn_handoff_prompt_line_count(handoff: dict[str, Any] | None) -> int:
+    if not isinstance(handoff, dict):
+        return 0
+    prompt_block = handoff.get("prompt_block")
+    if not isinstance(prompt_block, list):
+        return 0
+    return sum(1 for line in prompt_block if _safe_str(line, 1_200))
+
+
+def _turn_handoff_coverage(handoff: dict[str, Any] | None) -> dict[str, bool]:
+    if not isinstance(handoff, dict):
+        return {}
+    meta = handoff.get("meta")
+    coverage = meta.get("coverage") if isinstance(meta, dict) else None
+    if not isinstance(coverage, dict):
+        return {}
+    safe: dict[str, bool] = {}
+    for key in ("transcript", "vision", "prosody", "speech", "visual", "nv"):
+        if key in coverage:
+            safe[key] = bool(coverage.get(key))
+    return safe
+
+
+def _coach_feedback_pending_payload() -> dict[str, object]:
+    return {
+        "ready": False,
+        "summary": "분석 결과를 기다리는 중입니다.",
+        "answerEvaluation": "",
+        "multimodalEvaluation": "",
+        "bullets": [],
+    }
+
+
+def _handoff_prompt_snippets(handoff: dict[str, Any] | None) -> list[str]:
+    if not isinstance(handoff, dict):
+        return []
+    prompt_block = handoff.get("prompt_block")
+    if not isinstance(prompt_block, list):
+        return []
+    snippets: list[str] = []
+    for line in prompt_block:
+        snippet = _safe_str(line, 1_000)
+        if len(snippet) >= 12:
+            snippets.append(snippet)
+    return snippets
+
+
+def _redact_handoff_echoes(value: object, handoff: dict[str, Any] | None, max_len: int = 1_000) -> str:
+    text = _safe_str(value, max_len)
+    for snippet in _handoff_prompt_snippets(handoff):
+        text = text.replace(snippet, "[redacted]")
+    return text
+
+
+def _coach_feedback_public_payload(upstream: dict[str, Any], handoff: dict[str, Any]) -> dict[str, object]:
+    feedback = upstream.get("coachFeedback")
+    if not isinstance(feedback, dict):
+        feedback = {}
+    raw_bullets = feedback.get("bullets")
+    bullets = [
+        _redact_handoff_echoes(item, handoff, 320)
+        for item in (raw_bullets if isinstance(raw_bullets, list) else [])
+        if _safe_str(item, 320)
+    ][:5]
+    return {
+        "ready": bool(feedback.get("ready", True)),
+        "summary": _redact_handoff_echoes(feedback.get("summary") or "코치 피드백이 준비되었습니다.", handoff, 500),
+        "answerEvaluation": _redact_handoff_echoes(feedback.get("answerEvaluation"), handoff, 800),
+        "multimodalEvaluation": _redact_handoff_echoes(feedback.get("multimodalEvaluation"), handoff, 800),
+        "bullets": bullets,
+    }
+
+
+def _coach_llm_metadata(upstream: dict[str, Any], source: dict[str, object]) -> dict[str, object]:
+    return {
+        "attempted": True,
+        "endpoint": "/coach/feedback",
+        "status": source.get("status"),
+        "provider": _safe_str(upstream.get("provider") or "ai-engine", 80),
+        "providerStatus": _safe_str(upstream.get("providerStatus") or "unknown", 80),
+        "model": _safe_str(upstream.get("model"), 120) or None,
+    }
+
+
+def _fetch_coach_llm_feedback(
+    interview_id: str,
+    turn_index: int,
+    handoff: dict[str, Any],
+    analysis: dict[str, object],
+) -> tuple[dict[str, object] | None, dict[str, object]]:
+    endpoint = f"{AI_ENGINE_INTERNAL_URL}/coach/feedback"
+    body = json.dumps({
+        "interviewId": interview_id,
+        "turnIndex": turn_index,
+        "turnHandoff": handoff,
+        "analysis": {
+            "turnHandoffPresent": analysis.get("turnHandoffPresent"),
+            "promptBlockLineCount": analysis.get("promptBlockLineCount"),
+            "coverage": analysis.get("coverage"),
+            "rawTranscriptLogged": analysis.get("rawTranscriptLogged"),
+            "rawMediaAccepted": analysis.get("rawMediaAccepted"),
+        },
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=COACH_LLM_TIMEOUT_SECONDS) as response:
+            response_body = response.read().decode("utf-8", errors="replace")
+            status = response.status
+    except urllib.error.HTTPError as error:
+        error.read()
+        return None, {"attempted": True, "status": error.code, "endpoint": "/coach/feedback", "error": "coach_llm_rejected"}
+    except urllib.error.URLError:
+        return None, {"attempted": True, "endpoint": "/coach/feedback", "error": "ai_engine_unavailable"}
+    try:
+        upstream = json.loads(response_body)
+    except json.JSONDecodeError:
+        return None, {"attempted": True, "status": status, "endpoint": "/coach/feedback", "error": "invalid_coach_llm_response"}
+    if not isinstance(upstream, dict):
+        return None, {"attempted": True, "status": status, "endpoint": "/coach/feedback", "error": "invalid_coach_llm_response"}
+    source = {"attempted": True, "status": status, "endpoint": "/coach/feedback"}
+    return {
+        "coachFeedback": _coach_feedback_public_payload(upstream, handoff),
+        "coachLlm": _coach_llm_metadata(upstream, source),
+    }, source
+
+
+def coach_feedback_response(interview_id: str, turn_index: int) -> tuple[int, dict[str, object]]:
+    start = time.perf_counter()
+    if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
+        return 400, {"error": "invalid_interview_id"}
+    if turn_index < 1:
+        return 400, {"error": "invalid_turn_index"}
+
+    signals, source = _fetch_analysis_signals(interview_id)
+    handoff = _turn_handoff_from_signals(signals)
+    ready = handoff is not None
+    analysis = {
+        "source": "analysis-engine",
+        "signals": source,
+        "turnHandoffPresent": ready,
+        "promptBlockLineCount": _turn_handoff_prompt_line_count(handoff),
+        "coverage": _turn_handoff_coverage(handoff),
+        "rawTranscriptLogged": bool(signals.get("rawTranscriptLogged", False)) if isinstance(signals, dict) else False,
+        "rawMediaAccepted": bool(signals.get("rawMediaAccepted", False)) if isinstance(signals, dict) else False,
+    }
+    status = 200 if ready else 202
+    coach_payload: dict[str, object] = {
+        "coachFeedback": _coach_feedback_pending_payload(),
+        "coachLlm": {"attempted": False, "reason": "turn_handoff_pending"},
+    }
+    if ready and handoff is not None:
+        fetched_coach, llm_source = _fetch_coach_llm_feedback(interview_id, turn_index, handoff, analysis)
+        if fetched_coach is None:
+            return _return_with_latency(502, {
+                "error": "coach_llm_failed",
+                "message": "provider request failed",
+                "interviewId": interview_id,
+                "turnIndex": turn_index,
+                "status": "failed",
+                "analysis": analysis,
+                "coachLlm": llm_source,
+                "delivery": {
+                    "mode": "api-mediated-coach-feedback",
+                    "source": "ai-engine-coach-llm",
+                    "rawTurnHandoffReturned": False,
+                },
+            }, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider="ai-engine")
+        coach_payload = fetched_coach
+    payload = {
+        "interviewId": interview_id,
+        "turnIndex": turn_index,
+        "status": "ready" if ready else "pending",
+        "coachFeedback": coach_payload["coachFeedback"],
+        "coachLlm": coach_payload["coachLlm"],
+        "analysis": analysis,
+        "delivery": {
+            "mode": "api-mediated-coach-feedback",
+            "source": "ai-engine-coach-llm" if ready else "analysis-engine-turn-handoff",
+            "rawTurnHandoffReturned": False,
+        },
+    }
+    return _return_with_latency(status, payload, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider="ai-engine" if ready else "analysis-engine")
 
 
 def _resolve_analysis_result(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, object]]:
@@ -1245,6 +1468,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
         if self._reject_internal_path():
+            return
+        coach_feedback_match = COACH_FEEDBACK_ROUTE_PATTERN.fullmatch(self.path)
+        if coach_feedback_match:
+            interview_id = coach_feedback_match.group(1)
+            turn_index = int(coach_feedback_match.group(2))
+            status, payload = coach_feedback_response(interview_id, turn_index)
+            self._json(status, payload)
             return
         mmm_ready_match = REALTIME_MMM_READY_ROUTE_PATTERN.fullmatch(self.path)
         if mmm_ready_match:

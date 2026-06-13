@@ -132,14 +132,19 @@ class AgentDocsContractTest(unittest.TestCase):
                 self.assertIn(command, body)
 
 
-    def test_env_example_keeps_openai_realtime_primary_and_removes_gemini_fallback(self) -> None:
+    def test_env_example_keeps_openai_realtime_primary_and_scopes_gemini_to_coach_feedback(self) -> None:
         body = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
         self.assertIn("OPENAI_REALTIME_PRIMARY=true", body)
         self.assertIn("LLM_PROVIDER=fake", body)
+        self.assertIn("COACH_LLM_PROVIDER=fake", body)
+        self.assertIn("COACH_LLM_MODEL=", body)
+        self.assertIn("COACH_LLM_TIMEOUT_SECONDS=15", body)
+        self.assertIn("COACH_GEMINI_API_KEY=", body)
+        self.assertIn("GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta", body)
         self.assertIn("REALTIME_MMM_FORWARD_ENABLED=true", body)
-        self.assertNotIn("GEMINI_API_KEY", body)
-        self.assertNotIn("GEMINI_MODEL", body)
-        self.assertNotIn("GEMINI_TTS_MODEL", body)
+        self.assertIsNone(re.search(r"(?m)^GEMINI_API_KEY=", body))
+        self.assertIsNone(re.search(r"(?m)^GEMINI_MODEL=", body))
+        self.assertIsNone(re.search(r"(?m)^GEMINI_TTS_MODEL=", body))
         self.assertIsNone(re.search(r"(?m)^OPENAI_REALTIME_PRIMARY=false$", body))
 
     def test_agent_docs_do_not_include_raw_secret_shapes(self) -> None:
