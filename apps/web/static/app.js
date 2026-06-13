@@ -915,21 +915,30 @@ async function endAvatarPcmBridgeRound() {
   }
 }
 
-function avatarSdkBeginResponseFeed() {
-  avatarSdkResponseFeedActive = true;
-  clearAvatarPcmBridgeEndTimer();
+function avatarSdkBeginResponseFeed(trigger = "audio.delta") {
+  const safeTrigger = String(trigger || "audio.delta").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
   if (!activeAvatarSdkRuntime?.controller) {
-    appendLog("avatar SDK response feed pending: SDK runtime not ready; media hidden");
+    appendLog(`avatar SDK response feed skipped: SDK runtime not ready during ${safeTrigger}; first response may not drive avatar; media hidden`);
     return;
   }
-  appendLog(`avatar SDK response feed active; connection=${avatarSdkConnectionState}; media hidden`);
+  const wasActive = avatarSdkResponseFeedActive;
+  avatarSdkResponseFeedActive = true;
+  clearAvatarPcmBridgeEndTimer();
+  if (!wasActive) {
+    appendLog(`avatar SDK response feed active from ${safeTrigger}; connection=${avatarSdkConnectionState}; media hidden`);
+  }
   startAvatarPcmBridgeIfReady(realtimeRemoteAudioTrack).catch((error) => {
     renderAvatarSdkDegraded(`sdk_pcm_bridge_failed:${errorMessage(error)}`);
   });
 }
 
 function avatarSdkEndResponseFeed(responseId = "") {
+  if (!avatarSdkResponseFeedActive && !avatarPcmBridge) {
+    appendLog("avatar SDK response feed end skipped: no active PCM feed; media hidden");
+    return;
+  }
   if (!activeAvatarSdkRuntime?.controller && !avatarPcmBridge) {
+    avatarSdkResponseFeedActive = false;
     return;
   }
   const safeResponseId = String(responseId || "response").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
@@ -1118,7 +1127,7 @@ function handleRealtimeServerEvent(event) {
   if (type === "response.created") {
     activeRealtimeResponseId = event.response?.id || event.response_id || event.id || "";
     renderAvatarSdkModeStatus();
-    avatarSdkBeginResponseFeed();
+    appendLog("avatar SDK response created; PCM feed waits for Realtime audio delta; media hidden");
     return;
   }
   if (type === "conversation.item.input_audio_transcription.delta" && typeof event.delta === "string") {
@@ -1181,7 +1190,7 @@ function handleRealtimeServerEvent(event) {
   if (type === "response.audio.delta" || type === "response.output_audio.delta") {
     renderRealtimeQuestionProgress();
     markRealtimeFirstAudio();
-    avatarSdkBeginResponseFeed();
+    avatarSdkBeginResponseFeed(type);
     return;
   }
   if (type === "response.done") {
@@ -1294,7 +1303,7 @@ async function connectRealtimeRoom(session) {
   await waitForRealtimeDataChannelOpen(dataChannel);
   sendRealtimePostConnectSessionUpdate(brokerSession);
   nextQuestionRequested = false;
-  await requestRealtimeNextQuestion("realtime-connected");
+  appendLog("Realtime connected; first question waits for avatar session readiness check; media hidden");
 }
 
 async function applyRealtimeMediaState() {
@@ -1540,6 +1549,10 @@ async function requestAvatarSession(reason = "room-join") {
       throw new Error(payload.message || payload.error || `avatar session failed: HTTP ${response.status}`);
     }
     renderAvatarState(payload);
+    if (payload?.ready && avatarSdkInitializePromise) {
+      appendLog("avatar session ready; waiting for SDK init before first Realtime question; tokens hidden");
+      await avatarSdkInitializePromise;
+    }
     appendLog(`avatar session state: ${payload.status || "unknown"}; provider ${payload.provider || "unknown"}; session token hidden; Realtime voice unaffected`);
     return payload;
   } catch (error) {
@@ -2126,6 +2139,8 @@ async function connectPrimaryTransport() {
   }
   await connectRealtimeRoom(session);
   await requestAvatarSession("primary-transport-connected");
+  nextQuestionRequested = false;
+  await requestRealtimeNextQuestion("realtime-connected-avatar-checked");
 }
 
 async function connectProductionRoomRoute() {
