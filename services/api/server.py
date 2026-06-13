@@ -368,12 +368,13 @@ def _forward_realtime_mmm_record(record: dict[str, object]) -> dict[str, object]
 
 
 def _sideband_detail_for_engine(payload: dict[str, Any]) -> dict[str, object] | None:
-    """Forward-only transcript detail for the analysis engine's sentence lane.
+    """Forward-only transcript/prosody detail for the analysis engine lanes.
 
     The durable JSONL record stays metadata-only (rawTranscriptLogged: False) and the
-    public response never echoes text; the transcript travels only over the internal
-    forward hop (REALTIME_MMM_FORWARD_ENABLED) — the engine is the transcript authority
-    and never logs raw text either. Only known keys pass through, length-capped.
+    public response never echoes text or raw audio. Candidate transcript text and
+    bounded VAD/prosody metrics travel only over the internal forward hop
+    (REALTIME_MMM_FORWARD_ENABLED), where analysis-engine is the authority. Only
+    known keys pass through, length-capped or range-clamped.
     """
     detail = payload.get("detail")
     if not isinstance(detail, dict):
@@ -385,6 +386,12 @@ def _sideband_detail_for_engine(payload: dict[str, Any]) -> dict[str, object] | 
     item_id = detail.get("itemId")
     if isinstance(item_id, str) and item_id:
         out["itemId"] = item_id[:120]
+    for key in ("audioStartMs", "audioEndMs", "energy", "rmsEnergy", "energyMean"):
+        value = _bounded_number(detail.get(key), minimum=0, maximum=24 * 60 * 60 * 1000)
+        if value is not None:
+            out[key] = value
+    if detail.get("rawAudioIncluded") is False:
+        out["rawAudioIncluded"] = False
     return out or None
 
 

@@ -330,7 +330,9 @@ class ApiHttpContractTest(unittest.TestCase):
             {"type": "turn.answer_started"},
             {"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}},
             {"type": "transcript.completed", "transcript": "bounded candidate answer", "detail": {"transcript": "bounded candidate answer", "itemId": "item-1"}},
-            {"type": "prosody.window_metrics", "detail": {"energy": 0.3}},
+            {"type": "analysis.vad.speech_started", "detail": {"audioStartMs": 120, "rawAudioIncluded": False}},
+            {"type": "analysis.vad.speech_stopped", "detail": {"audioEndMs": 1780, "rawAudioIncluded": False}},
+            {"type": "prosody.window_metrics", "detail": {"energy": 0.3, "rawAudioIncluded": False}},
         ]
         for event in events:
             status, body = self._post(
@@ -343,15 +345,28 @@ class ApiHttpContractTest(unittest.TestCase):
             self.assertEqual(payload["ingress"]["analysisEngine"]["status"], 202)
             self.assertEqual(payload["ingress"]["analysisEngine"]["endpoint"], "/realtime/turn-events")
 
-        self.assertEqual([entry["path"] for entry in captured], ["/realtime/turn-events"] * 4)
+        self.assertEqual([entry["path"] for entry in captured], ["/realtime/turn-events"] * 6)
         forwarded = [json.loads(str(entry["body"])) for entry in captured]
-        self.assertEqual([entry["eventKind"] for entry in forwarded], ["turn.answer_started", "turn.answer_ended", "transcript.completed", "prosody.window_metrics"])
+        self.assertEqual([entry["eventKind"] for entry in forwarded], [
+            "turn.answer_started",
+            "turn.answer_ended",
+            "transcript.completed",
+            "analysis.vad.speech_started",
+            "analysis.vad.speech_stopped",
+            "prosody.window_metrics",
+        ])
         transcript_forward = forwarded[2]
         self.assertEqual(transcript_forward["source"], "api-sideband")
         self.assertEqual(transcript_forward["sessionId"], "local-demo")
         self.assertFalse(transcript_forward["rawTranscriptLogged"])
         self.assertFalse(transcript_forward["rawMediaAccepted"])
         self.assertEqual(transcript_forward["detail"], {"transcript": "bounded candidate answer", "itemId": "item-1"})
+        vad_start_forward = forwarded[3]
+        self.assertEqual(vad_start_forward["detail"], {"audioStartMs": 120, "rawAudioIncluded": False})
+        vad_stop_forward = forwarded[4]
+        self.assertEqual(vad_stop_forward["detail"], {"audioEndMs": 1780, "rawAudioIncluded": False})
+        prosody_forward = forwarded[5]
+        self.assertEqual(prosody_forward["detail"], {"energy": 0.3, "rawAudioIncluded": False})
         persisted = pathlib.Path(event_log_path).read_text()
         self.assertNotIn("bounded candidate answer", persisted)
 
