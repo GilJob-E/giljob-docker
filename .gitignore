@@ -28,3 +28,10 @@ node_modules/
 
 # local Claude settings (personal hooks/overrides — never commit)
 .claude/settings.local.json
+
+# Browser automation / e2e trace logs
+.gstack/
+.tmp-e2e-trace.*.log
+
+# Ephemeral context docs generated during sessions
+hashimoto-realtime-context.md
