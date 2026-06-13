@@ -161,6 +161,11 @@ class AnalysisEngineContractTest(unittest.TestCase):
             # Realtime sentence lane: transcript-source toggle must stay wired and default to sideband.
             self.assertIn("GILJOBE_TRANSCRIPT_SOURCE", text)
         self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}", compose)
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text()
+        self.assertIn("from giljobe.analysis.grounding import maybe_vision_grounder", wrapper)
+        self.assertIn("_analyze_internal_vision_frame", wrapper)
+        self.assertIn("faceSeenRatio", wrapper)
+        self.assertIn("poseSeenRatio", wrapper)
 
     def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
         compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
@@ -266,7 +271,7 @@ class TurnResultsContractTest(unittest.TestCase):
             "turnIndex": 1,
             "eventKind": "vision.frame_metrics",
             "detail": {
-                "visionSignals": {"cameraEnabled": True, "faceVisible": True, "averageLuma": 80, "frameAvailable": True},
+                "visionSignals": {"cameraEnabled": True, "faceVisible": True, "personVisible": True, "averageLuma": 80, "frameAvailable": True},
                 "visionFrame": {"encoding": "image/jpeg;base64", "data": "ZmFrZQ==", "byteLength": 4, "width": 2, "height": 2},
             },
         })
@@ -281,6 +286,9 @@ class TurnResultsContractTest(unittest.TestCase):
         self.assertEqual(ready["visionSignals"]["status"], "frame_observed")
         self.assertEqual(ready["visionSignals"]["sampledFrameCount"], 1)
         self.assertTrue(ready["visionSignals"]["faceVisible"])
+        self.assertTrue(ready["visionSignals"]["personVisible"])
+        self.assertEqual(ready["visionSignals"]["objectiveVisionStatus"], "frame_decode_failed")
+        self.assertIn("MMM 시각 분석 결과상 후보자 얼굴", ready["nextQuestionGuidance"])
         self.assertIn("transcriptSignals", ready)
         self.assertIn("prosodySignals", ready)
         self.assertEqual(ready["prosodySignals"]["status"], "timing_observed")
@@ -292,6 +300,23 @@ class TurnResultsContractTest(unittest.TestCase):
         self.assertFalse(ready["rawTranscriptLogged"])
         self.assertEqual(rnas.turn_result("demo", 2)["reason"], "no_exact_turn_result")
         self.assertEqual(rnas.turn_result("other", 1)["reason"], "no_exact_turn_result")
+
+    def test_realtime_guidance_can_ack_mmm_face_visibility_without_claiming_direct_video(self) -> None:
+        module = load_analysis_engine_wrapper()
+        guidance = module._next_question_guidance(
+            {"observed": True, "specificityScore": 0.4, "hasNumbers": False, "questionLike": True},
+            {
+                "observed": True,
+                "sampledFrameCount": 1,
+                "faceVisible": True,
+                "personVisible": True,
+                "objectiveVisionStatus": "analyzed",
+            },
+        )
+        self.assertIn("MMM 시각 분석 결과상 후보자 얼굴이 프레임 안에 확인", guidance)
+        self.assertIn("후보자가 화면 확인을 물으면", guidance)
+        self.assertIn("영상을 직접 본다고 말하거나", guidance)
+        self.assertNotIn("직접 봤", guidance)
 
     def test_realtime_native_analysis_session_missing_lane_stays_pending(self) -> None:
         module = load_analysis_engine_wrapper()

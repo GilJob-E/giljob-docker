@@ -14,9 +14,13 @@ replace GilJobE's LiveKit subscriber path.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import io
 import json
 import logging
 import os
+import threading
 import time
 from typing import Any
 
@@ -43,6 +47,9 @@ INTERNAL_DETAIL_PATHS = {
     ("detail", "visionFrame", "data"),
 }
 SAFE_LANE_KEYS = ("transcript", "prosody", "vision")
+_VISION_GROUNDER_LOCK = threading.RLock()
+_VISION_GROUNDER: Any | None = None
+_VISION_GROUNDER_INIT_ATTEMPTED = False
 
 
 class _RnasSession:
@@ -77,6 +84,10 @@ class _RnasSession:
         self.vision_person_visible: bool | None = None
         self.vision_quality = ""
         self.vision_average_luma: int | float | None = None
+        self.vision_analysis_source = ""
+        self.vision_analysis_status = ""
+        self.vision_face_seen_ratio: int | float | None = None
+        self.vision_pose_seen_ratio: int | float | None = None
 
     @property
     def key(self) -> tuple[str, int]:
@@ -402,6 +413,140 @@ def _update_transcript_signals(sess: _RnasSession, sentence: str) -> None:
     sess.transcript_specificity_score = max(sess.transcript_specificity_score, round(min(1.0, length_score + marker_hits * 0.08), 3))
 
 
+def _get_vision_grounder() -> Any | None:
+    """Return GilJobE's optional objective vision grounder without making startup depend on it."""
+    global _VISION_GROUNDER, _VISION_GROUNDER_INIT_ATTEMPTED
+    if os.getenv("GILJOBE_VISION", "on").strip().lower() == "off":
+        return None
+    with _VISION_GROUNDER_LOCK:
+        if not _VISION_GROUNDER_INIT_ATTEMPTED:
+            _VISION_GROUNDER_INIT_ATTEMPTED = True
+            try:
+                from giljobe.analysis.grounding import maybe_vision_grounder
+
+                _VISION_GROUNDER = maybe_vision_grounder()
+            except Exception as exc:  # pragma: no cover - depends on optional runtime deps/models
+                logger.info("GilJobE vision grounding unavailable: %s", type(exc).__name__)
+                _VISION_GROUNDER = None
+        return _VISION_GROUNDER
+
+
+def _decode_internal_vision_frame(frame: dict[str, Any]) -> Any | None:
+    """Decode the internal-only low-resolution JPEG sample into an RGB array.
+
+    This accepts only the API-forwarded internal frame shape and intentionally
+    returns no raw bytes or image content to callers/logs.
+    """
+    encoding = _safe_str(frame.get("encoding"), 80).lower()
+    data = frame.get("data")
+    if "base64" not in encoding or not isinstance(data, str) or not data.strip():
+        return None
+    encoded = data.split(",", 1)[1] if data.startswith("data:") and "," in data else data
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not raw or len(raw) > 2_000_000:
+        return None
+
+    try:  # Prefer cv2 when present in the runtime image.
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+
+        buffer = np.frombuffer(raw, dtype=np.uint8)
+        bgr = cv2.imdecode(buffer, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return None
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    except Exception:
+        pass
+
+    try:  # Pillow fallback for local/dev environments.
+        import numpy as np  # type: ignore
+        from PIL import Image  # type: ignore
+
+        with Image.open(io.BytesIO(raw)) as image:
+            return np.asarray(image.convert("RGB"))
+    except Exception:
+        return None
+
+
+def _metric_ratio(metrics: dict[str, Any], ratio_key: str) -> int | float | None:
+    ratio = _safe_signal_number(metrics.get(ratio_key), maximum=1)
+    if ratio is None:
+        return None
+    return ratio
+
+
+def _metric_detected(metrics: dict[str, Any], ratio_key: str, count_key: str) -> bool | None:
+    ratio = _metric_ratio(metrics, ratio_key)
+    if ratio is not None:
+        return float(ratio) > 0
+    count = _safe_signal_number(metrics.get(count_key), maximum=1_000_000)
+    if count is not None:
+        return float(count) > 0
+    return None
+
+
+def _analyze_internal_vision_frame(frame: dict[str, Any]) -> dict[str, object]:
+    """Run GilJobE objective vision grounding on an internal frame sample.
+
+    The returned object is deliberately structured/small: booleans, ratios, and
+    status only. No raw frame bytes or candidate image data leave this helper.
+    """
+    rgb_frame = _decode_internal_vision_frame(frame)
+    if rgb_frame is None:
+        return {"status": "frame_decode_failed", "source": "internal_vision_frame"}
+
+    grounder = _get_vision_grounder()
+    if grounder is None:
+        return {"status": "grounder_unavailable", "source": "giljobe_vision_grounder"}
+
+    try:
+        configured_timeout = float(os.getenv("REALTIME_VISION_ANALYSIS_TIMEOUT_SECONDS", "1.5"))
+    except ValueError:
+        configured_timeout = 1.5
+    timeout = _safe_signal_number(configured_timeout, maximum=10)
+    with _VISION_GROUNDER_LOCK:
+        try:
+            if hasattr(grounder, "reset"):
+                grounder.reset()
+            grounder.add_frame(0.001, rgb_frame)
+            if hasattr(grounder, "wait_idle"):
+                grounder.wait_idle(timeout=float(timeout or 1.5))
+            metrics = grounder.window_metrics(0.0, 1.0) or {}
+        except Exception as exc:  # pragma: no cover - depends on optional runtime deps/models
+            logger.info("GilJobE vision grounding frame analysis failed: %s", type(exc).__name__)
+            return {"status": "analysis_failed", "source": "giljobe_vision_grounder"}
+        finally:
+            try:
+                if hasattr(grounder, "reset"):
+                    grounder.reset()
+            except Exception:
+                pass
+
+    if not isinstance(metrics, dict) or not metrics:
+        return {"status": "no_detection_metrics", "source": "giljobe_vision_grounder"}
+
+    result: dict[str, object] = {
+        "status": "analyzed",
+        "source": "giljobe_vision_grounder",
+    }
+    face_seen_ratio = _metric_ratio(metrics, "face_seen_ratio")
+    pose_seen_ratio = _metric_ratio(metrics, "pose_seen_ratio")
+    face_visible = _metric_detected(metrics, "face_seen_ratio", "face_frames")
+    person_visible = _metric_detected(metrics, "pose_seen_ratio", "pose_frames")
+    if face_seen_ratio is not None:
+        result["faceSeenRatio"] = face_seen_ratio
+    if pose_seen_ratio is not None:
+        result["poseSeenRatio"] = pose_seen_ratio
+    if face_visible is not None:
+        result["faceVisible"] = face_visible
+    if person_visible is not None:
+        result["personVisible"] = person_visible
+    return result
+
+
 def _update_vision_signals(sess: _RnasSession, detail: dict[str, Any]) -> None:
     sess.vision_marker_count += 1
     signals = detail.get("visionSignals") if isinstance(detail.get("visionSignals"), dict) else {}
@@ -428,6 +573,26 @@ def _update_vision_signals(sess: _RnasSession, detail: dict[str, Any]) -> None:
         byte_length = _safe_signal_number(frame.get("byteLength") or signals.get("frameByteLength"), maximum=10_000_000)
         if byte_length is not None:
             sess.vision_frame_bytes += int(byte_length)
+    if frame:
+        analysis = _analyze_internal_vision_frame(frame)
+        status = _safe_str(analysis.get("status"), 80)
+        source = _safe_str(analysis.get("source"), 80)
+        if status:
+            sess.vision_analysis_status = status
+        if source:
+            sess.vision_analysis_source = source
+        face_visible = _bool_or_none(analysis.get("faceVisible"))
+        if face_visible is not None:
+            sess.vision_face_visible = face_visible
+        person_visible = _bool_or_none(analysis.get("personVisible"))
+        if person_visible is not None:
+            sess.vision_person_visible = person_visible
+        face_seen_ratio = _safe_signal_number(analysis.get("faceSeenRatio"), maximum=1)
+        if face_seen_ratio is not None:
+            sess.vision_face_seen_ratio = face_seen_ratio
+        pose_seen_ratio = _safe_signal_number(analysis.get("poseSeenRatio"), maximum=1)
+        if pose_seen_ratio is not None:
+            sess.vision_pose_seen_ratio = pose_seen_ratio
 
 
 def _vision_status(sess: _RnasSession) -> str:
@@ -485,6 +650,14 @@ def _vision_signals(sess: _RnasSession) -> dict[str, object]:
     }
     if sess.vision_average_luma is not None:
         signals["averageLuma"] = sess.vision_average_luma
+    if sess.vision_analysis_source:
+        signals["analysisSource"] = sess.vision_analysis_source
+    if sess.vision_analysis_status:
+        signals["objectiveVisionStatus"] = sess.vision_analysis_status
+    if sess.vision_face_seen_ratio is not None:
+        signals["faceSeenRatio"] = sess.vision_face_seen_ratio
+    if sess.vision_pose_seen_ratio is not None:
+        signals["poseSeenRatio"] = sess.vision_pose_seen_ratio
     return signals
 
 
@@ -504,8 +677,20 @@ def _next_question_guidance(transcript: dict[str, object], vision: dict[str, obj
     elif float(transcript.get("specificityScore") or 0) >= 0.65:
         focus = "방금 답변의 핵심 선택 이유와 어려웠던 트레이드오프"
     visual_note = "시각 신호는 참고만 하고 표정·자세를 단정하지 마세요."
-    if int(vision.get("sampledFrameCount") or 0) > 0:
-        visual_note = "카메라 프레임이 확인되었지만 외형 판단 없이 답변 내용 중심으로 이어가세요."
+    if vision.get("faceVisible") is True:
+        visual_note = (
+            "MMM 시각 분석 결과상 후보자 얼굴이 프레임 안에 확인되었습니다. "
+            "후보자가 화면 확인을 물으면 그 사실만 짧게 답하되, 영상을 직접 본다고 말하거나 표정·외모를 평가하지 마세요."
+        )
+    elif vision.get("personVisible") is True:
+        visual_note = (
+            "MMM 시각 분석 결과상 후보자 상반신/사람이 프레임 안에 확인되었습니다. "
+            "후보자가 화면 확인을 물으면 그 사실만 짧게 답하되, 영상을 직접 본다고 말하거나 표정·외모를 평가하지 마세요."
+        )
+    elif vision.get("faceVisible") is False or vision.get("personVisible") is False:
+        visual_note = "MMM 시각 분석 결과상 얼굴/사람 확인은 아직 불충분합니다. 보인다고 단정하지 말고 필요하면 카메라 위치 확인을 요청하세요."
+    elif int(vision.get("sampledFrameCount") or 0) > 0:
+        visual_note = "카메라 프레임은 수신됐지만 얼굴/사람 판정은 아직 없습니다. 외형 판단 없이 답변 내용 중심으로 이어가세요."
     return f"직전 답변을 바탕으로 {focus}를 자연스럽게 확인하는 한국어 후속 질문 하나를 하세요. {visual_note}"
 
 
