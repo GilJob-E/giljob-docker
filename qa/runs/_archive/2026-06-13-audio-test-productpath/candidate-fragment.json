@@ -1,0 +1,37 @@
+{
+  "readyTurnIndex": "0",
+  "fragment": {
+    "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+    "status": "ready",
+    "sessionId": "qa-audio-test-1",
+    "turnIndex": 0,
+    "candidatePromptFragment": "음성 실측: 조음 0.71음절/s(보통 5.8~6.9) · F0 변동 1.6st(2 미만이면 단조) · 쉼(0.25s 이상) 0회 · 음량 전반 대비 후반 +7.7dB. 시각 실측: 미소 평균 0.047 · 시선 이탈 0.163 · 손동작 관측 불가(평가 금지). 비언어 상태: neutral 100%. 주목 구간: (2~5초) 에너지 +7.7dB. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+    "coverage": {
+      "speech": 1,
+      "visual": 1,
+      "nv": 1
+    },
+    "rawTranscriptLogged": false,
+    "rawMediaAccepted": false
+  },
+  "probed": {
+    "0": {
+      "result": {
+        "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+        "status": "ready",
+        "sessionId": "qa-audio-test-1",
+        "turnIndex": 0,
+        "candidatePromptFragment": "음성 실측: 조음 0.71음절/s(보통 5.8~6.9) · F0 변동 1.6st(2 미만이면 단조) · 쉼(0.25s 이상) 0회 · 음량 전반 대비 후반 +7.7dB. 시각 실측: 미소 평균 0.047 · 시선 이탈 0.163 · 손동작 관측 불가(평가 금지). 비언어 상태: neutral 100%. 주목 구간: (2~5초) 에너지 +7.7dB. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+        "coverage": {
+          "speech": 1,
+          "visual": 1,
+          "nv": 1
+        },
+        "rawTranscriptLogged": false,
+        "rawMediaAccepted": false
+      },
+      "rawTranscriptLogged": false,
+      "rawMediaAccepted": false
+    }
+  }
+}

@@ -1,0 +1,434 @@
+{
+  "service": "analysis-engine",
+  "sessionId": "qa-kor-test",
+  "records": [
+    {
+      "type": "eval",
+      "session_id": "qa-kor-test",
+      "t": 8.0,
+      "window_s": 16.0,
+      "eval": {
+        "window_start_s": 0.0,
+        "window_dur_s": 16.0,
+        "verbal": {
+          "logic": "논리적 흐름은 있으나, '자만 대책'이라는 주제에 대한 구체적인 문제 제기보다는 일반적인 상황 설명에 머무름.",
+          "structure": "서론-본론-결론의 구조가 명확하지 않고, 도입부에서 주제를 제시한 후 바로 사례 설명으로 넘어가는 다소 급작스러운 전개.",
+          "specificity": "주제에 대한 구체적인 경험이나 해결 방안 제시가 부족하며, '왕복 4시간 통학'과 '장학금' 같은 배경 설명에 치중함."
+        },
+        "vocal": {
+          "volume": "적절한 수준으로 유지되나, 후반부로 갈수록 미세하게 감소하는 경향이 있음.",
+          "pace": "전반적으로 안정적인 속도를 유지하나, 특정 문장에서 약간의 속도 조절이 필요해 보임.",
+          "pauses": "짧은 휴지(0.1~0.25초)가 비교적 자주 관찰되어, 생각하는 듯한 느낌을 줄 수 있음.",
+          "intonation": "전반적으로 단조로운 억양으로, 내용에 대한 몰입도를 높이는 데 한계가 있음."
+        },
+        "visual": {
+          "eye_contact": "카메라를 응시하는 시선 처리는 안정적임.",
+          "posture": "상체 자세는 비교적 안정적이나, 어깨 중점 흔들림이 미세하게 관찰됨.",
+          "expression": "전반적으로 무표정하거나 미세한 미소를 유지하며, 감정 표현이 절제되어 있음.",
+          "gesture_over_time": "손동작/제스처는 관측 불가."
+        },
+        "critique": [
+          "주제에 대한 구체적인 문제 제기나 해결 방안 제시가 부족하여, 단순한 경험 나열에 그치는 인상을 줌.",
+          "전반적으로 단조로운 억양과 절제된 표정으로 인해, 내용에 대한 몰입도를 높이는 데 어려움이 있음.",
+          "짧은 휴지가 비교적 자주 관찰되어, 답변의 흐름이 다소 끊기는 느낌을 줌."
+        ],
+        "key_observations": [
+          "논리적 흐름은 있으나, 구체적인 사례와 해결책 제시가 미흡함.",
+          "억양 변화가 적어 답변에 활력이 부족하게 느껴짐.",
+          "시선 처리는 안정적이나, 표정 변화가 적어 감정 전달력이 약함."
+        ],
+        "compact": false,
+        "objective_vocal": {
+          "duration_s": 16.01,
+          "pitch": {
+            "voiced_frames": 2316,
+            "voiced_ratio": 0.739,
+            "mean_hz": 237.0,
+            "sd_semitone": 4.3,
+            "pdq": 0.2639,
+            "range_st_10_90": 12.12,
+            "detrended_sd_semitone": 4.23,
+            "octave_error_frac": 0.0
+          },
+          "rate": {
+            "syllable_nuclei": 91,
+            "speech_rate_syl_per_s": 5.68,
+            "articulation_rate_syl_per_s": 6.63
+          },
+          "pauses": {
+            "pause_count_ge_0p25": 0,
+            "short_juncture_count_0p1_0p25": 19,
+            "juncture_median_s": 0.112,
+            "longest_pauses_s": [
+              0.17,
+              0.14,
+              0.14,
+              0.14,
+              0.13
+            ]
+          },
+          "energy": {
+            "rel_db_slope_per_s": -0.188,
+            "half_to_half_delta_db": -0.78,
+            "sounding_trough_db": -16.39
+          }
+        },
+        "objective_visual": {
+          "face_frames": 7,
+          "face_seen_ratio": 1.0,
+          "smile_mean": 0.193,
+          "smile_max": 0.706,
+          "smile_ratio": 0.29,
+          "brow_down_mean": 0.025,
+          "mouth_press_mean": 0.015,
+          "blink_count": 0,
+          "gaze_off_mean": 0.26,
+          "yaw_std_deg": 0.91,
+          "pitch_std_deg": 0.62,
+          "lip_motion": 0.01977,
+          "pose_frames": 7,
+          "pose_seen_ratio": 1.0,
+          "posture_std": 0.0232,
+          "head_sway": 0.0162,
+          "wrist_visible": 0.0,
+          "wrist_motion": 0.0,
+          "gesture_events": 0
+        }
+      }
+    },
+    {
+      "type": "eval",
+      "session_id": "qa-kor-test",
+      "t": 24.0,
+      "window_s": 16.0,
+      "eval": {
+        "window_start_s": 16.0,
+        "window_dur_s": 16.0,
+        "verbal": {
+          "logic": "과거 경험과 현재 업무를 연결하여 역량을 설명하는 구조는 좋으나, 구체적인 성과 제시가 다소 추상적임.",
+          "structure": "경험-성과-현재-미래의 흐름은 명확하나, 문장 연결이 다소 딱딱하고 설명적임.",
+          "specificity": "정량적 성과(6% 단축, 50번 이상 테스트)를 제시했으나, 그 과정이나 결과의 의미가 불분명함."
+        },
+        "vocal": {
+          "volume": "일관된 음량으로 안정적이나, 다소 단조로운 편임.",
+          "pace": "적절한 속도로 말하고 있으나, 설명적인 내용에 치우쳐 있어 지루하게 들릴 수 있음.",
+          "pauses": "짧은 휴지(0.1~0.25초)가 적절히 사용되어 호흡을 조절하고 있음.",
+          "intonation": "억양 변화가 크지 않아 다소 단조롭게 들림."
+        },
+        "visual": {
+          "eye_contact": "카메라를 응시하며 안정적인 시선을 유지하고 있음.",
+          "posture": "정면을 향한 자세가 안정적임.",
+          "expression": "미소가 적절히 유지되고 있으나, 감정 표현이 다소 절제되어 있음.",
+          "gesture_over_time": "손동작/제스처는 관측 불가."
+        },
+        "critique": [
+          "성과를 설명할 때 '성공했고', '도움을 줄 수 있었습니다'와 같은 추상적인 표현이 많아, 실제 기여도를 명확히 파악하기 어려움.",
+          "전반적으로 설명적인 어조가 강하여, 역량을 '어필'하기보다는 '보고'하는 듯한 인상을 줌.",
+          "억양 변화가 적어 내용의 중요도에 따른 강조가 부족하며, 다소 단조롭게 들림."
+        ],
+        "key_observations": [
+          "정량적 수치(6%, 50번)를 제시한 점은 긍정적.",
+          "안정적인 시선 처리와 자세를 유지하고 있음.",
+          "발화 속도는 적절하나, 억양의 변화가 부족함."
+        ],
+        "compact": false,
+        "objective_vocal": {
+          "duration_s": 15.99,
+          "pitch": {
+            "voiced_frames": 1971,
+            "voiced_ratio": 0.667,
+            "mean_hz": 249.5,
+            "sd_semitone": 4.91,
+            "pdq": 0.2971,
+            "range_st_10_90": 13.21,
+            "detrended_sd_semitone": 4.91,
+            "octave_error_frac": 0.001
+          },
+          "rate": {
+            "syllable_nuclei": 94,
+            "speech_rate_syl_per_s": 5.88,
+            "articulation_rate_syl_per_s": 6.34
+          },
+          "pauses": {
+            "pause_count_ge_0p25": 0,
+            "short_juncture_count_0p1_0p25": 9,
+            "juncture_median_s": 0.136,
+            "longest_pauses_s": [
+              0.15,
+              0.15,
+              0.14,
+              0.14,
+              0.14
+            ]
+          },
+          "energy": {
+            "rel_db_slope_per_s": 0.002,
+            "half_to_half_delta_db": 0.48,
+            "sounding_trough_db": -15.93
+          }
+        },
+        "objective_visual": {
+          "face_frames": 5,
+          "face_seen_ratio": 1.0,
+          "smile_mean": 0.201,
+          "smile_max": 0.407,
+          "smile_ratio": 0.6,
+          "brow_down_mean": 0.018,
+          "mouth_press_mean": 0.025,
+          "blink_count": 1,
+          "gaze_off_mean": 0.372,
+          "yaw_std_deg": 0.66,
+          "pitch_std_deg": 1.91,
+          "lip_motion": 0.00671,
+          "pose_frames": 5,
+          "pose_seen_ratio": 1.0,
+          "posture_std": 0.003,
+          "head_sway": 0.0076,
+          "wrist_visible": 0.0,
+          "wrist_motion": 0.0,
+          "gesture_events": 0
+        }
+      }
+    },
+    {
+      "type": "eval",
+      "session_id": "qa-kor-test",
+      "t": 40.0,
+      "window_s": 16.0,
+      "eval": {
+        "window_start_s": 32.0,
+        "window_dur_s": 16.0,
+        "verbal": {
+          "logic": "지원 동기 제시가 명확하나, 구체적인 기여 방안에 대한 설명이 부족함.",
+          "structure": "간결하게 핵심 목표를 제시하는 구조.",
+          "specificity": "회사명과 직무를 언급했으나, '효율적으로 양산'에 기여할 구체적인 방법론이나 역량 제시가 없음."
+        },
+        "vocal": {
+          "volume": "전반적으로 적절한 음량 유지.",
+          "pace": "발화 속도가 다소 느리고 단조로움.",
+          "pauses": "짧은 휴지가 여러 번 관찰되나, 의미 있는 쉼은 부족함.",
+          "intonation": "억양 변화가 적어 단조로운 인상을 줌."
+        },
+        "visual": {
+          "eye_contact": "측정 불가",
+          "posture": "측정 불가",
+          "expression": "측정 불가",
+          "gesture_over_time": "측정 불가"
+        },
+        "critique": [
+          "발화 속도가 느리고 억양 변화가 적어 다소 단조롭고 지루한 인상을 줌.",
+          "지원 동기는 명확하나, '효율적으로 양산'에 기여할 구체적인 방법론이나 본인의 강점을 연결 짓지 못함.",
+          "전반적으로 답변이 너무 짧고 피상적이어서 깊이 있는 고민이 부족해 보임."
+        ],
+        "key_observations": [
+          "지원 동기 자체는 명확하게 전달됨.",
+          "음량은 적절했으나, 발화 속도와 억양에서 개선의 여지가 보임."
+        ],
+        "compact": false,
+        "objective_vocal": {
+          "duration_s": 6.63,
+          "pitch": {
+            "voiced_frames": 383,
+            "voiced_ratio": 0.586,
+            "mean_hz": 191.5,
+            "sd_semitone": 8.35,
+            "pdq": 0.4442,
+            "range_st_10_90": 23.96,
+            "detrended_sd_semitone": 7.39,
+            "octave_error_frac": 0.026
+          },
+          "rate": {
+            "syllable_nuclei": 28,
+            "speech_rate_syl_per_s": 4.22,
+            "articulation_rate_syl_per_s": 4.74
+          },
+          "pauses": {
+            "pause_count_ge_0p25": 1,
+            "short_juncture_count_0p1_0p25": 3,
+            "juncture_median_s": 0.148,
+            "longest_pauses_s": [
+              0.32,
+              0.16,
+              0.14,
+              0.1
+            ]
+          },
+          "energy": {
+            "rel_db_slope_per_s": -0.721,
+            "half_to_half_delta_db": -1.57,
+            "sounding_trough_db": -18.92
+          }
+        },
+        "objective_visual": {
+          "face_frames": 5,
+          "face_seen_ratio": 0.0,
+          "pose_frames": 5,
+          "pose_seen_ratio": 0.0
+        }
+      }
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 1.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "안녕하십니까? 지원자 이나래입니다. 저는",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 4.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "그때 동기들에게 \"잠은 대체 언제 자냐는\"",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 7.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "개를 자주 들었습니다. 그 이유는 왕복 네 시간의",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 10.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "공학하는데도 주말 아르바이트에 한 번도 지각하지 않아.",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 13.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "고 상속 장학금도 계속 받았기 때문입니다. 이런데",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 16.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "그번에 공정계산 공무전에 나갔을 때는",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 19.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "통상 속도를 자신 6% 단축시키는 걸",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 22.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "했고 배상도 주장할 수 있었습니다. 현재 회사에서도",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 25.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "신규 장비를 셋업할 때 50번 이상 파라미터",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 28.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "를 진행해서 공정 최적화에 도움을 줄 수 있었습니다.",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 31.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "앞으로 SK 하이닉스에서도 차세대 메모리",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 34.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "매 효율적으로 양산하는 데 기여하고 싶습니다. 감사합니다.",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "window",
+      "session_id": "qa-kor-test",
+      "t": 37.5,
+      "window_s": 3.0,
+      "nonverbal": null,
+      "transcript": "아",
+      "transcript_final": true,
+      "objective_nonverbal": null
+    },
+    {
+      "type": "turn_end",
+      "session_id": "qa-kor-test",
+      "t": 73.71991794602945,
+      "transcript_full": "안녕하십니까? 지원자 이나래입니다. 저는 그때 동기들에게 \"잠은 대체 언제 자냐는\" 개를 자주 들었습니다. 그 이유는 왕복 네 시간의 공학하는데도 주말 아르바이트에 한 번도 지각하지 않아. 고 상속 장학금도 계속 받았기 때문입니다. 이런데 그번에 공정계산 공무전에 나갔을 때는 통상 속도를 자신 6% 단축시키는 걸 했고 배상도 주장할 수 있었습니다. 현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 를 진행해서 공정 최적화에 도움을 줄 수 있었습니다. 앞으로 SK 하이닉스에서도 차세대 메모리 매 효율적으로 양산하는 데 기여하고 싶습니다. 감사합니다. 아",
+      "eval": null
+    }
+  ],
+  "recordCount": 17,
+  "transcriptFull": "안녕하십니까? 지원자 이나래입니다. 저는 그때 동기들에게 \"잠은 대체 언제 자냐는\" 개를 자주 들었습니다. 그 이유는 왕복 네 시간의 공학하는데도 주말 아르바이트에 한 번도 지각하지 않아. 고 상속 장학금도 계속 받았기 때문입니다. 이런데 그번에 공정계산 공무전에 나갔을 때는 통상 속도를 자신 6% 단축시키는 걸 했고 배상도 주장할 수 있었습니다. 현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 를 진행해서 공정 최적화에 도움을 줄 수 있었습니다. 앞으로 SK 하이닉스에서도 차세대 메모리 매 효율적으로 양산하는 데 기여하고 싶습니다. 감사합니다. 아",
+  "windowTranscripts": [
+    "안녕하십니까? 지원자 이나래입니다. 저는",
+    "그때 동기들에게 \"잠은 대체 언제 자냐는\"",
+    "개를 자주 들었습니다. 그 이유는 왕복 네 시간의",
+    "공학하는데도 주말 아르바이트에 한 번도 지각하지 않아.",
+    "고 상속 장학금도 계속 받았기 때문입니다. 이런데",
+    "그번에 공정계산 공무전에 나갔을 때는",
+    "통상 속도를 자신 6% 단축시키는 걸",
+    "했고 배상도 주장할 수 있었습니다. 현재 회사에서도",
+    "신규 장비를 셋업할 때 50번 이상 파라미터",
+    "를 진행해서 공정 최적화에 도움을 줄 수 있었습니다.",
+    "앞으로 SK 하이닉스에서도 차세대 메모리",
+    "매 효율적으로 양산하는 데 기여하고 싶습니다. 감사합니다.",
+    "아"
+  ],
+  "latestTurnEnd": {
+    "type": "turn_end",
+    "session_id": "qa-kor-test",
+    "t": 73.71991794602945,
+    "transcript_full": "안녕하십니까? 지원자 이나래입니다. 저는 그때 동기들에게 \"잠은 대체 언제 자냐는\" 개를 자주 들었습니다. 그 이유는 왕복 네 시간의 공학하는데도 주말 아르바이트에 한 번도 지각하지 않아. 고 상속 장학금도 계속 받았기 때문입니다. 이런데 그번에 공정계산 공무전에 나갔을 때는 통상 속도를 자신 6% 단축시키는 걸 했고 배상도 주장할 수 있었습니다. 현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 를 진행해서 공정 최적화에 도움을 줄 수 있었습니다. 앞으로 SK 하이닉스에서도 차세대 메모리 매 효율적으로 양산하는 데 기여하고 싶습니다. 감사합니다. 아",
+    "eval": null
+  },
+  "rawMediaExposed": false,
+  "rawSecretsExposed": false
+}

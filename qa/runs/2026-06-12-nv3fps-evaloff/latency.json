@@ -1,0 +1,145 @@
+{
+  "clip": "kor",
+  "sessionId": "qa-nv3fps-evaloff-kor",
+  "sentences_observed_live": 8,
+  "completed_events": [
+    {
+      "item": "i1",
+      "t_rel": 15.2,
+      "wall": 1781249225.2308583,
+      "accepted": true,
+      "sentences": 4
+    },
+    {
+      "item": "i2",
+      "t_rel": 30.2,
+      "wall": 1781249240.229156,
+      "accepted": true,
+      "sentences": 2
+    },
+    {
+      "item": "i3",
+      "t_rel": 38.6,
+      "wall": 1781249248.6249998,
+      "accepted": true,
+      "sentences": 2
+    }
+  ],
+  "per_sentence": [
+    {
+      "sentence": [
+        0.51,
+        1.32
+      ],
+      "text_chars": 7,
+      "source": "punct",
+      "latency_s": 0.92,
+      "channels": {
+        "speech": false,
+        "visual": true,
+        "nonverbal": true
+      }
+    },
+    {
+      "sentence": [
+        1.32,
+        2.58
+      ],
+      "text_chars": 11,
+      "source": "punct",
+      "latency_s": 1.72,
+      "channels": {
+        "speech": true,
+        "visual": true,
+        "nonverbal": true
+      }
+    },
+    {
+      "sentence": [
+        2.58,
+        6.96
+      ],
+      "text_chars": 38,
+      "source": "punct",
+      "latency_s": 2.12,
+      "channels": {
+        "speech": true,
+        "visual": true,
+        "nonverbal": true
+      }
+    },
+    {
+      "sentence": [
+        6.96,
+        14.57
+      ],
+      "text_chars": 66,
+      "source": "punct",
+      "latency_s": 2.52,
+      "channels": {
+        "speech": true,
+        "visual": true,
+        "nonverbal": true
+      }
+    },
+    {
+      "sentence": [
+        15.47,
+        22.57
+      ],
+      "text_chars": 67,
+      "source": "punct",
+      "latency_s": 1.61,
+      "channels": {
+        "speech": true,
+        "visual": true,
+        "nonverbal": true
+      }
+    },
+    {
+      "sentence": [
+        22.57,
+        29.57
+      ],
+      "text_chars": 66,
+      "source": "punct",
+      "latency_s": 1.61,
+      "channels": {
+        "speech": true,
+        "visual": true,
+        "nonverbal": true
+      }
+    },
+    {
+      "sentence": [
+        30.47,
+        37.19
+      ],
+      "text_chars": 46,
+      "source": "punct",
+      "latency_s": 1.25,
+      "channels": {
+        "speech": true,
+        "visual": true,
+        "nonverbal": true
+      }
+    },
+    {
+      "sentence": [
+        37.19,
+        38.07
+      ],
+      "text_chars": 6,
+      "source": "punct",
+      "latency_s": 1.25,
+      "channels": {
+        "speech": false,
+        "visual": true,
+        "nonverbal": true
+      }
+    }
+  ],
+  "eval_windows": [],
+  "stop_to_turn_end_s": 0.03,
+  "note": "latency = completed 이벤트 송신 → /signals에서 레코드 first-seen(폴링 0.4s 분해능)"
+}

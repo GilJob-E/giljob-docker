@@ -1,0 +1,496 @@
+{
+  "service": "analysis-engine",
+  "sessionId": "qa-vision-test-1",
+  "records": [
+    {
+      "type": "sentence",
+      "session_id": "qa-vision-test-1",
+      "t": 5.5,
+      "start_s": 5.4,
+      "end_s": 5.6,
+      "text": "손가락을 세 번 바꿔보겠습니다.",
+      "source": "punct",
+      "speech": null,
+      "visual": {
+        "face_frames": 3,
+        "face_seen_ratio": 1,
+        "smile_mean": 0,
+        "smile_max": 0,
+        "smile_ratio": 0,
+        "brow_down_mean": 0,
+        "mouth_press_mean": 0.007,
+        "blink_count": 0,
+        "gaze_off_mean": 0.183,
+        "yaw_std_deg": 0.03,
+        "pitch_std_deg": 0.07,
+        "lip_motion": 0.00125,
+        "pose_frames": 3,
+        "pose_seen_ratio": 1,
+        "posture_std": 0.0038,
+        "head_sway": 0.0039,
+        "wrist_visible": 0,
+        "wrist_motion": 0,
+        "gesture_events": 0,
+        "hand_frames": 3,
+        "hand_seen_ratio": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.2,
+        "note": "시선 이탈이 약간 관찰됨"
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-vision-test-1",
+      "t": 7.25,
+      "start_s": 5.6,
+      "end_s": 8.91,
+      "text": "지금 몇 개의 손가락을 펴고 있는지 대답해 주세요.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 3.31,
+        "pitch": {
+          "voiced_frames": 135,
+          "voiced_ratio": 0.421,
+          "mean_hz": 121.3,
+          "sd_semitone": 4.28,
+          "pdq": 0.2383,
+          "range_st_10_90": 11.06,
+          "detrended_sd_semitone": 2.89,
+          "octave_error_frac": 0
+        },
+        "rate": {
+          "syllable_nuclei": 11,
+          "speech_rate_syl_per_s": 3.32,
+          "articulation_rate_syl_per_s": 4.23,
+          "phonation_s": 2.6,
+          "intensity_peak_nuclei": 15,
+          "intensity_peak_artic_per_s": 5.77
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 1,
+          "short_juncture_count_0p1_0p25": 2,
+          "juncture_median_s": 0.12,
+          "longest_pauses_s": [
+            0.48,
+            0.12,
+            0.11
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -4.325,
+          "half_to_half_delta_db": -9.37,
+          "sounding_trough_db": -26.17
+        }
+      },
+      "visual": {
+        "face_frames": 49,
+        "face_seen_ratio": 1,
+        "smile_mean": 0,
+        "smile_max": 0.001,
+        "smile_ratio": 0,
+        "brow_down_mean": 0.001,
+        "mouth_press_mean": 0.017,
+        "blink_count": 0,
+        "gaze_off_mean": 0.263,
+        "yaw_std_deg": 0.6,
+        "pitch_std_deg": 0.74,
+        "lip_motion": 0.00165,
+        "pose_frames": 49,
+        "pose_seen_ratio": 1,
+        "posture_std": 0.0203,
+        "head_sway": 0.0124,
+        "wrist_visible": 0,
+        "wrist_motion": 0,
+        "gesture_events": 0,
+        "hand_frames": 49,
+        "hand_seen_ratio": 0.35,
+        "finger_segments": [
+          {
+            "count": 4,
+            "start_s": 7.71,
+            "end_s": 8.84
+          }
+        ],
+        "finger_sequence": [
+          4
+        ]
+      },
+      "nonverbal": {
+        "state": "hesitant",
+        "intensity": 0.5,
+        "note": "시선 이탈 평균 0.263, 발화 속도(조음)가 보통보다 느림"
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-vision-test-1",
+      "t": 19.27,
+      "start_s": 18.46,
+      "end_s": 20.08,
+      "text": "그럼 제가 몇",
+      "source": "punct",
+      "speech": {
+        "duration_s": 1.62,
+        "pitch": {
+          "voiced_frames": 38,
+          "voiced_ratio": 0.241,
+          "mean_hz": 102.6,
+          "sd_semitone": 1.12,
+          "pdq": 0.0618,
+          "range_st_10_90": 2.66,
+          "detrended_sd_semitone": 1.03,
+          "octave_error_frac": 0
+        },
+        "rate": {
+          "syllable_nuclei": 3,
+          "speech_rate_syl_per_s": 1.85,
+          "articulation_rate_syl_per_s": 2.49,
+          "phonation_s": 1.2,
+          "intensity_peak_nuclei": 3,
+          "intensity_peak_artic_per_s": 2.49
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 1,
+          "short_juncture_count_0p1_0p25": 0,
+          "juncture_median_s": 0.416,
+          "longest_pauses_s": [
+            0.42
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": 19.314,
+          "half_to_half_delta_db": 34.79,
+          "sounding_trough_db": -73.12
+        }
+      },
+      "visual": {
+        "face_frames": 24,
+        "face_seen_ratio": 1,
+        "smile_mean": 0,
+        "smile_max": 0,
+        "smile_ratio": 0,
+        "brow_down_mean": 0.001,
+        "mouth_press_mean": 0.007,
+        "blink_count": 0,
+        "gaze_off_mean": 0.156,
+        "yaw_std_deg": 0.19,
+        "pitch_std_deg": 0.53,
+        "lip_motion": 0.00142,
+        "pose_frames": 24,
+        "pose_seen_ratio": 1,
+        "posture_std": 0.008,
+        "head_sway": 0.0202,
+        "wrist_visible": 0,
+        "wrist_motion": 0,
+        "gesture_events": 0,
+        "hand_frames": 24,
+        "hand_seen_ratio": 0
+      },
+      "nonverbal": {
+        "state": "hesitant",
+        "intensity": 0.5,
+        "note": "발화 속도가 느리고 쉼이 길며, 시선 이탈이 관찰됨"
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-vision-test-1",
+      "t": 22.96,
+      "start_s": 22.86,
+      "end_s": 23.06,
+      "text": "손가락을 폈는지",
+      "source": "punct",
+      "speech": null,
+      "visual": {
+        "face_frames": 3,
+        "face_seen_ratio": 1,
+        "smile_mean": 0,
+        "smile_max": 0,
+        "smile_ratio": 0,
+        "brow_down_mean": 0,
+        "mouth_press_mean": 0.026,
+        "blink_count": 0,
+        "gaze_off_mean": 0.147,
+        "yaw_std_deg": 0.16,
+        "pitch_std_deg": 0.16,
+        "lip_motion": 0.00871,
+        "pose_frames": 3,
+        "pose_seen_ratio": 1,
+        "posture_std": 0.0114,
+        "head_sway": 0.0064,
+        "wrist_visible": 0,
+        "wrist_motion": 0,
+        "gesture_events": 0,
+        "hand_frames": 3,
+        "hand_seen_ratio": 0
+      },
+      "nonverbal": null
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-vision-test-1",
+      "t": 23.51,
+      "start_s": 23.06,
+      "end_s": 23.96,
+      "text": "순서대로 말해보세요.",
+      "source": "punct",
+      "speech": null,
+      "visual": {
+        "face_frames": 13,
+        "face_seen_ratio": 1,
+        "smile_mean": 0.001,
+        "smile_max": 0.002,
+        "smile_ratio": 0,
+        "brow_down_mean": 0,
+        "mouth_press_mean": 0.049,
+        "blink_count": 0,
+        "gaze_off_mean": 0.184,
+        "yaw_std_deg": 0.82,
+        "pitch_std_deg": 0.46,
+        "lip_motion": 0.00223,
+        "pose_frames": 13,
+        "pose_seen_ratio": 1,
+        "posture_std": 0.0187,
+        "head_sway": 0.0143,
+        "wrist_visible": 0,
+        "wrist_motion": 0,
+        "gesture_events": 0,
+        "hand_frames": 13,
+        "hand_seen_ratio": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.2,
+        "note": "미소 없음, 시선 이탈 평균 낮음, 자세 안정적"
+      }
+    },
+    {
+      "type": "turn_end",
+      "session_id": "qa-vision-test-1",
+      "t": 28.87208613101393,
+      "transcript_full": "손가락을 세 번 바꿔보겠습니다. 지금 몇 개의 손가락을 펴고 있는지 대답해 주세요. 그럼 제가 몇 손가락을 폈는지 순서대로 말해보세요.",
+      "eval": null
+    }
+  ],
+  "recordCount": 6,
+  "transcriptFull": "손가락을 세 번 바꿔보겠습니다. 지금 몇 개의 손가락을 펴고 있는지 대답해 주세요. 그럼 제가 몇 손가락을 폈는지 순서대로 말해보세요.",
+  "windowTranscripts": [],
+  "latestTurnEnd": {
+    "type": "turn_end",
+    "session_id": "qa-vision-test-1",
+    "t": 28.87208613101393,
+    "transcript_full": "손가락을 세 번 바꿔보겠습니다. 지금 몇 개의 손가락을 펴고 있는지 대답해 주세요. 그럼 제가 몇 손가락을 폈는지 순서대로 말해보세요.",
+    "eval": null
+  },
+  "turnHandoff": {
+    "type": "turn_handoff",
+    "schema_version": 2,
+    "session_id": "qa-vision-test-1",
+    "t": 28.87208613101393,
+    "transcript": "손가락을 세 번 바꿔보겠습니다. 지금 몇 개의 손가락을 펴고 있는지 대답해 주세요. 그럼 제가 몇 손가락을 폈는지 순서대로 말해보세요.",
+    "sentences": [
+      {
+        "start_s": 5.4,
+        "end_s": 5.6,
+        "text": "손가락을 세 번 바꿔보겠습니다.",
+        "artic_syl_s": null,
+        "f0_sd_st": null,
+        "pause_count": null,
+        "energy_delta_db": null,
+        "smile": 0,
+        "gaze_off": 0.183,
+        "nv": {
+          "state": "neutral",
+          "intensity": 0.2,
+          "note": "시선 이탈이 약간 관찰됨"
+        }
+      },
+      {
+        "start_s": 5.6,
+        "end_s": 8.91,
+        "text": "지금 몇 개의 손가락을 펴고 있는지 대답해 주세요.",
+        "artic_syl_s": 4.23,
+        "f0_sd_st": 4.28,
+        "pause_count": 1,
+        "energy_delta_db": -9.37,
+        "smile": 0,
+        "gaze_off": 0.263,
+        "nv": {
+          "state": "hesitant",
+          "intensity": 0.5,
+          "note": "시선 이탈 평균 0.263, 발화 속도(조음)가 보통보다 느림"
+        }
+      },
+      {
+        "start_s": 18.46,
+        "end_s": 20.08,
+        "text": "그럼 제가 몇",
+        "artic_syl_s": 2.49,
+        "f0_sd_st": 1.12,
+        "pause_count": 1,
+        "energy_delta_db": 34.79,
+        "smile": 0,
+        "gaze_off": 0.156,
+        "nv": {
+          "state": "hesitant",
+          "intensity": 0.5,
+          "note": "발화 속도가 느리고 쉼이 길며, 시선 이탈이 관찰됨"
+        }
+      },
+      {
+        "start_s": 22.86,
+        "end_s": 23.06,
+        "text": "손가락을 폈는지",
+        "artic_syl_s": null,
+        "f0_sd_st": null,
+        "pause_count": null,
+        "energy_delta_db": null,
+        "smile": 0,
+        "gaze_off": 0.147,
+        "nv": null
+      },
+      {
+        "start_s": 23.06,
+        "end_s": 23.96,
+        "text": "순서대로 말해보세요.",
+        "artic_syl_s": null,
+        "f0_sd_st": null,
+        "pause_count": null,
+        "energy_delta_db": null,
+        "smile": 0.001,
+        "gaze_off": 0.184,
+        "nv": {
+          "state": "neutral",
+          "intensity": 0.2,
+          "note": "미소 없음, 시선 이탈 평균 낮음, 자세 안정적"
+        }
+      }
+    ],
+    "speech": {
+      "windows": 2,
+      "duration_s": 4.93,
+      "pitch": {
+        "voiced_frames": 173,
+        "voiced_ratio": 0.362,
+        "mean_hz": 117.2,
+        "sd_semitone": 3.59,
+        "pdq": 0.1995,
+        "range_st_10_90": 9.21,
+        "detrended_sd_semitone": 2.48,
+        "octave_error_frac": 0
+      },
+      "rate": {
+        "syllable_nuclei": 14,
+        "speech_rate_syl_per_s": 2.84,
+        "articulation_rate_syl_per_s": 3.68,
+        "intensity_peak_nuclei": 18,
+        "intensity_peak_artic_per_s": 4.74
+      },
+      "pauses": {
+        "pause_count_ge_0p25": 2,
+        "short_juncture_count_0p1_0p25": 2,
+        "juncture_median_s": 0.194,
+        "longest_pauses_s": [
+          0.48,
+          0.42,
+          0.12,
+          0.11
+        ]
+      },
+      "energy": {
+        "rel_db_slope_per_s": 3.443,
+        "half_to_half_delta_db": 5.14,
+        "sounding_trough_db": -73.12
+      }
+    },
+    "visual": {
+      "windows": 5,
+      "face_frames": 92,
+      "face_seen_ratio": 1,
+      "smile_mean": 0,
+      "smile_ratio": 0,
+      "brow_down_mean": 0.001,
+      "mouth_press_mean": 0.019,
+      "gaze_off_mean": 0.218,
+      "yaw_std_deg": 0.49,
+      "pitch_std_deg": 0.6,
+      "lip_motion": 0.00189,
+      "blink_count": 0,
+      "smile_max": 0.002,
+      "pose_frames": 92,
+      "pose_seen_ratio": 1,
+      "posture_std": 0.016,
+      "head_sway": 0.0142,
+      "wrist_visible": 0,
+      "wrist_motion": 0,
+      "gesture_events": 0,
+      "hand_frames": 92,
+      "hand_seen_ratio": 0.19,
+      "finger_segments": [
+        {
+          "count": 4,
+          "start_s": 7.71,
+          "end_s": 8.84
+        }
+      ],
+      "finger_sequence": [
+        4
+      ]
+    },
+    "nonverbal": {
+      "windows": 4,
+      "states": {
+        "neutral": 0.5,
+        "hesitant": 0.5
+      },
+      "intensity_mean": 0.35,
+      "notes": [
+        "시선 이탈 평균 0.263, 발화 속도(조음)가 보통보다 느림",
+        "발화 속도가 느리고 쉼이 길며, 시선 이탈이 관찰됨",
+        "미소 없음, 시선 이탈 평균 낮음, 자세 안정적"
+      ]
+    },
+    "prompt_block": [
+      "[음성 전달 실측치 — 발화 4.93초, 2개 구간 집계]",
+      "- 억양 변화: F0 표준편차 3.59 semitone(2 미만이면 단조), PDQ 0.1995",
+      "- 발화 속도: 조음 3.68 음절/초(한국어 보통 5.8~6.9), 쉼 포함 2.84 음절/초",
+      "- 쉼: 0.25초 이상 2회, 짧은 휴지(0.1~0.25초) 2회, 휴지 중앙값 0.194초",
+      "- 음량 추세: 전반 대비 후반 +5.14 dB(후반 증가) — 상대값(AGC 영향 가능)",
+      "",
+      "[시각 실측치 — MediaPipe]",
+      "- 미소: 평균 0.0/최대 0.002, 프레임 0%에서 미소(>0.2)",
+      "- 깜빡임 0회, 시선 이탈 평균 0.218, 머리 움직임 yaw/pitch 표준편차 0.49/0.6도",
+      "- 입술 움직임(프레임간 평균 변위) 0.00189",
+      "- 자세: 어깨중점 흔들림 0.016(어깨폭 정규화), 머리 sway 0.0142",
+      "- ★손목이 화면에 거의 안 보임(프레임 0%) — 손동작/제스처는 관측 불가이므로 평가하지 말 것(없다고 단정 금지)",
+      "- 손가락 펼침(안정 구간): 4 (4개 7.71~8.84초) — 손 검출률 19%",
+      "",
+      "[비언어 상태 분포 — read 4개]",
+      "- 상태: neutral 50%, hesitant 50% · 평균 강도 0.35",
+      "",
+      "[문장 하이라이트 — 전달이 변한 구간]",
+      "- (5~8초) \"지금 몇 개의 손가락을 펴고 있는지 대답해 주세요.\" — 에너지 -9.4dB, nv hesitant",
+      "- (18~20초) \"그럼 제가 몇\" — 에너지 +34.8dB, nv hesitant",
+      "",
+      "[판단 규칙]",
+      "- 내용(논리·구조·구체성)의 판단은 이 블록을 읽는 네가 전사를 근거로 직접 하라.",
+      "- 전달력(억양·속도·쉼·음량·시선·자세)은 위 실측치가 정본 — 실측과 다른 인상 묘사 금지(예: F0 표준편차 2 semitone 미만일 때만 '단조').",
+      "- 비언어 노트는 모델의 보조 관찰 — 실측치와 충돌하면 실측치를 따를 것.",
+      "- '관측 불가' 항목은 평가하지 말 것(없다고 단정하는 것도 금지)."
+    ],
+    "meta": {
+      "sentences": 5,
+      "coverage": {
+        "speech": 2,
+        "visual": 5,
+        "nv": 4
+      },
+      "transcript_chars": 75,
+      "prompt_block_chars": 989
+    }
+  },
+  "rawMediaExposed": false,
+  "rawSecretsExposed": false
+}

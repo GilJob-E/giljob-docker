@@ -13,8 +13,15 @@ node_modules/
 # OS/editor noise
 .DS_Store
 
-# Local QA artifacts (raw media, transcripts, analysis JSON — never commit)
-/qa/
+# QA artifacts: track verification scripts + analysis JSON + notes, but never
+# commit raw media (large binaries) or downloaded benchmark media.
+/qa/**/*.mp4
+/qa/**/*.wav
+/qa/**/*.y4m
+/qa/**/*.h264
+/qa/**/*.ogg
+/qa/media/
+/qa/**/.omc/
 
 # oh-my-claudecode session state (AI tooling litter — never commit)
 .omc/

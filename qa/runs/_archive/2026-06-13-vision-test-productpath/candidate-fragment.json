@@ -1,0 +1,77 @@
+{
+  "readyTurnIndex": "0",
+  "probed": {
+    "0": {
+      "result": {
+        "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+        "status": "ready",
+        "sessionId": "qa-vision-test-1",
+        "turnIndex": 0,
+        "candidatePromptFragment": "음성 실측: 조음 3.68음절/s(보통 5.8~6.9) · F0 변동 3.59st(2 미만이면 단조) · 쉼(0.25s 이상) 2회 · 음량 전반 대비 후반 +5.1dB. 시각 실측: 미소 평균 0.0 · 시선 이탈 0.218 · 손가락 펼침 4 · 손동작 관측 불가(평가 금지). 비언어 상태: neutral 50%, hesitant 50%. 주목 구간: (5~8초) 에너지 -9.4dB, nv hesitant / (18~20초) 에너지 +34.8dB, nv hesitant. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+        "coverage": {
+          "speech": 2,
+          "visual": 5,
+          "nv": 4
+        },
+        "rawTranscriptLogged": false,
+        "rawMediaAccepted": false
+      },
+      "rawTranscriptLogged": false,
+      "rawMediaAccepted": false
+    },
+    "1": {
+      "result": {
+        "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+        "status": "ready",
+        "sessionId": "qa-vision-test-1",
+        "turnIndex": 1,
+        "candidatePromptFragment": "음성 실측: 조음 3.68음절/s(보통 5.8~6.9) · F0 변동 3.59st(2 미만이면 단조) · 쉼(0.25s 이상) 2회 · 음량 전반 대비 후반 +5.1dB. 시각 실측: 미소 평균 0.0 · 시선 이탈 0.218 · 손가락 펼침 4 · 손동작 관측 불가(평가 금지). 비언어 상태: neutral 50%, hesitant 50%. 주목 구간: (5~8초) 에너지 -9.4dB, nv hesitant / (18~20초) 에너지 +34.8dB, nv hesitant. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+        "coverage": {
+          "speech": 2,
+          "visual": 5,
+          "nv": 4
+        },
+        "rawTranscriptLogged": false,
+        "rawMediaAccepted": false
+      },
+      "rawTranscriptLogged": false,
+      "rawMediaAccepted": false
+    },
+    "2": {
+      "result": {
+        "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+        "status": "ready",
+        "sessionId": "qa-vision-test-1",
+        "turnIndex": 2,
+        "candidatePromptFragment": "음성 실측: 조음 3.68음절/s(보통 5.8~6.9) · F0 변동 3.59st(2 미만이면 단조) · 쉼(0.25s 이상) 2회 · 음량 전반 대비 후반 +5.1dB. 시각 실측: 미소 평균 0.0 · 시선 이탈 0.218 · 손가락 펼침 4 · 손동작 관측 불가(평가 금지). 비언어 상태: neutral 50%, hesitant 50%. 주목 구간: (5~8초) 에너지 -9.4dB, nv hesitant / (18~20초) 에너지 +34.8dB, nv hesitant. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+        "coverage": {
+          "speech": 2,
+          "visual": 5,
+          "nv": 4
+        },
+        "rawTranscriptLogged": false,
+        "rawMediaAccepted": false
+      },
+      "rawTranscriptLogged": false,
+      "rawMediaAccepted": false
+    },
+    "3": {
+      "result": {
+        "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+        "status": "ready",
+        "sessionId": "qa-vision-test-1",
+        "turnIndex": 3,
+        "candidatePromptFragment": "음성 실측: 조음 3.68음절/s(보통 5.8~6.9) · F0 변동 3.59st(2 미만이면 단조) · 쉼(0.25s 이상) 2회 · 음량 전반 대비 후반 +5.1dB. 시각 실측: 미소 평균 0.0 · 시선 이탈 0.218 · 손가락 펼침 4 · 손동작 관측 불가(평가 금지). 비언어 상태: neutral 50%, hesitant 50%. 주목 구간: (5~8초) 에너지 -9.4dB, nv hesitant / (18~20초) 에너지 +34.8dB, nv hesitant. 내용 판단은 들은 답변 기준으로 직접 하고, 전달력은 위 실측치만 정본으로 삼아라.",
+        "coverage": {
+          "speech": 2,
+          "visual": 5,
+          "nv": 4
+        },
+        "rawTranscriptLogged": false,
+        "rawMediaAccepted": false
+      },
+      "rawTranscriptLogged": false,
+      "rawMediaAccepted": false
+    }
+  }
+}
