@@ -30,7 +30,7 @@ Run final verification from the leader-approved checkout on `kiostation`; do not
 
 ```bash
 ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && node --check apps/web/static/app.js'
-ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py'
 ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v'
 ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && git diff --check'
 ```
@@ -62,20 +62,15 @@ Current docs/infra outcome: `sdk_mode_deferred`. The worker checkout declares `@
 
 ## Interviewer voice and avatar provider contract
 
-- `VOICE_PROVIDER=fake` must remain the keyless smoke path.
-- Non-Realtime LLM/TTS provider fallback must stay removed from env, compose, supported docs, and active AI-engine code.
-- `VOICE_PROVIDER=elevenlabs` must require server-side `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`; raw keys and upstream error bodies must never be returned.
-- `TTS_PROVIDER_FAILURE_FALLBACK=fake` is allowed only as an explicit local-demo fail-open setting.
-- `AVATAR_PROVIDER=disabled` must return a safe disabled response without a provider `sessionToken`.
-- `AVATAR_PROVIDER=spatialreal` must require server-side `SPATIALREAL_API_KEY`, `SPATIALREAL_APP_ID`, and `SPATIALREAL_AVATAR_ID`; browser responses may include only short-lived client session metadata.
-- `AVATAR_PROVIDER_FAILURE_FALLBACK=disabled` is allowed only as an explicit local-demo fail-open setting.
-- `SPATIALREAL_RTC_EGRESS_ENABLED=false` is the default and is legacy/avatar-RTC-only. Enabling it requires a public LiveKit URL reachable from SpatialReal cloud, not a loopback or Docker-only URL. Passing this egress check does not prove OpenAI Realtime audio lip-sync; SDK Mode Web / Host Mode proof remains separate.
-- Public ingress must not expose direct `/tts/*`, `/avatar/*`, `/ai/tts/*`, `/ai/avatar/*`, or broad `/ai/*` provider routes. Browser traffic must use the `/api/interviews/.../tts` and `/api/interviews/.../avatar/session` broker routes.
+- Non-Realtime LLM/TTS provider fallback must stay removed from env, compose, supported docs, and default runtime services.
+- `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` is the stable default. If explicitly enabled, it exposes API-owned metadata only and still requires kiostation browser evidence before any avatar lip-sync claim.
+- SpatialReal/avatar provider credentials and legacy RTC egress variables are not part of the default runtime env. Reintroducing them requires a separate compatibility-gated change and must not make LiveKit or avatar egress a Realtime/MMM prerequisite.
+- Public ingress must not expose direct `/tts/*`, `/avatar/*`, `/ai/tts/*`, `/ai/avatar/*`, or broad `/ai/*` provider routes. Legacy TTS/avatar broker routes are disabled/deferred unless explicitly verified as API-owned compatibility surfaces; default Realtime/MMM must not depend on ai-engine.
 
-Remote verification command shape from a synced checkout on `kiostation`:
+Remote verification command shape from a synced checkout on `kiostation` (default rebuild/restart scope: `api web analysis-engine caddy`):
 
 ```bash
-ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.contract.test_ai_engine_contract -v'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v'
 ```
 
 

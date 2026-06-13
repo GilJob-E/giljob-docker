@@ -1,18 +1,15 @@
 # TTS and Avatar Provider Contract
 
-This runbook defines the Phase 0B/1 contract for interviewer voice and avatar integration. The default interview path is OpenAI Realtime + MMM without LiveKit. This runbook does not implement ElevenLabs STT, OpenAI Realtime remote-audio injection into SpatialReal, or default LiveKit interviewer/avatar audio publication. Candidate STT remains owned by the GilJobE-backed `services/analysis-engine` boundary.
+This runbook defines the current contract for interviewer voice and avatar integration. The default interview path is OpenAI Realtime + MMM without LiveKit. Legacy question/TTS routes return deprecated_ai_engine_removed with reason=realtime_only and do not call ai-engine. Avatar metadata is API-owned and disabled/deferred unless a verified opt-in proof exists. Candidate STT remains owned by the GilJobE-backed `services/analysis-engine` boundary.
 
 ## Current phase
 
 - `OPENAI_REALTIME_PRIMARY=true` is the intended realtime branch voice mode when OpenAI credentials and runtime are ready.
-- `VOICE_PROVIDER=fake` is the mandatory keyless local smoke path for legacy/internal TTS routes.
+- Legacy question/TTS routes return `deprecated_ai_engine_removed` with `reason=realtime_only`; the browser default path must not call them.
 - Gemini TTS fallback is removed; do not configure or document it as a supported route.
-- `VOICE_PROVIDER=elevenlabs` remains supported only as an internal compatibility adapter when `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are supplied in the runtime `.env`.
-- `TTS_PROVIDER_FAILURE_FALLBACK=fake` may be enabled for local demos so provider quota/payment failures do not block the interview room.
-- `AVATAR_PROVIDER=disabled` remains the default. SpatialReal session brokering is backend-only until the browser avatar rendering gate is resolved. Avatar UI must be disabled/deferred unless a non-LiveKit SDK Mode proof or explicitly legacy RTC proof is verified.
-- `AVATAR_PROVIDER_FAILURE_FALLBACK=disabled` may be enabled for local demos so SpatialReal provider failures do not block the interview room.
+- Avatar metadata is API-owned. SpatialReal session brokering is disabled/deferred until the browser avatar rendering gate is resolved. Avatar UI must be disabled/deferred unless a non-LiveKit SDK Mode proof or explicitly legacy RTC proof is verified.
 - `SPATIALREAL_RTC_EGRESS_ENABLED=false` remains the safe default and belongs only to legacy AvatarKit RTC / SpatialReal-to-LiveKit publishing. Enabling it requires a LiveKit URL reachable from SpatialReal cloud, not only local Docker or `127.0.0.1`. It is not required for the default Realtime/MMM path.
-- SpatialReal RTC egress is a post-TTS publisher only: it sends mono PCM16/WAV audio bytes produced by `/tts/synthesize` into SpatialReal via `send_audio(end=True)`. It does not ingest OpenAI Realtime remote audio, Realtime datachannel events, or candidate LiveKit media.
+- SpatialReal RTC egress is a deprecated compatibility publisher only and is disabled by default. It must not be used by the default Realtime/MMM path, must not depend on ai-engine, and does not ingest OpenAI Realtime remote audio, Realtime datachannel events, or candidate LiveKit media.
 - `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` remains the stable default. Setting it true only enables an experimental browser `AvatarPlayer.publishAudio(track)` probe using the OpenAI Realtime remote audio track; it is not a production lip-sync claim until kiostation browser evidence marks `bridge_verified`.
 - Do not downgrade `livekit-client` just to satisfy SpatialReal. Also do not upgrade it in this docs-only lane without a separate dependency spike. This checkout declares `livekit-client` `2.16.1`; keep version changes out of this lane unless proven needed.
 
@@ -20,29 +17,21 @@ This runbook defines the Phase 0B/1 contract for interviewer voice and avatar in
 
 | Variable | Purpose | Secret | Default / phase |
 |---|---|---:|---|
-| `VOICE_PROVIDER` | Selects `fake` or `elevenlabs` for internal route smoke/compatibility only. | no | `fake` |
-| `ELEVENLABS_API_KEY` | ElevenLabs API key for real TTS smoke. | yes | empty |
-| `ELEVENLABS_VOICE_ID` | Voice ID used by ElevenLabs TTS. | no, but server-side config | empty |
-| `ELEVENLABS_TTS_MODEL` | TTS model ID. | no | `eleven_flash_v2_5` |
-| `ELEVENLABS_OUTPUT_FORMAT` | Initial TTS output format. | no | `mp3_22050_32` |
-| `TTS_PROVIDER_FAILURE_FALLBACK` | Optional fail-open provider for route smoke when ElevenLabs returns a provider error. | no | empty; set `fake` for local demos |
-| `AVATAR_PROVIDER` | Future avatar provider switch. | no | `disabled` |
-| `SPATIALREAL_API_KEY` | SpatialReal API key. | yes | empty |
-| `SPATIALREAL_APP_ID` | SpatialReal app identifier. | no, but server-mediated | empty |
-| `SPATIALREAL_AVATAR_ID` | SpatialReal avatar identifier. | no, but server-mediated | empty |
-| `SPATIALREAL_REGION` | Region used to derive the SpatialReal console endpoint. | no | `ap-northeast` |
-| `SPATIALREAL_SESSION_TTL_SECONDS` | Short-lived avatar session token TTL. | no | `900` |
-| `AVATAR_PROVIDER_FAILURE_FALLBACK` | Optional fail-open mode for room UX when SpatialReal returns a provider error. | no | empty; set `disabled` for local demos |
+| `SPATIALREAL_API_KEY` | Future SpatialReal API key for a separately verified avatar metadata broker. | yes | empty |
+| `SPATIALREAL_APP_ID` | Future SpatialReal app identifier. | no, but server-mediated | empty |
+| `SPATIALREAL_AVATAR_ID` | Future SpatialReal avatar identifier. | no, but server-mediated | empty |
+| `SPATIALREAL_REGION` | Region for future SpatialReal API-owned metadata. | no | `ap-northeast` |
+| `SPATIALREAL_SESSION_TTL_SECONDS` | Future short-lived avatar session token TTL if metadata brokering is re-enabled. | no | `900` |
 | `SPATIALREAL_AUDIO_SAMPLE_RATE` | Avatar audio input sample rate metadata. | no | `16000` |
 | `SPATIALREAL_AUDIO_CHANNEL_COUNT` | Avatar audio channel count metadata. | no | `1` |
-| `SPATIALREAL_RTC_EGRESS_ENABLED` | Enables optional SpatialReal-to-LiveKit avatar publishing. | no | `false` |
+| `SPATIALREAL_RTC_EGRESS_ENABLED` | Enables optional SpatialReal-to-LiveKit avatar publishing after separate verification. | no | `false` |
 | `SPATIALREAL_RTC_LIVEKIT_URL` | Public LiveKit signaling URL supplied to SpatialReal for RTC egress. | no, but server-mediated | empty; falls back to `LIVEKIT_PUBLIC_URL` / `LIVEKIT_URL` if unset |
 | `SPATIALREAL_RTC_PUBLISHER_ID_PREFIX` | Prefix for SpatialReal publisher identity metadata. | no | `spatialreal-avatar` |
 | `SPATIALREAL_RTC_IDLE_TIMEOUT_SECONDS` | Avatar RTC idle timeout. | no | `30` |
 | `SPATIALREAL_RTC_SETTLE_SECONDS` | Startup settle delay before RTC egress readiness checks. | no | `1.0` |
 | `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED` | Enables sibling API metadata (`realtimeAvatarBridge` on `/api/sessions`, `bridge.browserAudioBridgeEnabled` on avatar sessions) for the experimental browser `AvatarPlayer.publishAudio(track)` probe. | no | `false` |
 
-SpatialReal console/ingress endpoint overrides are intentionally not part of the default `.env.example` surface. Use `SPATIALREAL_REGION` first; add provider-specific endpoint overrides only in a compatibility-gated deployment change. RTC egress variables are present because the backend may broker post-TTS avatar publishing, but they do not make the browser render an avatar tile by themselves and do not bridge OpenAI Realtime remote audio into SpatialReal.
+SpatialReal console/ingress endpoint overrides are intentionally not part of the default `.env.example` surface. Use `SPATIALREAL_REGION` first; add provider-specific endpoint overrides only in a compatibility-gated deployment change. RTC egress variables are retained only as deferred compatibility placeholders; they do not make the browser render an avatar tile by themselves and do not bridge OpenAI Realtime remote audio into SpatialReal.
 
 ## SpatialReal SDK Mode Web spike status
 
@@ -58,7 +47,7 @@ The probe publishes the OpenAI Realtime remote audio track to `AvatarPlayer.publ
 
 The browser may receive short-lived LiveKit join JWTs or avatar session tokens only through explicit token contracts. Opaque GilJob session/report bearer tokens are separate application tokens. Neither token class nor provider secrets may appear in static files, visible UI, logs, smoke output, or third-party provider responses.
 
-Provider calls are backend-owned. Browser-facing voice/avatar status must be routed through `services/api` and return sanitized metadata or object references only. Direct public `/tts/*`, `/avatar/*`, `/ai/tts/*`, `/ai/avatar/*`, or broad `/ai/*` routes must not be exposed through Caddy.
+Provider calls are backend-owned. Browser-facing voice/avatar status must be routed through `services/api` and return sanitized metadata or object references only. Direct public provider routes such as `/tts/*`, `/avatar/*`, `/ai/tts/*`, `/ai/avatar/*`, or broad `/ai/*` must not be exposed through Caddy. Legacy `/api/interviews/.../question` and TTS routes are deprecated and must not be used by the default Realtime flow. API-owned avatar metadata routes may remain disabled/deferred, but must never call ai-engine or expose token-bearing provider payloads by default.
 
 ## Non-goals for Phase 1
 

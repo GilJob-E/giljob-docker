@@ -1077,6 +1077,11 @@ async function requestAvatarSession(reason = "room-join") {
       body: JSON.stringify({ reason }),
     });
     const payload = await response.json().catch(() => ({}));
+    if (!response.ok && (payload.status === "disabled" || payload.status === "deferred" || payload.status === "blocked" || payload.reason === "realtime_only" || payload.error === "deprecated_ai_engine_removed")) {
+      renderAvatarState({ ...payload, ready: false, status: payload.status || "deferred", provider: payload.provider || "api", reason: payload.reason || payload.error || "avatar_deferred" });
+      appendLog(`avatar session deferred by API: ${payload.reason || payload.error || response.status}; no legacy ai-engine fallback; Realtime voice unaffected`);
+      return payload;
+    }
     if (!response.ok) {
       throw new Error(payload.message || payload.error || `avatar session failed: HTTP ${response.status}`);
     }
@@ -1314,59 +1319,14 @@ function markInterviewerQuestionEnded(payload) {
 }
 
 async function playInterviewerQuestion(payload) {
-  const turnIndex = Number(payload?.turnIndex || currentTurnIndex);
   const questionText = String(payload?.question || "").trim();
   if (!questionText) {
-    appendLog("tts skipped: empty interviewer question");
-    return;
+    appendLog("Realtime interviewer audio owns the question; legacy TTS fallback skipped");
+  } else {
+    appendLog("legacy TTS fallback removed; OpenAI Realtime audio remains the only live interviewer voice path");
   }
   if (interviewerMediaState) {
-    interviewerMediaState.textContent = "TTS 준비 중";
-  }
-  try {
-    const response = await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/tts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: questionText }),
-    });
-    const ttsPayload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(ttsPayload.message || ttsPayload.error || `tts request failed: HTTP ${response.status}`);
-    }
-    renderAvatarRtcEgressStatus(ttsPayload.avatarRtc);
-    const dataUrl = audioDataUrl(ttsPayload.audio);
-    if (!dataUrl || !interviewerAudio) {
-      appendLog(`tts audio unavailable; provider ${ttsPayload.audio?.provider || "unknown"}`);
-      return;
-    }
-    interviewerAudio.src = dataUrl;
-    if (interviewerMediaState) {
-      interviewerMediaState.textContent = "질문 재생 중";
-    }
-    if (avatarSurface && activeAvatarSession?.ready) {
-      avatarSurface.dataset.state = "speaking";
-    }
-    appendLog(`interviewer tts ready; provider ${ttsPayload.audio?.provider || "unknown"}; audio bytes ${ttsPayload.audio?.byteLength || 0}; audio hidden`);
-    await interviewerAudio.play();
-    await new Promise((resolve) => {
-      if (interviewerAudio.ended || interviewerAudio.paused) {
-        resolve();
-        return;
-      }
-      const done = () => {
-        interviewerAudio.removeEventListener("ended", done);
-        interviewerAudio.removeEventListener("error", done);
-        resolve();
-      };
-      interviewerAudio.addEventListener("ended", done, { once: true });
-      interviewerAudio.addEventListener("error", done, { once: true });
-    });
-  } catch (error) {
-    appendLog(`interviewer tts playback skipped: ${errorMessage(error)}`);
-  } finally {
-    if (interviewerMediaState) {
-      interviewerMediaState.textContent = "질문 완료";
-    }
+    interviewerMediaState.textContent = "질문 완료";
   }
 }
 
@@ -1374,43 +1334,13 @@ async function requestNextQuestion(reason = "manual") {
   if (isRealtimePrimary() && activeRealtimeSession) {
     return requestRealtimeNextQuestion(reason);
   }
-  if (nextQuestionRequested) {
-    return;
+  nextQuestionRequested = false;
+  renderInterviewQuestion(null);
+  if (interviewerMediaState) {
+    interviewerMediaState.textContent = "Realtime 대기";
   }
-  nextQuestionRequested = true;
-  document.dispatchEvent(new CustomEvent("giljob:interviewer-question-started"));
-  renderQuestionLoading();
-  appendLog(`requesting next interviewer question: ${reason}`);
-  try {
-    const response = await fetch(`/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${currentTurnIndex}/question`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        persona: "차분하고 명확한 한국어 면접관",
-        candidateProfile: "not provided in this slice",
-        job: "not provided in this slice",
-        lastAnswer: lastAnswerTranscript || "아직 이전 답변 전사가 없습니다.",
-        analysisBlock: lastAnalysisBlock || "",
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload.message || payload.error || `question request failed: HTTP ${response.status}`);
-    }
-    renderInterviewQuestion(payload);
-    appendLog(`interviewer question ready: ${payload.questionId || "question"}; provider ${payload.provider || "unknown"}`);
-    await playInterviewerQuestion(payload);
-    markInterviewerQuestionEnded(payload);
-  } catch (error) {
-    const message = errorMessage(error);
-    nextQuestionRequested = false;
-    renderInterviewQuestion(null);
-    if (interviewerMediaState) {
-      interviewerMediaState.textContent = "질문 실패";
-    }
-    setStatus(`question request failed: ${message}`, "error");
-    appendLog(`question request failed: ${message}`);
-  }
+  setStatus("Realtime session required for interviewer audio; legacy question/TTS fallback removed", "error");
+  appendLog(`legacy question fallback removed; blocked next-question request (${reason}); connect Realtime first`);
 }
 
 function renderSessionSummary(session) {
@@ -1671,8 +1601,8 @@ async function createSession() {
   renderSessionSummary(activeSession);
   const sessionLabel = payload.roomName || payload.sessionId || activeInterviewId;
   setStatus(`session created: ${sessionLabel}`, "idle");
-  appendLog(`session created for ${sessionLabel}; tokens hidden; avatar lookup deferred until after primary transport`);
-  renderAvatarRtcDegraded("avatar_session_deferred_until_after_realtime");
+  appendLog(`session created for ${sessionLabel}; tokens hidden; avatar remains deferred unless a verified avatar path is explicitly enabled`);
+  renderAvatarRtcDegraded("avatar_session_deferred_unverified");
   return activeSession;
 }
 
@@ -1682,7 +1612,7 @@ async function connectPrimaryTransport() {
     appendLog("Realtime primary metadata missing; attempting API-brokered Realtime path and failing closed if unavailable");
   }
   await connectRealtimeRoom(session);
-  requestAvatarSession("realtime-connected-deferred").catch((error) => appendLog(`avatar session deferred after Realtime: ${errorMessage(error)}`));
+  renderAvatarRtcDegraded("avatar_session_not_requested_default_realtime_path");
 }
 
 async function connectProductionRoomRoute() {

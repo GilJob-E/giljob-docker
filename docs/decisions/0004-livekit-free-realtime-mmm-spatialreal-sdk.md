@@ -53,7 +53,7 @@ Minimum local/static verification for this decision surface:
 
 - `node --check apps/web/static/app.js`
 - `npm --prefix apps/web run check:js`
-- `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py services/ai-engine/server.py`
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py`
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v`
 - `./scripts/kiostation-verify-archive.sh`
 

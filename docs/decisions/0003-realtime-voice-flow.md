@@ -88,7 +88,7 @@ For turn `N >= 2`, the next ordinary `realtime.response.create` is allowed only 
 Minimum verification before claiming this contract is intact:
 
 - `node --check apps/web/static/app.js`
-- `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py`
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py`
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v`
 - targeted smoke evidence that `/api/interviews/:id/realtime/session` does not expose a standard provider key
 - targeted smoke evidence that the browser uses `/api/interviews/:id/realtime/call` for SDP attach and gates ordinary `realtime.response.create` on `full_mmm_ready`
