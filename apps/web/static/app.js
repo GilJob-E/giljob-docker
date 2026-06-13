@@ -59,6 +59,7 @@ let avatarPcmBridge = null;
 let avatarPcmBridgeIdleTimer = null;
 let avatarPcmBridgeEndTimer = null;
 let avatarSdkResponseFeedActive = false;
+let avatarSdkSyncedPlaybackActive = false;
 let avatarSdkConnectionState = "unknown";
 let avatarSdkConnectionWaiters = [];
 let avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, silentDrops: 0, rmsMax: 0, startedAt: 0, speechStarted: false };
@@ -86,6 +87,7 @@ const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
 const AVATAR_PCM_END_GRACE_MS = 1400;
 const AVATAR_PCM_SPEECH_RMS_THRESHOLD = 0.0015;
 const AVATAR_SDK_CONNECTED_WAIT_MS = 5000;
+const AVATAR_SDK_SYNCED_PLAYBACK_VOLUME = 1;
 const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
 const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
 const SPATIALREAL_SDK_MODE_LABEL = "SpatialReal SDK Mode";
@@ -631,14 +633,26 @@ function markRealtimeFirstAudio() {
   postRealtimeTurnEvent("realtime.first_audio", { source: "remote-audio-track" }).catch((error) => appendLog(`first audio marker failed: ${errorMessage(error)}`));
 }
 
+function setRealtimeDirectAudioOutputMutedForAvatar(isMuted, reason = "avatar-sync") {
+  const nextMuted = Boolean(isMuted);
+  const changed = avatarSdkSyncedPlaybackActive !== nextMuted;
+  avatarSdkSyncedPlaybackActive = nextMuted;
+  if (interviewerAudio) {
+    interviewerAudio.muted = nextMuted;
+    interviewerAudio.volume = nextMuted ? 0 : 1;
+  }
+  if (changed) {
+    appendLog(`Realtime direct audio output ${nextMuted ? "muted" : "audible"}; reason=${String(reason).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80)}; ${nextMuted ? "SpatialReal SDK synced playback is audible" : "Realtime direct audio is audible fallback"}; media hidden`);
+  }
+}
+
 function attachRealtimeRemoteAudio(stream) {
   if (!interviewerAudio) {
     return;
   }
   interviewerAudio.srcObject = stream;
   interviewerAudio.hidden = true;
-  interviewerAudio.muted = false;
-  interviewerAudio.volume = 1;
+  setRealtimeDirectAudioOutputMutedForAvatar(avatarSdkSyncedPlaybackActive, "attach-realtime-remote-audio");
   interviewerAudio.addEventListener("playing", markRealtimeFirstAudio, { once: true });
   interviewerAudio.play().catch((error) => appendLog(`Realtime remote audio autoplay skipped: ${errorMessage(error)}`));
 }
@@ -681,19 +695,20 @@ async function importSpatialRealAvatarKit() {
   }
 }
 
-function setAvatarSdkMuted(controller) {
+function setAvatarSdkPlaybackVolume(controller, volume = AVATAR_SDK_SYNCED_PLAYBACK_VOLUME) {
   if (!controller) {
     throw new Error("sdk_controller_unavailable");
   }
+  const safeVolume = Math.max(0, Math.min(1, Number(volume)));
   if (typeof controller.setVolume === "function") {
-    controller.setVolume(0);
+    controller.setVolume(safeVolume);
     return "setVolume";
   }
   if ("volume" in controller) {
-    controller.volume = 0;
+    controller.volume = safeVolume;
     return "volume";
   }
-  throw new Error("sdk_mute_unavailable");
+  throw new Error("sdk_volume_unavailable");
 }
 
 function resetAvatarSdkPcmStats() {
@@ -801,6 +816,9 @@ function sendAvatarSdkPcmChunk(controller, pcmBuffer, isLast = false) {
 }
 
 function createAvatarPcmSourceStream(track) {
+  if (avatarSdkSyncedPlaybackActive) {
+    return { stream: new MediaStream([track]), source: "realtime-remote-track-pre-output" };
+  }
   if (interviewerAudio?.srcObject && (typeof interviewerAudio.captureStream === "function" || typeof interviewerAudio.mozCaptureStream === "function")) {
     try {
       const capture = interviewerAudio.captureStream || interviewerAudio.mozCaptureStream;
@@ -949,7 +967,7 @@ async function startAvatarPcmBridgeIfReady(track = realtimeRemoteAudioTrack) {
     avatarPcmBridge = createAvatarPcmBridge(track, activeAvatarSdkRuntime.controller, activeAvatarSdkRuntime.sampleRate || 16000);
     await avatarPcmBridge.start();
     avatarSdkModeState = { ...avatarSdkModeState, audioBridge: "pcm16_active" };
-    appendLog(`avatar SDK muted PCM16 bridge active; connection=${avatarSdkConnectionState}; trackReadyState=${track.readyState || "unknown"}; trackMuted=${Boolean(track.muted)}; trackEnabled=${Boolean(track.enabled)}; Realtime remains the only audible path; media hidden`);
+    appendLog(`avatar SDK PCM16 bridge active; connection=${avatarSdkConnectionState}; trackReadyState=${track.readyState || "unknown"}; trackMuted=${Boolean(track.muted)}; trackEnabled=${Boolean(track.enabled)}; audiblePath=${avatarSdkSyncedPlaybackActive ? "spatialreal-sdk-synced-playback" : "realtime-direct-fallback"}; media hidden`);
     clearAvatarPcmBridgeIdleTimer();
     avatarPcmBridgeIdleTimer = window.setTimeout(() => {
       if (avatarPcmBridge && avatarSdkResponseFeedActive && avatarSdkPcmStats.startedAt && avatarSdkPcmStats.chunks === 0) {
@@ -1040,7 +1058,7 @@ function captureRealtimeRemoteAudioTrack(track) {
   if (avatarSdkResponseFeedActive) {
     startAvatarPcmBridgeIfReady(track);
   }
-  appendLog("Realtime remote audio track observed for interviewer playback; avatar SDK muted PCM16 adapter waits for response feed; media hidden");
+  appendLog("Realtime remote audio track observed for interviewer playback; avatar SDK PCM16 adapter waits for response feed; media hidden");
   if (typeof track.addEventListener === "function") {
     track.addEventListener("mute", () => {
       appendLog("Realtime remote audio track muted; avatar SDK PCM bridge may idle until audio resumes; media hidden");
@@ -1468,6 +1486,7 @@ async function disconnectAvatarRtc() {
   avatarSdkConnectionWaiters.splice(0).forEach((resolve) => resolve(false));
   clearAvatarPcmBridgeIdleTimer();
   clearAvatarPcmBridgeEndTimer();
+  setRealtimeDirectAudioOutputMutedForAvatar(false, "avatar-disconnect");
   activeAvatarSdkRuntime?.avatarView?.dispose?.();
   activeAvatarSdkRuntime?.sdk?.AvatarSDK?.cleanup?.();
   activeAvatarSdkRuntime = null;
@@ -1479,6 +1498,7 @@ async function disconnectAvatarRtc() {
 }
 
 function renderAvatarSdkDegraded(reason) {
+  setRealtimeDirectAudioOutputMutedForAvatar(false, "avatar-degraded");
   avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_DEFERRED_OUTCOME, reason: String(reason || "sdk_mode_deferred"), audioFeed: SPATIALREAL_SDK_AUDIO_FEED_FORMAT };
   setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
   setAvatarPanelMessage(`${AVATAR_DEFERRED_LABEL}: ${reason}. OpenAI Realtime owns STT/VAD/interviewer audio. ${SPATIALREAL_SDK_MODE_LABEL} remains ${SPATIALREAL_SDK_DEFERRED_OUTCOME}; no production lip-sync claim.`);
@@ -1538,17 +1558,18 @@ async function initializeSpatialRealSdkAvatar(payload) {
     controller.onError = (error) => {
       appendLog(`avatar SDK error: ${errorMessage(error)}; tokens hidden`);
     };
-    const muteMethod = setAvatarSdkMuted(controller);
+    const playbackMethod = setAvatarSdkPlaybackVolume(controller, AVATAR_SDK_SYNCED_PLAYBACK_VOLUME);
     await controller.initializeAudioContext();
     avatarSdkConnectionState = "connecting";
     await controller.start();
-    setAvatarSdkMuted(controller);
-    activeAvatarSdkRuntime = { sdk, avatarView, controller, sampleRate: metadata.sampleRate || 16000, muteMethod };
-    avatarSdkModeState = { ...normalizeAvatarSdkModeState(payload), initialized: true, reason: "sdk_mode_ready_muted_pcm_bridge", muteMethod };
+    setAvatarSdkPlaybackVolume(controller, AVATAR_SDK_SYNCED_PLAYBACK_VOLUME);
+    setRealtimeDirectAudioOutputMutedForAvatar(true, "avatar-sdk-synced-playback");
+    activeAvatarSdkRuntime = { sdk, avatarView, controller, sampleRate: metadata.sampleRate || 16000, playbackMethod };
+    avatarSdkModeState = { ...normalizeAvatarSdkModeState(payload), initialized: true, reason: "sdk_mode_ready_synced_playback", playbackMethod };
     avatarRenderTarget?.classList.add("is-sdk-active");
-    setAvatarRtcState("speaking", "Avatar SDK active");
-    setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} active with muted ${SPATIALREAL_SDK_AUDIO_FEED_FORMAT} feed. OpenAI Realtime remains the only audible interviewer path.`);
-    appendLog(`avatar SDK initialized; muted via ${muteMethod}; session token hidden; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}`);
+    setAvatarRtcState("speaking", "Avatar SDK synced playback active");
+    setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} active with synced ${SPATIALREAL_SDK_AUDIO_FEED_FORMAT} playback. OpenAI Realtime still generates the interviewer audio; SpatialReal SDK owns audible playback for lip-sync.`);
+    appendLog(`avatar SDK initialized; synced playback via ${playbackMethod}; volume=${AVATAR_SDK_SYNCED_PLAYBACK_VOLUME}; Realtime direct audio muted for lip-sync; session token hidden; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}`);
     if (avatarSdkResponseFeedActive) {
       await startAvatarPcmBridgeIfReady(realtimeRemoteAudioTrack);
     } else {
