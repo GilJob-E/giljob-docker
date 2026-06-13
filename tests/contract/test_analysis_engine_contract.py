@@ -288,7 +288,8 @@ class TurnResultsContractTest(unittest.TestCase):
         self.assertTrue(ready["visionSignals"]["faceVisible"])
         self.assertTrue(ready["visionSignals"]["personVisible"])
         self.assertEqual(ready["visionSignals"]["objectiveVisionStatus"], "frame_decode_failed")
-        self.assertIn("MMM 시각 분석 결과상 후보자 얼굴", ready["nextQuestionGuidance"])
+        self.assertIn("카메라 신호상 후보자 얼굴", ready["nextQuestionGuidance"])
+        self.assertNotIn("MMM", ready["nextQuestionGuidance"])
         self.assertIn("transcriptSignals", ready)
         self.assertIn("prosodySignals", ready)
         self.assertEqual(ready["prosodySignals"]["status"], "timing_observed")
@@ -301,7 +302,7 @@ class TurnResultsContractTest(unittest.TestCase):
         self.assertEqual(rnas.turn_result("demo", 2)["reason"], "no_exact_turn_result")
         self.assertEqual(rnas.turn_result("other", 1)["reason"], "no_exact_turn_result")
 
-    def test_realtime_guidance_can_ack_mmm_face_visibility_without_claiming_direct_video(self) -> None:
+    def test_realtime_guidance_can_ack_camera_face_visibility_without_claiming_direct_video(self) -> None:
         module = load_analysis_engine_wrapper()
         guidance = module._next_question_guidance(
             {"observed": True, "specificityScore": 0.4, "hasNumbers": False, "questionLike": True},
@@ -313,9 +314,10 @@ class TurnResultsContractTest(unittest.TestCase):
                 "objectiveVisionStatus": "analyzed",
             },
         )
-        self.assertIn("MMM 시각 분석 결과상 후보자 얼굴이 프레임 안에 확인", guidance)
+        self.assertIn("카메라 신호상 후보자 얼굴이 프레임 안에 확인", guidance)
         self.assertIn("후보자가 화면 확인을 물으면", guidance)
         self.assertIn("영상을 직접 본다고 말하거나", guidance)
+        self.assertNotIn("MMM", guidance)
         self.assertNotIn("직접 봤", guidance)
 
     def test_realtime_native_analysis_session_missing_lane_stays_pending(self) -> None:

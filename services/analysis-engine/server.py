@@ -679,16 +679,16 @@ def _next_question_guidance(transcript: dict[str, object], vision: dict[str, obj
     visual_note = "시각 신호는 참고만 하고 표정·자세를 단정하지 마세요."
     if vision.get("faceVisible") is True:
         visual_note = (
-            "MMM 시각 분석 결과상 후보자 얼굴이 프레임 안에 확인되었습니다. "
+            "카메라 신호상 후보자 얼굴이 프레임 안에 확인되었습니다. "
             "후보자가 화면 확인을 물으면 그 사실만 짧게 답하되, 영상을 직접 본다고 말하거나 표정·외모를 평가하지 마세요."
         )
     elif vision.get("personVisible") is True:
         visual_note = (
-            "MMM 시각 분석 결과상 후보자 상반신/사람이 프레임 안에 확인되었습니다. "
+            "카메라 신호상 후보자 상반신/사람이 프레임 안에 확인되었습니다. "
             "후보자가 화면 확인을 물으면 그 사실만 짧게 답하되, 영상을 직접 본다고 말하거나 표정·외모를 평가하지 마세요."
         )
     elif vision.get("faceVisible") is False or vision.get("personVisible") is False:
-        visual_note = "MMM 시각 분석 결과상 얼굴/사람 확인은 아직 불충분합니다. 보인다고 단정하지 말고 필요하면 카메라 위치 확인을 요청하세요."
+        visual_note = "카메라 신호상 얼굴/사람 확인은 아직 불충분합니다. 보인다고 단정하지 말고 필요하면 카메라 위치 확인을 요청하세요."
     elif int(vision.get("sampledFrameCount") or 0) > 0:
         visual_note = "카메라 프레임은 수신됐지만 얼굴/사람 판정은 아직 없습니다. 외형 판단 없이 답변 내용 중심으로 이어가세요."
     return f"직전 답변을 바탕으로 {focus}를 자연스럽게 확인하는 한국어 후속 질문 하나를 하세요. {visual_note}"
