@@ -1,0 +1,402 @@
+[
+  {
+    "video": "00001702.mp4",
+    "cat": "object detection",
+    "q": "What finger I show?",
+    "ref": "Thumb",
+    "ans": "Thumb.",
+    "pass": true
+  },
+  {
+    "video": "00002172.mp4",
+    "cat": "object counting",
+    "q": "How many thumbs are up?",
+    "ref": "2",
+    "ans": "2",
+    "pass": true
+  },
+  {
+    "video": "00002263.mp4",
+    "cat": "object referencing",
+    "q": "Is the mirror behind me on the left or right?",
+    "ref": "Right",
+    "ans": "It’s on your right.",
+    "pass": true
+  },
+  {
+    "video": "00000491.mp4",
+    "cat": "object counting",
+    "q": "How many books am I holding?",
+    "ref": "2",
+    "ans": "You’re holding 2 books.",
+    "pass": true
+  },
+  {
+    "video": "00000739.mp4",
+    "cat": "action detection",
+    "q": "What exercise is this called?",
+    "ref": "Jumping jacks",
+    "ans": "Jumping jacks.",
+    "pass": true
+  },
+  {
+    "video": "00001583.mp4",
+    "cat": "object referencing",
+    "q": "What is this thing called that I am holding?",
+    "ref": "Sunglasses",
+    "ans": "Sunglasses.",
+    "pass": true
+  },
+  {
+    "video": "00000943.mp4",
+    "cat": "object attributes",
+    "q": "Is the door closed?",
+    "ref": "No",
+    "ans": "Yes, the door is closed.",
+    "pass": false
+  },
+  {
+    "video": "00001212.mp4",
+    "cat": "subjective",
+    "q": "Do you like my cap?",
+    "ref": "NA",
+    "ans": "Yes—your hat looks great!",
+    "pass": false
+  },
+  {
+    "video": "00000124.mp4",
+    "cat": "object attributes",
+    "q": "Which color is the shirt?",
+    "ref": "White",
+    "ans": "White.",
+    "pass": true
+  },
+  {
+    "video": "00000941.mp4",
+    "cat": "action counting",
+    "q": "How many time do I touch my ears?",
+    "ref": "2",
+    "ans": "Once.",
+    "pass": false
+  },
+  {
+    "video": "00002375.mp4",
+    "cat": "action counting",
+    "q": "How many times did I wave my hand?",
+    "ref": "3",
+    "ans": "You waved your hand 3 times.",
+    "pass": true
+  },
+  {
+    "video": "00000036.mp4",
+    "cat": "object referencing",
+    "q": "Do I have my glasses on?",
+    "ref": "No",
+    "ans": "No, you’re not wearing glasses.",
+    "pass": true
+  },
+  {
+    "video": "00000423.mp4",
+    "cat": "object attributes",
+    "q": "What color are my headphones?",
+    "ref": "Black",
+    "ans": "Black",
+    "pass": true
+  },
+  {
+    "video": "00000657.mp4",
+    "cat": "object attributes",
+    "q": "Is the TV behind me off?",
+    "ref": "Yes",
+    "ans": "Yes, the TV behind you appears to be off.",
+    "pass": true
+  },
+  {
+    "video": "00002146.mp4",
+    "cat": "action understanding",
+    "q": "What is this gesture?",
+    "ref": "A double thumbs up",
+    "ans": "Two thumbs up.",
+    "pass": true
+  },
+  {
+    "video": "00002881.mp4",
+    "cat": "action understanding",
+    "q": "Am I using this correctly?",
+    "ref": "No",
+    "ans": "No—you're using a hairbrush like a toothbrush. Use a toothbrush for your teeth.",
+    "pass": false
+  },
+  {
+    "video": "00001267.mp4",
+    "cat": "object attributes",
+    "q": "What color are my glasses?",
+    "ref": "Black",
+    "ans": "Your glasses look black (or very dark) in color.",
+    "pass": true
+  },
+  {
+    "video": "00002903.mp4",
+    "cat": "object counting",
+    "q": "How many colored pencils am I holding in front of you?",
+    "ref": "5",
+    "ans": "Six",
+    "pass": false
+  },
+  {
+    "video": "00002653.mp4",
+    "cat": "object detection",
+    "q": "Will you see this paper?",
+    "ref": "Yes",
+    "ans": "Yes, I can see the paper, but I can’t make out the details from this view.",
+    "pass": true
+  },
+  {
+    "video": "00001579.mp4",
+    "cat": "action detection",
+    "q": "Did I sit down?",
+    "ref": "Yes",
+    "ans": "No, you didn’t sit down. You bent down briefly but stayed standing.",
+    "pass": false
+  },
+  {
+    "video": "00002469.mp4",
+    "cat": "action detection",
+    "q": "Am I eating?",
+    "ref": "Yes",
+    "ans": "Yes, it looks like you are eating.",
+    "pass": true
+  },
+  {
+    "video": "00001688.mp4",
+    "cat": "action detection",
+    "q": "What is she doing?",
+    "ref": "Playing",
+    "ans": "She’s holding the cat and clipping its nails.",
+    "pass": false
+  },
+  {
+    "video": "00002892.mp4",
+    "cat": "action detection",
+    "q": "What am I doing?",
+    "ref": "Opening",
+    "ans": "You’re waving your hand.",
+    "pass": false
+  },
+  {
+    "video": "00002804.mp4",
+    "cat": "object referencing",
+    "q": "Am I holding a book?",
+    "ref": "No",
+    "ans": "No, you’re holding a potted plant, not a book.",
+    "pass": true
+  },
+  {
+    "video": "00001361.mp4",
+    "cat": "object attributes",
+    "q": "Which color is my hair?",
+    "ref": "Blonde",
+    "ans": "It looks like your hair is dyed a light blonde.",
+    "pass": true
+  },
+  {
+    "video": "00001494.mp4",
+    "cat": "object referencing",
+    "q": "Is there someone behind me?",
+    "ref": "No",
+    "ans": "No, I don’t see anyone behind you.",
+    "pass": true
+  },
+  {
+    "video": "00000309.mp4",
+    "cat": "action detection",
+    "q": "What action am I doing with my hairs?",
+    "ref": "Combing",
+    "ans": "You’re combing your hair.",
+    "pass": true
+  },
+  {
+    "video": "00001413.mp4",
+    "cat": "object attributes",
+    "q": "Is my glass empty or full?",
+    "ref": "Empty",
+    "ans": "Your glass looks empty.",
+    "pass": true
+  },
+  {
+    "video": "00001183.mp4",
+    "cat": "object referencing",
+    "q": "What card am I holding?",
+    "ref": "King of Hearts",
+    "ans": "Jack of Hearts.",
+    "pass": true
+  },
+  {
+    "video": "00002581.mp4",
+    "cat": "action detection",
+    "q": "What am I doing with my hands?",
+    "ref": "Clapping",
+    "ans": "You’re clapping your hands together.",
+    "pass": true
+  },
+  {
+    "video": "00000667.mp4",
+    "cat": "object counting",
+    "q": "How many fingers am I holding up?",
+    "ref": "4",
+    "ans": "Four.",
+    "pass": true
+  },
+  {
+    "video": "00000472.mp4",
+    "cat": "object detection",
+    "q": "What is this?",
+    "ref": "A desk clock",
+    "ans": "It’s a small desk clock, likely with extra dials for temperature and humidity.",
+    "pass": true
+  },
+  {
+    "video": "00002135.mp4",
+    "cat": "action counting",
+    "q": "How many times did I cry?",
+    "ref": "None",
+    "ans": "Twice.",
+    "pass": false
+  },
+  {
+    "video": "00000293.mp4",
+    "cat": "action counting",
+    "q": "How often did I jump?",
+    "ref": "3",
+    "ans": "They jumped once.",
+    "pass": false
+  },
+  {
+    "video": "00002458.mp4",
+    "cat": "object referencing",
+    "q": "What am I holding in my hand?",
+    "ref": "A flower vase",
+    "ans": "You’re holding a vase with colorful flowers.",
+    "pass": true
+  },
+  {
+    "video": "00000398.mp4",
+    "cat": "ocr",
+    "q": "Can you spell what is on my shirt?",
+    "ref": "NEW YORK STATE",
+    "ans": "N-E-W Y-O-R-K S-T-A-T-E",
+    "pass": true
+  },
+  {
+    "video": "00001128.mp4",
+    "cat": "subjective",
+    "q": "Do you like my smile?",
+    "ref": "NA",
+    "ans": "Yes—your smile looks warm and joyful.",
+    "pass": false
+  },
+  {
+    "video": "00001317.mp4",
+    "cat": "object referencing",
+    "q": "In what hand do I have an object?",
+    "ref": "Left hand",
+    "ans": "Your right hand.",
+    "pass": true
+  },
+  {
+    "video": "00000454.mp4",
+    "cat": "action detection",
+    "q": "What am I doing?",
+    "ref": "Fanning",
+    "ans": "You’re standing and holding onto the bunk bed while wearing a headset.",
+    "pass": false
+  },
+  {
+    "video": "00002616.mp4",
+    "cat": "object referencing",
+    "q": "What animal is on my mug?",
+    "ref": "Cat",
+    "ans": "A cat.",
+    "pass": true
+  },
+  {
+    "video": "00000149.mp4",
+    "cat": "object referencing",
+    "q": "Do you see paintings on the walls?",
+    "ref": "No",
+    "ans": "No.",
+    "pass": true
+  },
+  {
+    "video": "00001437.mp4",
+    "cat": "action understanding",
+    "q": "What gesture is this?",
+    "ref": "Bowing",
+    "ans": "It’s a bow.",
+    "pass": false
+  },
+  {
+    "video": "00001609.mp4",
+    "cat": "action counting",
+    "q": "How many times did I open my mouth?",
+    "ref": "2",
+    "ans": "I can’t determine the duration from these frames alone because there are no timestamps.",
+    "pass": false
+  },
+  {
+    "video": "00000404.mp4",
+    "cat": "object counting",
+    "q": "How many hangers on my hand?",
+    "ref": "10",
+    "ans": "0",
+    "pass": false
+  },
+  {
+    "video": "00001992.mp4",
+    "cat": "object detection",
+    "q": "Is this a mirror or a wall?",
+    "ref": "Wall",
+    "ans": "It’s a wall.",
+    "pass": true
+  },
+  {
+    "video": "00001988.mp4",
+    "cat": "object attributes",
+    "q": "What's the color of the wall?",
+    "ref": "White",
+    "ans": "White.",
+    "pass": true
+  },
+  {
+    "video": "00000797.mp4",
+    "cat": "object referencing",
+    "q": "Do you see the heater on the background?",
+    "ref": "Yes",
+    "ans": "Yes, I can see a heater behind you.",
+    "pass": true
+  },
+  {
+    "video": "00000789.mp4",
+    "cat": "action detection",
+    "q": "Did I take off my earphones?",
+    "ref": "Yes",
+    "ans": "Yes—your earphones are in your hand, not in your ears.",
+    "pass": false
+  },
+  {
+    "video": "00000546.mp4",
+    "cat": "object referencing",
+    "q": "What am I touching?",
+    "ref": "Your nose",
+    "ans": "Your nose.",
+    "pass": true
+  },
+  {
+    "video": "00001081.mp4",
+    "cat": "object attributes",
+    "q": "What is the color of the wall on my back?",
+    "ref": "White",
+    "ans": "The wall behind you is an off-white or light cream color.",
+    "pass": true
+  }
+]

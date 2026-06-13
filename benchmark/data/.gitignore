@@ -1,0 +1,6 @@
+raw/
+repos/
+cache/
+downloads/
+*.log
+*.tmp

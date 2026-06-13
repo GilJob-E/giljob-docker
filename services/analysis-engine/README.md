@@ -43,15 +43,17 @@ The priority-1 Realtime architecture is **answer → analysis-engine MMM/RNAS �
   accepts answer-state/readiness records plus internal STT/vision detail needed for MMM. It derives
   structured `transcriptSignals`, `visionSignals`, `prosodySignals`, `behavioralSignals`, and
   `candidateSafePromptFragment`; it does not store raw transcript/media or expose provider secrets.
-- Realtime sentence-lane mode (GilJobE `5ba7249`) consumes API sideband transcript events when
+- Realtime sentence-lane mode (GilJobE `f817f81`) consumes API sideband transcript events when
   `GILJOBE_TRANSCRIPT_SOURCE=external`; this is the Realtime branch default. Set
   `GILJOBE_TRANSCRIPT_SOURCE=internal` only for legacy LiveKit/Gemma STT grid testing.
-- RNAS does not require `/subscriber/start`. Missing transcript/prosody/vision/end/result keeps the exact turn pending, so API `response.create` fails closed with a lane/result reason.
-- Objective grounding lanes (GilJobE `5ba7249`): CPU-only vision (MediaPipe Face+Pose at full fps)
-  and audio prosody (pitch/rate/pauses/energy) measurements are injected into the Gemma prompts
-  with anti-hallucination rules and additionally emitted raw on records as `objective_nonverbal`
-  / `objective_vocal` / `objective_visual` (additive fields — existing consumers are unaffected).
-  The lanes self-disable when their deps/models are absent; this image bakes both.
+- RNAS does not require `/subscriber/start`. Missing transcript/prosody/vision/end/result keeps the exact turn pending, so API `response.create` fails closed with a lane/result reason. If `/subscriber/start` is invoked manually in a stack without LiveKit media, it remains an event-only external-transcript compatibility path, not an ordinary Realtime follow-up fallback.
+- Objective grounding lanes (GilJobE `f817f81`): CPU-only vision (MediaPipe Face+Pose+Hands at
+  full fps — Hands adds finger-count segments carried on the turn_handoff fragment as
+  `finger_sequence`) and audio prosody (pitch/rate/pauses/energy) measurements are injected into
+  the Gemma prompts with anti-hallucination rules and additionally emitted raw on records as
+  `objective_nonverbal` / `objective_vocal` / `objective_visual` (additive fields — existing
+  consumers are unaffected). The lanes self-disable when their deps/models are absent; this
+  image bakes all three models.
 
 Not owned here: candidate/browser token minting (the API owns token contracts), the Main LLM
 interview loop, avatar/TTS, and final report generation.
