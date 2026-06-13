@@ -72,8 +72,8 @@ const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
 const SPATIALREAL_SDK_MODE_WEB_ENABLED = "SPATIALREAL_SDK_MODE_WEB_ENABLED";
 const SPATIALREAL_SDK_MODE_OUTCOME = "sdk_mode_deferred";
-const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
-const SPATIALREAL_SDK_TRANSPORT = "spatialreal-sdk-websocket";
+const SPATIALREAL_SDK_MODE = "spatialreal-non-livekit-sdk-mode";
+const SPATIALREAL_SDK_TRANSPORT = "direct-sdk";
 const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
 const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
 const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
@@ -205,9 +205,10 @@ function avatarStatusLabel(payload) {
 }
 
 function avatarSdkModeConfig(payload = activeAvatarSession) {
-  // SDK Mode metadata must be sibling/public metadata. Do not read token-bearing
-  // client metadata for browser feature gating or Realtime audio adapter state.
-  return payload?.sdkMode || activeSession?.avatarSdkMode || {};
+  // SDK Mode metadata must be sibling/public metadata. Prefer API-owned
+  // avatarSdk/client.spatialrealSdk metadata over legacy bridge shapes.
+  const clientSdk = payload?.client?.spatialrealSdk && typeof payload.client.spatialrealSdk === "object" ? payload.client.spatialrealSdk : {};
+  return payload?.sdkMode || payload?.avatarSdk || clientSdk.sdkMode || clientSdk || activeSession?.avatarSdk || activeSession?.avatarSdkMode || {};
 }
 
 function avatarSdkAudioFeedConfig(payload = activeAvatarSession) {
@@ -221,7 +222,7 @@ function normalizeAvatarSdkModeState(payload = activeAvatarSession) {
   const audioFormat = audioFeed.format || [audioFeed.encoding, audioFeed.channels, audioFeed.sampleRate].filter(Boolean).join("-") || SPATIALREAL_SDK_AUDIO_FEED_FORMAT;
   const metadataAccepted = sdkMode.enabled === true
     && sdkMode.mode === SPATIALREAL_SDK_MODE
-    && [SPATIALREAL_SDK_TRANSPORT, "direct-sdk"].includes(sdkMode.transport)
+    && [SPATIALREAL_SDK_TRANSPORT, "spatialreal-sdk-websocket"].includes(sdkMode.transport)
     && sdkMode.livekitRequired === false
     && sdkMode.requiresFeatureFlag === SPATIALREAL_SDK_MODE_WEB_ENABLED
     && sdkMode.outcome === SPATIALREAL_SDK_MODE_OUTCOME
@@ -630,14 +631,16 @@ function attachRealtimeRemoteAudio(stream) {
 
 function avatarSdkClientMetadata(payload = activeAvatarSession) {
   const client = payload?.client && typeof payload.client === "object" ? payload.client : {};
+  const clientSdk = client.spatialrealSdk && typeof client.spatialrealSdk === "object" ? client.spatialrealSdk : {};
   const sdkMode = avatarSdkModeConfig(payload);
+  const audioFormat = payload?.audioFormat || sdkMode.audioFormat || sdkMode.audio || clientSdk.audioFormat || client.audioFormat || {};
   return {
-    appId: payload?.appId || sdkMode.appId || client.appId || activeSession?.avatarSdk?.appId || "",
-    sessionToken: payload?.sessionToken || sdkMode.sessionToken || client.sessionToken || "",
-    avatarId: payload?.avatarId || sdkMode.avatarId || client.avatarId || client.characterId || "",
-    environment: sdkMode.environment || payload?.environment || client.environment || "production",
-    sampleRate: Number(payload?.audioFormat?.sampleRate || sdkMode.audioFormat?.sampleRate || sdkMode.audio?.sampleRate || client.audioFormat?.sampleRate || 16000),
-    channelCount: Number(payload?.audioFormat?.channelCount || sdkMode.audioFormat?.channelCount || sdkMode.audio?.channelCount || client.audioFormat?.channelCount || 1),
+    appId: payload?.appId || sdkMode.appId || clientSdk.appId || client.appId || activeSession?.avatarSdk?.appId || "",
+    sessionToken: payload?.sessionToken || sdkMode.sessionToken || clientSdk.sessionToken || client.sessionToken || "",
+    avatarId: payload?.avatarId || sdkMode.avatarId || clientSdk.avatarId || clientSdk.characterId || client.avatarId || client.characterId || "",
+    environment: sdkMode.environment || payload?.environment || clientSdk.environment || client.environment || "production",
+    sampleRate: Number(audioFormat.sampleRate || 16000),
+    channelCount: Number(audioFormat.channelCount || 1),
   };
 }
 
