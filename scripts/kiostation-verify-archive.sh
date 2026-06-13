@@ -87,7 +87,7 @@ if [[ ! -f apps/web/node_modules/@spatialwalk/avatarkit-rtc/dist/index.js || ! -
 fi
 
 node --check apps/web/static/app.js
-PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/ai-engine/server.py services/analysis-engine/server.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -v
 
 git init -q

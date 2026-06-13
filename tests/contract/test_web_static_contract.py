@@ -247,6 +247,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("client_secret.value", body)
         self.assertNotIn("/ai/tts", body)
         self.assertNotIn("/tts/synthesize", body)
+        self.assertIn("deprecated_ai_engine_removed", body)
+        self.assertIn("realtime_only", body)
+        self.assertIn("no legacy ai-engine fallback", body)
 
     def test_app_js_gates_spatialreal_sdk_mode_without_livekit_rtc(self) -> None:
         status, content_type, body = self._get("/app.js")

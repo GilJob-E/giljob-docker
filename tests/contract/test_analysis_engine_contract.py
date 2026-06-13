@@ -210,9 +210,10 @@ class AnalysisEngineContractTest(unittest.TestCase):
 
     def test_root_docs_and_verification_no_longer_reference_deleted_wrapper(self) -> None:
         root_readme = (REPO_ROOT / "README.md").read_text()
+        verification_runbook = (REPO_ROOT / "docs" / "runbooks" / "verification.md").read_text()
         analysis_agents = (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text()
         self.assertIn("services/analysis-engine/server.py", root_readme)
-        self.assertIn("docker build -q services/analysis-engine", root_readme)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py", verification_runbook)
         self.assertIn("/realtime/turn-events", analysis_agents)
         self.assertIn("analysis-engine", analysis_agents)
 

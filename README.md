@@ -12,7 +12,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 
 - 단일 서버 Docker Compose 기반 scaffold
 - Caddy ingress (`/api/*` broker, direct `/ai/*`, `/tts/*`, `/avatar/*` 차단)
-- Python 기반 `api`, `web`, `ai-engine`, `agent1` scaffold
+- Python 기반 `api`, `web`, `analysis-engine`, `agent1` scaffold
 - `services/analysis-engine` GilJobE dependency/health/subscriber boundary plus `/realtime/turn-events` MMM sideband ingress
 - Postgres service 및 token hash 저장 계약
 - OpenAI Realtime + MMM 기본 경로에서는 필요 없는 optional self-hosted LiveKit/coturn media overlay
@@ -81,7 +81,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 5. 후보자 답변 분석의 priority-1 Realtime 경로는 **answer → analysis-engine MMM/RNAS → API `response.create` → OpenAI Realtime output**입니다. 브라우저는 Realtime STT transcript/prosody와 low-resolution internal vision sideband를 API로 보내고, analysis-engine이 exact `(interviewId, turnIndex)` RNAS result/readiness의 단일 owner입니다. Durable/public records expose only structured signals and candidate-safe prompt fragments, never raw transcript/media/provider secrets.
 6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 Realtime session metadata를 중개하고, 브라우저의 WebRTC SDP attach도 `/api/interviews/:id/realtime/call`을 통해 서버가 수행합니다. 표준 OpenAI API key와 provider route는 브라우저에 노출하지 않습니다.
 7. Realtime turn loop는 `turn 1 bootstrap`만 MMM 없이 시작하고, `turn N>=2`는 직전 답변의 exact-turn RNAS result가 `ready`일 때만 API-authored `response.create`를 허용합니다. 즉 ordinary follow-up은 `exact prior-turn full MMM readiness`가 필요합니다. 브라우저는 API-approved command를 data channel로 relay할 뿐 prompt나 `response.create`를 직접 작성하지 않습니다.
-8. `ai-engine`은 keyless route smoke와 optional internal TTS/avatar compatibility adapter만 담당합니다. 질문/음성의 메인 루프는 OpenAI Realtime-only이며 Gemini fallback은 없습니다.
+8. Legacy question/TTS routes are removed from the default path: API returns `deprecated_ai_engine_removed` with `reason=realtime_only`, and OpenAI Realtime-only owns live interviewer voice. Gemini fallback is not supported.
 9. SpatialReal/AvatarKit은 이 RNAS priority-1 phase의 범위 밖입니다. 기존 avatar session/viewer/egress scaffolding은 유지하지만, answer→MMM/RNAS→API `response.create`→Realtime output 검증이나 success claim에 포함하지 않습니다.
 10. SpatialReal의 current non-LiveKit outcome은 `sdk_mode_deferred`입니다. SDK Mode Web을 먼저 검증하고, 불가능하면 Host Mode를 검토합니다. SpatialReal 서버 SDK egress는 post-TTS WAV/PCM audio를 SpatialReal에 보내고 LiveKit room에 avatar stream을 publish하는 별도 legacy 구조입니다.
 11. `SPATIALREAL_RTC_LIVEKIT_URL`은 legacy RTC egress를 켤 때만 필요하며 SpatialReal cloud에서 접근 가능한 public URL이어야 합니다. OpenAI Realtime remote audio를 SpatialReal에 주입하는 production bridge가 아니므로 Realtime avatar lip-sync claim에 쓰지 않습니다.
@@ -167,13 +167,6 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
   interviewer audio + transcript events
 ]
 
-[<service> AI Engine|
-  internal compatibility boundary only
-  keyless route-smoke adapter
-  API-called TTS/avatar adapters
-  no Realtime broker/question fallback
-  SpatialReal LiveKit egress attempt
-]
 
 [<media> SpatialReal Cloud|
   SDK Mode / Host Mode candidate
@@ -204,8 +197,6 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 [API Service] - internal MMM events /realtime/turn-events -> [Analysis Engine Service\n(GilJobE)]
 [LiveKit Server] - legacy media tracks -> [Analysis Engine Service\n(GilJobE)]
 [Analysis Engine Service\n(GilJobE)] - exact-turn candidate-safe structured result -> [API Service]
-[AI Engine] - compatibility TTS/avatar metadata -> [API Service]
-[AI Engine] - optional post-TTS egress audio -> [SpatialReal Cloud]
 [SpatialReal Cloud] - legacy RTC avatar stream if enabled -> [LiveKit Server]
 [API Service] - response policy context -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
@@ -224,7 +215,6 @@ npx --yes nomnoml docs/architecture.noml docs/assets/architecture.svg
 ```text
 apps/web/                       # 정적 web shell + Realtime/MMM room UI; LiveKit join is optional/legacy
 services/api/                   # session/token/API broker scaffold
-services/ai-engine/             # keyless/internal compatibility + SpatialReal avatar boundary
 services/analysis-engine/       # GilJobE STT/multimodal analysis boundary; services/analysis-engine/server.py adds MMM ingress
 services/agent1/                # legacy/future multimodal placeholder
 infra/docker-compose.yml        # base single-server stack
@@ -272,9 +262,7 @@ OPENAI_API_KEY=replace-me-openai-server-key
 REALTIME_MMM_FORWARD_ENABLED=true
 MAX_REALTIME_VISION_EVENT_BYTES=65536
 MAX_REALTIME_VISION_FRAME_BYTES=49152
-LLM_PROVIDER=fake
-VOICE_PROVIDER=fake
-AVATAR_PROVIDER=disabled
+SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false
 ```
 
 Optional legacy/media overlay 또는 SpatialReal RTC 실험을 켤 때만 추가:
@@ -288,13 +276,8 @@ LIVEKIT_INTERNAL_URL=ws://livekit:7880
 LIVEKIT_PUBLIC_URL=ws://127.0.0.1:7880
 LIVEKIT_NODE_IP=127.0.0.1
 
-# Legacy AvatarKit RTC / SpatialReal egress only; not a default Realtime/MMM requirement.
-AVATAR_PROVIDER=spatialreal
-SPATIALREAL_API_KEY=...
-SPATIALREAL_APP_ID=...
-SPATIALREAL_AVATAR_ID=...
-SPATIALREAL_RTC_EGRESS_ENABLED=true
-SPATIALREAL_RTC_LIVEKIT_URL=wss://public-livekit.example.com
+# Optional legacy media room only; not a default Realtime/MMM requirement.
+# SpatialReal/avatar provider credentials are not part of the default runtime env.
 SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false
 ```
 
@@ -314,7 +297,6 @@ pip install -r requirements.txt
 
 ```bash
 pip install -r services/api/requirements.txt
-pip install -r services/ai-engine/requirements.txt
 pip install -r services/analysis-engine/requirements.txt
 ```
 
@@ -412,7 +394,7 @@ Kiostation evidence rule:
 
 ## Optional legacy AvatarKit RTC / public LiveKit 메모
 
-이 섹션은 기본 Realtime/MMM 경로가 아니라 legacy AvatarKit RTC 또는 SpatialReal-to-LiveKit egress를 켤 때만 적용됩니다. SpatialReal avatar egress는 SpatialReal cloud가 LiveKit에 직접 접속해야 합니다. 따라서 `SPATIALREAL_RTC_LIVEKIT_URL`은 `127.0.0.1`이 아니라 외부에서 접근 가능한 `wss://...`여야 합니다. 현재 egress 입력은 ai-engine이 생성한 TTS WAV입니다. OpenAI Realtime WebRTC remote audio를 SpatialReal로 주입하는 production bridge는 아직 검증되지 않았으므로, Realtime 음성과 avatar lip-sync가 일치한다고 문서화하거나 demo claim으로 사용하지 않습니다.
+이 섹션은 기본 Realtime/MMM 경로가 아니라 legacy AvatarKit RTC 또는 SpatialReal-to-LiveKit egress를 켤 때만 적용됩니다. SpatialReal avatar egress는 SpatialReal cloud가 LiveKit에 직접 접속해야 합니다. 따라서 `SPATIALREAL_RTC_LIVEKIT_URL`은 `127.0.0.1`이 아니라 외부에서 접근 가능한 `wss://...`여야 합니다. 현재 egress 입력은 별도 검증이 필요한 legacy post-TTS WAV입니다. OpenAI Realtime WebRTC remote audio를 SpatialReal로 주입하는 production bridge는 아직 검증되지 않았으므로, Realtime 음성과 avatar lip-sync가 일치한다고 문서화하거나 demo claim으로 사용하지 않습니다.
 
 ### SpatialReal SDK Mode Web spike status
 
@@ -473,21 +455,19 @@ SPATIALREAL_RTC_EGRESS_ENABLED=true
 ## 검증 명령
 
 ```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py
 python3 -m py_compile \
-  services/api/server.py \
   services/api/app/livekit_tokens.py \
-  services/ai-engine/server.py \
   apps/web/server.py
 node --check apps/web/static/app.js
 node --check scripts/browser-join-smoke.mjs
-docker build -q services/analysis-engine >/tmp/giljob-analysis-engine-image.txt
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/contract -p 'test_*_contract.py' -v
 (cd apps/web && npm run check:js)
 (cd apps/web && npm audit --omit=dev --audit-level=high)
 npx --yes pyright
 ```
 
-원격 single-server에서 확인할 때는 `/home/hoddukzoa/GilJob_v2` 기준으로 실행합니다. OMX/team lanes에서 실제 검증 명령은 `ssh hoddukzoa@kiostation`으로만 실행합니다. 기존 `/home/hoddukzoa/GilJob`는 건드리지 않습니다.
+원격 single-server에서 확인할 때는 `/home/hoddukzoa/GilJob_v2` 기준으로 실행합니다. OMX/team lanes에서 실제 runtime 검증 명령은 `ssh hoddukzoa@kiostation`으로만 실행하고 rebuild/restart 범위는 `api web analysis-engine caddy`입니다. 기존 `/home/hoddukzoa/GilJob`는 건드리지 않습니다.
 
 ## 관련 문서
 

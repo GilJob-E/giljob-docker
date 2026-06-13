@@ -27,7 +27,6 @@ from app.token_contract import issue_session
 SERVICE_NAME = os.getenv("SERVICE_NAME", "api")
 PORT = int(os.getenv("SERVICE_PORT", "8000"))
 MAX_JSON_BODY_BYTES = int(os.getenv("MAX_JSON_BODY_BYTES", "65536"))
-AI_ENGINE_INTERNAL_URL = os.getenv("AI_ENGINE_INTERNAL_URL", "http://ai-engine:8100").rstrip("/")
 ANALYSIS_ENGINE_INTERNAL_URL = os.getenv("ANALYSIS_ENGINE_INTERNAL_URL", "http://analysis-engine:8200").rstrip("/")
 OPENAI_REALTIME_API_BASE = os.getenv("OPENAI_REALTIME_API_BASE", "https://api.openai.com/v1").rstrip("/")
 OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-2")
@@ -1414,13 +1413,23 @@ def create_realtime_call(interview_id: str, payload: dict[str, Any]) -> tuple[in
     }, start, "api.realtime.call.total", session_id=interview_id, provider="openai-realtime")
 
 
-def _sanitize_upstream_provider_failure(upstream: dict[str, object], upstream_status: int, default_error: str, *, ready: bool | None = None) -> dict[str, object] | None:
-    if upstream_status < 500:
-        return None
-    upstream_error = _safe_str(upstream.get("error") or default_error, 120)
-    if upstream_error.endswith("_failed") or upstream_error in {"llm_provider_failed", "tts_provider_failed", "avatar_provider_failed"}:
-        return _provider_failure_payload(upstream_error, upstream.get("provider") or "api-mediated", ready=ready)
-    return None
+def _deprecated_ai_engine_payload(interview_id: str, turn_index: int | None = None, *, mode: str) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "interviewId": interview_id,
+        "error": "deprecated_ai_engine_removed",
+        "reason": "realtime_only",
+        "status": "deprecated",
+        "delivery": {
+            "mode": mode,
+            "source": "api",
+            "publicDirectAiRoutes": "blocked",
+            "publicDirectTtsRoutes": "blocked",
+            "publicDirectAvatarRoutes": "blocked",
+        },
+    }
+    if turn_index is not None:
+        payload["turnIndex"] = turn_index
+    return payload
 
 
 def request_next_question(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
@@ -1429,208 +1438,66 @@ def request_next_question(interview_id: str, turn_index: int, payload: dict[str,
         return 400, {"error": "invalid_interview_id"}
     if turn_index < 1:
         return 400, {"error": "invalid_turn_index"}
-    request_payload = json.dumps({
-        "interviewId": interview_id,
-        "turnIndex": turn_index,
-        "persona": _safe_str(payload.get("persona") or "차분하고 명확한 한국어 면접관", 500),
-        "candidateProfile": _safe_str(payload.get("candidateProfile") or "not provided in this slice", 2_000),
-        "job": _safe_str(payload.get("job") or "not provided in this slice", 2_000),
-        "lastAnswer": _safe_str(payload.get("lastAnswer") or "아직 이전 답변 전사가 없습니다.", 2_000),
-        # analysis-engine turn_handoff prompt_block(web이 /analysis/signals에서 join) —
-        # 실측+관찰+판단 규칙. 없으면 빈 문자열(ai-engine이 섹션 생략). 섹션 줄 구조가
-        # 의미라 개행 보존(_safe_str의 \s+ 압축은 블록을 한 줄로 뭉갠다).
-        "analysisBlock": _safe_multiline(payload.get("analysisBlock") or "", 4_000),
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        f"{AI_ENGINE_INTERNAL_URL}/interview/next-question",
-        data=request_payload,
-        method="POST",
-        headers={"Content-Type": "application/json"},
+    return _return_with_latency(
+        410,
+        _deprecated_ai_engine_payload(interview_id, turn_index, mode="deprecated-question-route"),
+        start,
+        "api.next_question.deprecated",
+        session_id=interview_id,
+        turn_index=turn_index,
+        provider="openai-realtime",
     )
-    upstream_start = time.perf_counter()
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read().decode("utf-8")
-            upstream_status = response.status
-    except urllib.error.HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        upstream_status = error.code
-    except urllib.error.URLError as error:
-        _log_latency_span(
-            "api.ai_engine.next_question.upstream",
-            _duration_ms(upstream_start),
-            status=502,
-            sessionId=interview_id,
-            turnIndex=turn_index,
-            traceId=_trace_id(interview_id, turn_index),
-            provider="api-mediated",
-        )
-        return _return_with_latency(502, {
-            "error": "llm_provider_failed",
-            "provider": "api-mediated",
-            "message": _redact_provider_error(str(error.reason)),
-        }, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    _log_latency_span(
-        "api.ai_engine.next_question.upstream",
-        _duration_ms(upstream_start),
-        status=upstream_status,
-        sessionId=interview_id,
-        turnIndex=turn_index,
-        traceId=_trace_id(interview_id, turn_index),
-        provider="api-mediated",
-    )
-    try:
-        upstream = json.loads(body)
-    except json.JSONDecodeError:
-        return _return_with_latency(502, {"error": "llm_provider_failed", "provider": "api-mediated", "message": "invalid upstream response"}, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    if not isinstance(upstream, dict):
-        return _return_with_latency(502, {"error": "llm_provider_failed", "provider": "api-mediated", "message": "invalid upstream payload"}, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    public_failure = _sanitize_upstream_provider_failure(upstream, upstream_status, "llm_provider_failed")
-    if public_failure is not None:
-        public_failure["interviewId"] = interview_id
-        public_failure["turnIndex"] = turn_index
-        public_failure["delivery"] = {
-            "mode": "api-mediated-question",
-            "source": "ai-engine",
-            "publicDirectAiRoutes": "blocked",
-        }
-        return _return_with_latency(upstream_status, public_failure, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    upstream["interviewId"] = interview_id
-    upstream["turnIndex"] = turn_index
-    upstream["delivery"] = {
-        "mode": "api-mediated-question",
-        "source": "ai-engine",
-        "publicDirectAiRoutes": "blocked",
-    }
-    return _return_with_latency(upstream_status, upstream, start, "api.next_question.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
 
 
 def create_avatar_session(interview_id: str, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
     start = time.perf_counter()
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
-    request_payload = json.dumps({
-        "interviewId": interview_id,
-        "reason": _safe_str(payload.get("reason") or "room-join", 120),
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        f"{AI_ENGINE_INTERNAL_URL}/avatar/session",
-        data=request_payload,
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    upstream_start = time.perf_counter()
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read().decode("utf-8")
-            upstream_status = response.status
-    except urllib.error.HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        upstream_status = error.code
-    except urllib.error.URLError as error:
-        _log_latency_span("api.ai_engine.avatar_session.upstream", _duration_ms(upstream_start), status=502, sessionId=interview_id, traceId=_trace_id(interview_id), provider="api-mediated")
-        return _return_with_latency(502, {
-            "error": "avatar_provider_failed",
-            "provider": "api-mediated",
-            "message": _redact_provider_error(str(error.reason)),
-        }, start, "api.avatar_session.total", session_id=interview_id, provider="api-mediated")
-    _log_latency_span("api.ai_engine.avatar_session.upstream", _duration_ms(upstream_start), status=upstream_status, sessionId=interview_id, traceId=_trace_id(interview_id), provider="api-mediated")
-    try:
-        upstream = json.loads(body)
-    except json.JSONDecodeError:
-        return 502, {"error": "avatar_provider_failed", "provider": "api-mediated", "message": "invalid upstream response"}
-    if not isinstance(upstream, dict):
-        return 502, {"error": "avatar_provider_failed", "provider": "api-mediated", "message": "invalid upstream payload"}
-    public_failure = _sanitize_upstream_provider_failure(upstream, upstream_status, "avatar_provider_failed", ready=False)
-    if public_failure is not None:
-        public_failure["interviewId"] = interview_id
-        public_failure["bridge"] = _avatar_bridge_metadata()
-        public_failure["delivery"] = {
-            "mode": "api-mediated-spatialreal-session",
-            "source": "ai-engine",
-            "publicDirectAvatarRoutes": "blocked",
-        }
-        return _return_with_latency(upstream_status, public_failure, start, "api.avatar_session.total", session_id=interview_id, provider="api-mediated")
-    client = upstream.get("client")
-    if isinstance(client, dict):
-        client["livekit"] = issue_avatar_viewer_livekit_token(
+    client = {
+        "livekit": issue_avatar_viewer_livekit_token(
             room_name=f"giljob-session-{interview_id}",
             session_id=interview_id,
-        )
-    upstream["interviewId"] = interview_id
-    upstream["bridge"] = _avatar_bridge_metadata()
-    upstream["delivery"] = {
-        "mode": "api-mediated-spatialreal-session",
-        "source": "ai-engine",
-        "publicDirectAvatarRoutes": "blocked",
+        ),
     }
-    return _return_with_latency(upstream_status, upstream, start, "api.avatar_session.total", session_id=interview_id, provider="api-mediated")
+    return _return_with_latency(
+        202,
+        {
+            "interviewId": interview_id,
+            "provider": "spatialreal",
+            "ready": False,
+            "status": "deferred",
+            "error": "deprecated_ai_engine_removed",
+            "reason": "realtime_only",
+            "client": client,
+            "bridge": _avatar_bridge_metadata(),
+            "delivery": {
+                "mode": "api-owned-avatar-session",
+                "source": "api",
+                "publicDirectAvatarRoutes": "blocked",
+            },
+        },
+        start,
+        "api.avatar_session.deferred",
+        session_id=interview_id,
+        provider="api-owned",
+    )
 
 
 def synthesize_room_tts(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
     start = time.perf_counter()
-    text = _safe_str(payload.get("text") or payload.get("question") or "", MAX_TTS_TEXT_CHARS)
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
     if turn_index < 1:
         return 400, {"error": "invalid_turn_index"}
-    if not text:
-        return 400, {"error": "missing_text"}
-
-    request_payload = json.dumps({
-        "sessionId": interview_id,
-        "turnId": f"q_{interview_id}_{turn_index:04d}",
-        "text": text,
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        f"{AI_ENGINE_INTERNAL_URL}/tts/synthesize",
-        data=request_payload,
-        method="POST",
-        headers={"Content-Type": "application/json"},
+    return _return_with_latency(
+        410,
+        _deprecated_ai_engine_payload(interview_id, turn_index, mode="deprecated-tts-route"),
+        start,
+        "api.tts.deprecated",
+        session_id=interview_id,
+        turn_index=turn_index,
+        provider="openai-realtime",
     )
-    upstream_start = time.perf_counter()
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read().decode("utf-8")
-            upstream_status = response.status
-    except urllib.error.HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        upstream_status = error.code
-    except urllib.error.URLError as error:
-        _log_latency_span("api.ai_engine.tts.upstream", _duration_ms(upstream_start), status=502, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="api-mediated")
-        return _return_with_latency(502, {
-            "error": "tts_provider_failed",
-            "provider": "api-mediated",
-            "message": _redact_provider_error(str(error.reason)),
-        }, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    _log_latency_span("api.ai_engine.tts.upstream", _duration_ms(upstream_start), status=upstream_status, sessionId=interview_id, turnIndex=turn_index, traceId=_trace_id(interview_id, turn_index), provider="api-mediated")
-    try:
-        upstream = json.loads(body)
-    except json.JSONDecodeError:
-        return _return_with_latency(502, {"error": "tts_provider_failed", "provider": "api-mediated", "message": "invalid upstream response"}, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    if not isinstance(upstream, dict):
-        return _return_with_latency(502, {"error": "tts_provider_failed", "provider": "api-mediated", "message": "invalid upstream payload"}, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-
-    upstream.pop("sessionId", None)
-    upstream.pop("turnId", None)
-    public_failure = _sanitize_upstream_provider_failure(upstream, upstream_status, "tts_provider_failed")
-    if public_failure is not None:
-        public_failure["interviewId"] = interview_id
-        public_failure["turnIndex"] = turn_index
-        public_failure["delivery"] = {
-            "mode": "api-mediated-base64",
-            "source": "ai-engine",
-            "publicDirectTtsRoutes": "blocked",
-        }
-        return _return_with_latency(upstream_status, public_failure, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
-    upstream["interviewId"] = interview_id
-    upstream["turnIndex"] = turn_index
-    upstream["delivery"] = {
-        "mode": "api-mediated-base64",
-        "source": "ai-engine",
-        "publicDirectTtsRoutes": "blocked",
-    }
-    return _return_with_latency(upstream_status, upstream, start, "api.tts.total", session_id=interview_id, turn_index=turn_index, provider="api-mediated")
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "GilJobV2API/0.2"

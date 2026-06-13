@@ -77,13 +77,6 @@
   interviewer audio + transcript events
 ]
 
-[<service> AI Engine|
-  internal compatibility boundary only
-  keyless route-smoke adapter
-  API-called TTS/avatar adapters
-  no Realtime broker/question fallback
-  SpatialReal LiveKit egress attempt
-]
 
 [<media> SpatialReal Cloud|
   SDK Mode / Host Mode candidate
@@ -115,8 +108,6 @@
 [Analysis Engine Service\n(GilJobE)] - exact-turn candidate-safe result -> [API Service]
 [LiveKit Server] - legacy media tracks -> [Analysis Engine Service\n(GilJobE)]
 [Analysis Engine Service\n(GilJobE)] - transcript_full + multimodal signals -> [API Service]
-[AI Engine] - compatibility TTS/avatar metadata -> [API Service]
-[AI Engine] - optional post-TTS egress audio -> [SpatialReal Cloud]
 [SpatialReal Cloud] - legacy RTC avatar stream if enabled -> [LiveKit Server]
 [API Service] - response policy context -> [Main LLM / Interview Controller]
 [Main LLM / Interview Controller] - interview state/report -> [API Service]
