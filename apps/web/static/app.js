@@ -62,7 +62,7 @@ let avatarSdkResponseFeedActive = false;
 let avatarSdkSyncedPlaybackActive = false;
 let avatarSdkConnectionState = "unknown";
 let avatarSdkConnectionWaiters = [];
-let avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, silentDrops: 0, rmsMax: 0, startedAt: 0, speechStarted: false };
+let avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, silentDrops: 0, rmsMax: 0, startedAt: 0, lastChunkAt: 0, lastSpeechAt: 0, responseDoneAt: 0, speechStarted: false };
 let activeRealtimeResponseId = "";
 let realtimeAnswerTranscript = "";
 let realtimeInterviewerQuestionTranscript = "";
@@ -84,7 +84,11 @@ const SPATIALREAL_SDK_ACCEPTED_OUTCOMES = new Set([SPATIALREAL_SDK_READY_OUTCOME
 const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
 const SPATIALREAL_SDK_TRANSPORT = "spatialreal-sdk-websocket";
 const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
-const AVATAR_PCM_END_GRACE_MS = 1400;
+const AVATAR_PCM_END_GRACE_MS = 3000;
+const AVATAR_PCM_TAIL_SILENCE_MS = 2200;
+const AVATAR_PCM_MAX_DRAIN_MS = 20000;
+const AVATAR_PCM_NO_SPEECH_DRAIN_MS = 8000;
+const AVATAR_PCM_TAIL_POLL_MS = 250;
 const AVATAR_PCM_SPEECH_RMS_THRESHOLD = 0.0015;
 const AVATAR_SDK_CONNECTED_WAIT_MS = 5000;
 const AVATAR_SDK_SYNCED_PLAYBACK_VOLUME = 1;
@@ -712,7 +716,7 @@ function setAvatarSdkPlaybackVolume(controller, volume = AVATAR_SDK_SYNCED_PLAYB
 }
 
 function resetAvatarSdkPcmStats() {
-  avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, silentDrops: 0, rmsMax: 0, startedAt: Date.now(), speechStarted: false };
+  avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, silentDrops: 0, rmsMax: 0, startedAt: Date.now(), lastChunkAt: 0, lastSpeechAt: 0, responseDoneAt: 0, speechStarted: false };
 }
 
 function notifyAvatarSdkConnected() {
@@ -756,8 +760,19 @@ function appendAvatarSdkPcmSummary(reason = "summary") {
   if (!avatarSdkPcmStats.startedAt) {
     return;
   }
-  const elapsedMs = Date.now() - avatarSdkPcmStats.startedAt;
-  appendLog(`avatar SDK PCM ${reason}: chunks=${avatarSdkPcmStats.chunks}; bytes=${avatarSdkPcmStats.bytes}; sends=${avatarSdkPcmStats.sends}; nullSends=${avatarSdkPcmStats.nullSends}; silentDrops=${avatarSdkPcmStats.silentDrops}; speechStarted=${Boolean(avatarSdkPcmStats.speechStarted)}; rmsMax=${avatarSdkPcmStats.rmsMax.toFixed(4)}; connection=${avatarSdkConnectionState}; elapsedMs=${elapsedMs}; media hidden`);
+  const now = Date.now();
+  const elapsedMs = now - avatarSdkPcmStats.startedAt;
+  const lastChunkAgeMs = avatarSdkPcmStats.lastChunkAt ? now - avatarSdkPcmStats.lastChunkAt : -1;
+  const lastSpeechAgeMs = avatarSdkPcmStats.lastSpeechAt ? now - avatarSdkPcmStats.lastSpeechAt : -1;
+  appendLog(`avatar SDK PCM ${reason}: chunks=${avatarSdkPcmStats.chunks}; bytes=${avatarSdkPcmStats.bytes}; sends=${avatarSdkPcmStats.sends}; nullSends=${avatarSdkPcmStats.nullSends}; silentDrops=${avatarSdkPcmStats.silentDrops}; speechStarted=${Boolean(avatarSdkPcmStats.speechStarted)}; rmsMax=${avatarSdkPcmStats.rmsMax.toFixed(4)}; connection=${avatarSdkConnectionState}; elapsedMs=${elapsedMs}; lastChunkAgeMs=${lastChunkAgeMs}; lastSpeechAgeMs=${lastSpeechAgeMs}; media hidden`);
+}
+
+function markAvatarSdkPcmSpeech(rms, source = "stream") {
+  avatarSdkPcmStats.lastSpeechAt = Date.now();
+  if (!avatarSdkPcmStats.speechStarted) {
+    avatarSdkPcmStats.speechStarted = true;
+    appendLog(`avatar SDK PCM speech detected${source ? ` on ${source}` : ""}: rms=${rms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; connection=${avatarSdkConnectionState}; media hidden`);
+  }
 }
 
 function pcm16Rms(pcmBuffer) {
@@ -777,11 +792,11 @@ function pcm16Rms(pcmBuffer) {
 function shouldDropAvatarSdkSilence(pcmBuffer) {
   const rms = pcm16Rms(pcmBuffer);
   avatarSdkPcmStats.rmsMax = Math.max(avatarSdkPcmStats.rmsMax, rms);
-  if (avatarSdkPcmStats.speechStarted || rms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
-    if (!avatarSdkPcmStats.speechStarted) {
-      avatarSdkPcmStats.speechStarted = true;
-      appendLog(`avatar SDK PCM speech detected: rms=${rms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; connection=${avatarSdkConnectionState}; media hidden`);
-    }
+  if (rms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
+    markAvatarSdkPcmSpeech(rms, "stream");
+    return false;
+  }
+  if (avatarSdkPcmStats.speechStarted) {
     return false;
   }
   avatarSdkPcmStats.silentDrops += 1;
@@ -802,7 +817,11 @@ function sendAvatarSdkPcmChunk(controller, pcmBuffer, isLast = false) {
   }
   avatarSdkPcmStats.chunks += 1;
   avatarSdkPcmStats.bytes += bytes;
+  avatarSdkPcmStats.lastChunkAt = Date.now();
   avatarSdkPcmStats.rmsMax = Math.max(avatarSdkPcmStats.rmsMax, rms);
+  if (rms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
+    markAvatarSdkPcmSpeech(rms, isLast ? "final chunk" : "send");
+  }
   const conversationId = controller.send(pcmBuffer || new ArrayBuffer(0), isLast);
   if (conversationId) {
     avatarSdkPcmStats.sends += 1;
@@ -935,9 +954,8 @@ function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
         const finalChunk = carry.length ? downsampleToPcm16(carry, context.sampleRate, sampleRate) : new ArrayBuffer(0);
         const finalRms = pcm16Rms(finalChunk || new ArrayBuffer(0));
         if (avatarSdkPcmStats.speechStarted || finalRms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
-          if (!avatarSdkPcmStats.speechStarted) {
-            avatarSdkPcmStats.speechStarted = true;
-            appendLog(`avatar SDK PCM speech detected on final chunk: rms=${finalRms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; media hidden`);
+          if (finalRms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
+            markAvatarSdkPcmSpeech(finalRms, "final chunk");
           }
           sendAvatarSdkPcmChunk(controller, finalChunk || new ArrayBuffer(0), true);
         } else {
@@ -1013,6 +1031,57 @@ function avatarSdkBeginResponseFeed(trigger = "audio.delta") {
   });
 }
 
+function getAvatarSdkPcmTailDrainDecision(drainStartedAt) {
+  const now = Date.now();
+  const elapsedMs = now - drainStartedAt;
+  const sinceSpeechMs = avatarSdkPcmStats.lastSpeechAt ? now - avatarSdkPcmStats.lastSpeechAt : Number.POSITIVE_INFINITY;
+  const sinceChunkMs = avatarSdkPcmStats.lastChunkAt ? now - avatarSdkPcmStats.lastChunkAt : Number.POSITIVE_INFINITY;
+  if (!avatarPcmBridge) {
+    return { shouldContinue: false, reason: "no_bridge", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (avatarSdkPcmStats.speechStarted && elapsedMs >= AVATAR_PCM_MAX_DRAIN_MS) {
+    return { shouldContinue: false, reason: "max_drain", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (!avatarSdkPcmStats.speechStarted && elapsedMs >= AVATAR_PCM_NO_SPEECH_DRAIN_MS) {
+    return { shouldContinue: false, reason: "no_speech_drain_timeout", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (elapsedMs < AVATAR_PCM_END_GRACE_MS) {
+    return { shouldContinue: true, reason: "min_grace", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (!avatarSdkPcmStats.speechStarted) {
+    return { shouldContinue: true, reason: "waiting_for_speech", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (sinceSpeechMs < AVATAR_PCM_TAIL_SILENCE_MS) {
+    return { shouldContinue: true, reason: "recent_speech", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  return { shouldContinue: false, reason: "tail_silence", elapsedMs, sinceSpeechMs, sinceChunkMs };
+}
+
+function scheduleAvatarSdkPcmTailDrain(safeResponseId, drainStartedAt) {
+  clearAvatarPcmBridgeEndTimer();
+  avatarPcmBridgeEndTimer = window.setTimeout(() => {
+    avatarPcmBridgeEndTimer = null;
+    const decision = getAvatarSdkPcmTailDrainDecision(drainStartedAt);
+    const sinceSpeechLog = Number.isFinite(decision.sinceSpeechMs) ? decision.sinceSpeechMs : -1;
+    const sinceChunkLog = Number.isFinite(decision.sinceChunkMs) ? decision.sinceChunkMs : -1;
+    if (decision.shouldContinue) {
+      if (decision.reason !== "min_grace" || Math.abs(decision.elapsedMs % 1000) < AVATAR_PCM_TAIL_POLL_MS) {
+        appendLog(`avatar SDK PCM tail drain continuing: response=${safeResponseId}; reason=${decision.reason}; elapsedMs=${decision.elapsedMs}; sinceSpeechMs=${sinceSpeechLog}; sinceChunkMs=${sinceChunkLog}; chunks=${avatarSdkPcmStats.chunks}; media hidden`);
+      }
+      scheduleAvatarSdkPcmTailDrain(safeResponseId, drainStartedAt);
+      return;
+    }
+    appendLog(`avatar SDK PCM tail drain ending: response=${safeResponseId}; reason=${decision.reason}; elapsedMs=${decision.elapsedMs}; sinceSpeechMs=${sinceSpeechLog}; sinceChunkMs=${sinceChunkLog}; chunks=${avatarSdkPcmStats.chunks}; media hidden`);
+    endAvatarPcmBridgeRound()
+      .then(() => {
+        appendLog(`avatar SDK response feed ended: ${safeResponseId}; Realtime question boundary already released; tokens hidden`);
+      })
+      .catch((error) => {
+        appendLog(`avatar SDK response feed end skipped: ${errorMessage(error)}; Realtime question boundary already released`);
+      });
+  }, AVATAR_PCM_TAIL_POLL_MS);
+}
+
 function avatarSdkEndResponseFeed(responseId = "") {
   if (!avatarSdkResponseFeedActive && !avatarPcmBridge) {
     appendLog("avatar SDK response feed end skipped: no active PCM feed; media hidden");
@@ -1023,18 +1092,10 @@ function avatarSdkEndResponseFeed(responseId = "") {
     return;
   }
   const safeResponseId = String(responseId || "response").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
-  appendLog(`avatar SDK response feed grace ${AVATAR_PCM_END_GRACE_MS}ms started: ${safeResponseId}; Realtime question boundary already released`);
-  clearAvatarPcmBridgeEndTimer();
-  avatarPcmBridgeEndTimer = window.setTimeout(() => {
-    avatarPcmBridgeEndTimer = null;
-    endAvatarPcmBridgeRound()
-      .then(() => {
-        appendLog(`avatar SDK response feed ended: ${safeResponseId}; Realtime question boundary already released; tokens hidden`);
-      })
-      .catch((error) => {
-        appendLog(`avatar SDK response feed end skipped: ${errorMessage(error)}; Realtime question boundary already released`);
-      });
-  }, AVATAR_PCM_END_GRACE_MS);
+  const drainStartedAt = Date.now();
+  avatarSdkPcmStats.responseDoneAt = drainStartedAt;
+  appendLog(`avatar SDK PCM tail drain started: response=${safeResponseId}; minGraceMs=${AVATAR_PCM_END_GRACE_MS}; tailSilenceMs=${AVATAR_PCM_TAIL_SILENCE_MS}; maxDrainMs=${AVATAR_PCM_MAX_DRAIN_MS}; noSpeechDrainMs=${AVATAR_PCM_NO_SPEECH_DRAIN_MS}; Realtime question boundary already released`);
+  scheduleAvatarSdkPcmTailDrain(safeResponseId, drainStartedAt);
 }
 
 function renderAvatarSdkModeStatus(payload = activeAvatarSession) {
