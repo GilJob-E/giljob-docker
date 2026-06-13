@@ -35,6 +35,7 @@ OPENAI_REALTIME_TRANSCRIPTION_MODEL = os.getenv("OPENAI_REALTIME_TRANSCRIPTION_M
 OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE = os.getenv("OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE", "ko").strip()
 OPENAI_REALTIME_TRANSCRIPTION_DELAY = os.getenv("OPENAI_REALTIME_TRANSCRIPTION_DELAY", "low").strip()
 OPENAI_REALTIME_TIMEOUT_SECONDS = float(os.getenv("OPENAI_REALTIME_TIMEOUT_SECONDS", "15"))
+COACH_LLM_TIMEOUT_SECONDS = float(os.getenv("COACH_LLM_TIMEOUT_SECONDS", "15"))
 INTERVIEW_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 TTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/tts/?$")
 AVATAR_SESSION_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/avatar/session/?$")
@@ -45,6 +46,7 @@ REALTIME_TURN_EVENTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z
 REALTIME_VISION_EVENTS_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/vision-events/?$")
 REALTIME_MMM_READY_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/mmm-ready/?$")
 REALTIME_RESPONSE_CREATE_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/realtime/response/?$")
+COACH_FEEDBACK_ROUTE_PATTERN = re.compile(r"^/(?:api/)?interviews/([A-Za-z0-9][A-Za-z0-9._-]{0,95})/turns/([0-9]{1,4})/coach-feedback/?$")
 MAX_TTS_TEXT_CHARS = 1_200
 MAX_REALTIME_EVENT_BYTES = int(os.getenv("MAX_REALTIME_EVENT_BYTES", "8192"))
 MAX_REALTIME_VISION_EVENT_BYTES = int(os.getenv("MAX_REALTIME_VISION_EVENT_BYTES", "65536"))
@@ -230,7 +232,7 @@ def _feed_hashimoto_turn(session_id: str, turn_index: int, transcript: str) -> d
 
 
 def _redact_provider_error(text: str) -> str:
-    for name in ("ELEVENLABS_API_KEY", "SPATIALREAL_API_KEY", "LIVEKIT_API_SECRET"):
+    for name in ("ELEVENLABS_API_KEY", "SPATIALREAL_API_KEY", "LIVEKIT_API_SECRET", "OPENAI_API_KEY", "COACH_GEMINI_API_KEY", "GEMINI_API_KEY"):
         value = os.getenv(name, "").strip()
         if value:
             text = text.replace(value, "<redacted>")
@@ -943,6 +945,359 @@ def _candidate_safe_fragment_from_result(result: dict[str, Any]) -> str:
             return ""
         return _candidate_safe_fragment(structured.get("text"))
     return _candidate_safe_fragment(result.get("candidatePromptFragment") or result.get("realtimePromptFragment") or result.get("nextQuestionGuidance"))
+
+
+def _coach_llm_settings() -> dict[str, object]:
+    provider = _safe_str(os.getenv("COACH_LLM_PROVIDER", "fake"), 40).lower() or "fake"
+    explicit_model = _safe_str(os.getenv("COACH_LLM_MODEL"), 120)
+    if provider == "gemini":
+        model = explicit_model or "gemini-2.5-flash"
+    elif provider == "openai":
+        model = explicit_model or "gpt-4.1-mini"
+    else:
+        model = explicit_model or "fake-coach"
+    try:
+        timeout = float(os.getenv("COACH_LLM_TIMEOUT_SECONDS", str(COACH_LLM_TIMEOUT_SECONDS)))
+    except ValueError:
+        timeout = COACH_LLM_TIMEOUT_SECONDS
+    return {
+        "provider": provider,
+        "model": model,
+        "timeout": max(1.0, min(timeout, 60.0)),
+        "openaiApiBase": os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/"),
+        "openaiApiKey": os.getenv("OPENAI_API_KEY", "").strip(),
+        "geminiApiBase": os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta").rstrip("/"),
+        "geminiApiKey": (os.getenv("COACH_GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")).strip(),
+    }
+
+
+def _coach_feedback_pending_payload(reason: str) -> dict[str, object]:
+    return {
+        "ready": False,
+        "reason": reason,
+        "summary": "분석 결과를 기다리는 중입니다.",
+        "answerEvaluation": "",
+        "multimodalEvaluation": "",
+        "bullets": [],
+    }
+
+
+def _coach_analysis_summary(result: dict[str, Any] | None, source: dict[str, object]) -> dict[str, object]:
+    result = result or {}
+    public = _analysis_result_public_summary(result)
+    coverage = public.get("coverage")
+    return {
+        "endpoint": _safe_str(source.get("endpoint"), 120),
+        "attempted": bool(source.get("attempted", False)),
+        "status": source.get("status") if isinstance(source.get("status"), int) else None,
+        "error": _safe_str(source.get("error"), 120),
+        "resultStatus": _safe_str(result.get("status"), 40),
+        "schemaVersion": public.get("schemaVersion"),
+        "confidence": public.get("confidence"),
+        "latencyMs": public.get("latencyMs"),
+        "coverage": coverage if isinstance(coverage, dict) else {},
+        "rawTranscriptLogged": bool(result.get("rawTranscriptLogged", False)),
+        "rawMediaAccepted": bool(result.get("rawMediaAccepted", False)),
+    }
+
+
+def _build_coach_feedback_prompt(result: dict[str, Any], interview_id: str, turn_index: int) -> str:
+    safe_fragment = _candidate_safe_fragment_from_result(result)
+    prompt_payload = {
+        "task": "Korean interview coach feedback",
+        "interviewId": interview_id,
+        "turnIndex": turn_index,
+        "safeGuidance": safe_fragment,
+        "analysisSummary": _analysis_result_public_summary(result),
+        "outputJsonSchema": {
+            "summary": "one Korean sentence",
+            "answerEvaluation": "short Korean feedback on answer quality",
+            "multimodalEvaluation": "short Korean feedback on visual/prosody signals",
+            "bullets": ["1-4 concise Korean coaching actions"],
+        },
+        "rules": [
+            "Return only valid JSON.",
+            "Do not expose raw transcript, raw media, provider keys, or internal transport labels.",
+            "Do not mention implementation details.",
+        ],
+    }
+    return json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True)
+
+
+def _parse_json_object_from_text(text: str) -> dict[str, Any] | None:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", cleaned)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _coerce_coach_feedback(value: object) -> dict[str, object]:
+    feedback = value.get("coachFeedback") if isinstance(value, dict) and isinstance(value.get("coachFeedback"), dict) else value
+    feedback = feedback if isinstance(feedback, dict) else {}
+    raw_bullets = feedback.get("bullets")
+    bullets = [
+        _safe_str(item, 280)
+        for item in (raw_bullets if isinstance(raw_bullets, list) else [])
+        if _safe_str(item, 280)
+    ][:4]
+    return {
+        "ready": True,
+        "summary": _safe_str(feedback.get("summary") or "코치 피드백이 준비되었습니다.", 420),
+        "answerEvaluation": _safe_str(feedback.get("answerEvaluation"), 700),
+        "multimodalEvaluation": _safe_str(feedback.get("multimodalEvaluation"), 700),
+        "bullets": bullets,
+    }
+
+
+def _fake_coach_feedback(result: dict[str, Any], interview_id: str, turn_index: int, settings: dict[str, object]) -> tuple[int, dict[str, object]]:
+    coverage = _analysis_result_public_summary(result).get("coverage")
+    coverage_text = ", ".join(f"{key}:{value}" for key, value in sorted(coverage.items())) if isinstance(coverage, dict) and coverage else "available"
+    feedback = {
+        "ready": True,
+        "summary": "답변 분석과 멀티모달 신호를 바탕으로 코치 피드백이 준비되었습니다.",
+        "answerEvaluation": "다음 답변에서는 핵심 주장 뒤에 구체적인 근거와 본인 역할을 더 붙이면 좋습니다.",
+        "multimodalEvaluation": f"시각/음성 신호는 공개 가능한 요약 범위에서 확인되었습니다. coverage={coverage_text}",
+        "bullets": [
+            "성과를 수치나 비교 기준으로 한 문장 더 구체화하세요.",
+            "문제 상황, 행동, 결과를 순서대로 짧게 정리하세요.",
+            "시선과 말의 속도는 안정적으로 유지하세요.",
+        ],
+    }
+    return 200, {
+        "provider": "fake",
+        "providerStatus": "fake",
+        "model": _safe_str(settings.get("model"), 120) or "fake-coach",
+        "coachFeedback": feedback,
+    }
+
+
+def _extract_openai_output_text(payload: dict[str, Any]) -> str:
+    output_text = _safe_str(payload.get("output_text"), 10_000)
+    if output_text:
+        return output_text
+    texts: list[str] = []
+    output = payload.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        text = _safe_str(part.get("text"), 10_000)
+                        if text:
+                            texts.append(text)
+    return "\n".join(texts)
+
+
+def _openai_coach_feedback(settings: dict[str, object], result: dict[str, Any], interview_id: str, turn_index: int) -> tuple[int, dict[str, object]]:
+    api_key = _safe_str(settings.get("openaiApiKey"), 500)
+    if not api_key:
+        return 503, {"error": "coach_llm_missing_key", "provider": "openai", "providerStatus": "not_configured"}
+    endpoint = f"{settings['openaiApiBase']}/responses"
+    body = json.dumps({
+        "model": settings["model"],
+        "instructions": "Return only valid JSON for concise Korean interview coaching feedback.",
+        "input": _build_coach_feedback_prompt(result, interview_id, turn_index),
+        "store": False,
+    }, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=float(settings["timeout"])) as response:
+            response_body = response.read().decode("utf-8", errors="replace")
+            status = response.status
+    except urllib.error.HTTPError as error:
+        error_body = error.read().decode("utf-8", errors="replace")
+        return 502, {"error": "coach_llm_rejected", "provider": "openai", "providerStatus": "provider_error", "status": error.code, "message": _redact_provider_error(error_body)}
+    except urllib.error.URLError as error:
+        return 502, {"error": "coach_llm_unavailable", "provider": "openai", "providerStatus": "network_error", "message": _redact_provider_error(str(error))}
+    try:
+        parsed = json.loads(response_body)
+    except json.JSONDecodeError:
+        return 502, {"error": "invalid_coach_llm_response", "provider": "openai", "providerStatus": "invalid_response", "status": status}
+    if not isinstance(parsed, dict):
+        return 502, {"error": "invalid_coach_llm_response", "provider": "openai", "providerStatus": "invalid_response", "status": status}
+    feedback_json = _parse_json_object_from_text(_extract_openai_output_text(parsed))
+    if feedback_json is None:
+        return 502, {"error": "invalid_coach_llm_response", "provider": "openai", "providerStatus": "invalid_json", "status": status}
+    return 200, {
+        "provider": "openai",
+        "providerStatus": "provider",
+        "status": status,
+        "model": _safe_str(settings.get("model"), 120),
+        "coachFeedback": _coerce_coach_feedback(feedback_json),
+    }
+
+
+def _extract_gemini_output_text(payload: dict[str, Any]) -> str:
+    texts: list[str] = []
+    candidates = payload.get("candidates")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            content = candidate.get("content")
+            parts = content.get("parts") if isinstance(content, dict) else None
+            if isinstance(parts, list):
+                for part in parts:
+                    if isinstance(part, dict):
+                        text = _safe_str(part.get("text"), 10_000)
+                        if text:
+                            texts.append(text)
+    return "\n".join(texts)
+
+
+def _gemini_coach_feedback(settings: dict[str, object], result: dict[str, Any], interview_id: str, turn_index: int) -> tuple[int, dict[str, object]]:
+    api_key = _safe_str(settings.get("geminiApiKey"), 500)
+    if not api_key:
+        return 503, {"error": "coach_llm_missing_key", "provider": "gemini", "providerStatus": "not_configured"}
+    model = _safe_str(settings.get("model"), 120) or "gemini-2.5-flash"
+    endpoint = f"{settings['geminiApiBase']}/models/{urllib.parse.quote(model, safe='')}:generateContent"
+    body = json.dumps({
+        "contents": [{"role": "user", "parts": [{"text": _build_coach_feedback_prompt(result, interview_id, turn_index)}]}],
+        "generationConfig": {"responseMimeType": "application/json"},
+    }, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=body,
+        method="POST",
+        headers={
+            "X-goog-api-key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=float(settings["timeout"])) as response:
+            response_body = response.read().decode("utf-8", errors="replace")
+            status = response.status
+    except urllib.error.HTTPError as error:
+        error_body = error.read().decode("utf-8", errors="replace")
+        return 502, {"error": "coach_llm_rejected", "provider": "gemini", "providerStatus": "provider_error", "status": error.code, "message": _redact_provider_error(error_body)}
+    except urllib.error.URLError as error:
+        return 502, {"error": "coach_llm_unavailable", "provider": "gemini", "providerStatus": "network_error", "message": _redact_provider_error(str(error))}
+    try:
+        parsed = json.loads(response_body)
+    except json.JSONDecodeError:
+        return 502, {"error": "invalid_coach_llm_response", "provider": "gemini", "providerStatus": "invalid_response", "status": status}
+    if not isinstance(parsed, dict):
+        return 502, {"error": "invalid_coach_llm_response", "provider": "gemini", "providerStatus": "invalid_response", "status": status}
+    feedback_json = _parse_json_object_from_text(_extract_gemini_output_text(parsed))
+    if feedback_json is None:
+        return 502, {"error": "invalid_coach_llm_response", "provider": "gemini", "providerStatus": "invalid_json", "status": status}
+    return 200, {
+        "provider": "gemini",
+        "providerStatus": "provider",
+        "status": status,
+        "model": model,
+        "coachFeedback": _coerce_coach_feedback(feedback_json),
+    }
+
+
+def coach_feedback_response(interview_id: str, turn_index: int) -> tuple[int, dict[str, object]]:
+    start = time.perf_counter()
+    if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
+        return 400, {"error": "invalid_interview_id"}
+    if turn_index < 1:
+        return 400, {"error": "invalid_turn_index"}
+
+    result, source = _fetch_analysis_result(interview_id, turn_index)
+    reason = ""
+    failure = _analysis_result_gate_failure(result, interview_id, turn_index)
+    if failure:
+        reason = failure[0]
+    elif result is not None and not _analysis_result_turn_matches(result, interview_id, turn_index):
+        reason = "exact_turn_analysis_result_required"
+    elif not _candidate_safe_fragment_from_result(result or {}) or bool((result or {}).get("rawTranscriptLogged", False)) or bool((result or {}).get("rawMediaAccepted", False)):
+        reason = "candidate_safe_ready_result_required"
+
+    analysis = _coach_analysis_summary(result, source)
+    delivery = {
+        "mode": "api-mediated-coach-feedback",
+        "source": "api-owned-coach-llm" if not reason else "analysis-turn-result",
+        "analysisEndpoint": "/realtime/turn-results",
+        "rawAnalysisReturned": False,
+    }
+    if reason:
+        payload = {
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "status": "pending",
+            "coachFeedback": _coach_feedback_pending_payload(reason),
+            "coachLlm": {"attempted": False, "reason": reason},
+            "analysis": analysis,
+            "delivery": delivery,
+        }
+        return _return_with_latency(202, payload, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider="analysis-engine")
+
+    settings = _coach_llm_settings()
+    provider = _safe_str(settings.get("provider"), 40)
+    assert result is not None
+    if provider == "fake":
+        llm_status, llm_payload = _fake_coach_feedback(result, interview_id, turn_index, settings)
+    elif provider == "openai":
+        llm_status, llm_payload = _openai_coach_feedback(settings, result, interview_id, turn_index)
+    elif provider == "gemini":
+        llm_status, llm_payload = _gemini_coach_feedback(settings, result, interview_id, turn_index)
+    else:
+        llm_status, llm_payload = 400, {"error": "unsupported_coach_llm_provider", "provider": provider, "providerStatus": "unsupported"}
+
+    if llm_status != 200:
+        payload = {
+            "error": llm_payload.get("error", "coach_llm_failed"),
+            "message": "provider request failed",
+            "interviewId": interview_id,
+            "turnIndex": turn_index,
+            "status": "failed",
+            "analysis": analysis,
+            "coachLlm": {
+                "attempted": True,
+                "provider": _safe_str(llm_payload.get("provider") or provider, 80),
+                "providerStatus": _safe_str(llm_payload.get("providerStatus"), 80),
+                "model": _safe_str(settings.get("model"), 120),
+                "status": llm_payload.get("status") if isinstance(llm_payload.get("status"), int) else None,
+            },
+            "delivery": delivery,
+        }
+        return _return_with_latency(llm_status, payload, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider=provider)
+
+    payload = {
+        "interviewId": interview_id,
+        "turnIndex": turn_index,
+        "status": "ready",
+        "coachFeedback": llm_payload["coachFeedback"],
+        "coachLlm": {
+            "attempted": True,
+            "provider": _safe_str(llm_payload.get("provider") or provider, 80),
+            "providerStatus": _safe_str(llm_payload.get("providerStatus"), 80),
+            "model": _safe_str(llm_payload.get("model"), 120),
+            "status": llm_payload.get("status") if isinstance(llm_payload.get("status"), int) else None,
+        },
+        "analysis": analysis,
+        "delivery": delivery,
+    }
+    return _return_with_latency(200, payload, start, "api.coach.feedback", session_id=interview_id, turn_index=turn_index, provider=provider)
 
 
 def _realtime_response_create_command(instructions: str) -> dict[str, object]:
@@ -1660,6 +2015,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
         if self._reject_internal_path():
+            return
+        coach_feedback_match = COACH_FEEDBACK_ROUTE_PATTERN.fullmatch(self.path)
+        if coach_feedback_match:
+            interview_id = coach_feedback_match.group(1)
+            turn_index = int(coach_feedback_match.group(2))
+            status, payload = coach_feedback_response(interview_id, turn_index)
+            self._json(status, payload)
             return
         mmm_ready_match = REALTIME_MMM_READY_ROUTE_PATTERN.fullmatch(self.path)
         if mmm_ready_match:

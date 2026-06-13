@@ -35,6 +35,9 @@ const avatarStatusText = document.querySelector("#avatar-status-text");
 const avatarPanelTitle = document.querySelector("#avatar-panel-title");
 const avatarPanelBody = document.querySelector("#avatar-panel-body");
 const transcriptBody = document.querySelector("#transcript-body");
+const coachFeedbackTitle = document.querySelector("#coach-feedback-title");
+const coachFeedbackBody = document.querySelector("#coach-feedback-body");
+const coachFeedbackList = document.querySelector("#coach-feedback-list");
 const mmmDebugSummary = document.querySelector("#mmm-debug-summary");
 
 let activeSession = null;
@@ -974,6 +977,7 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
     realtimeTranscriptCompleted = false;
     renderTranscriptStatus("답변 종료. full MMM 준비 신호를 기다리는 중입니다.");
     await waitForFullMmmReady(completedTurnIndex);
+    requestCoachFeedback(completedTurnIndex);
     currentTurnIndex += 1;
     nextQuestionRequested = false;
     setAnswerTurnAvailability(false, "candidate answer ended; full MMM gate passed; waiting for next Realtime question");
@@ -1121,6 +1125,66 @@ function renderInterviewQuestion(question) {
 function renderTranscriptStatus(message) {
   if (transcriptBody) {
     transcriptBody.textContent = message;
+  }
+}
+
+function renderCoachFeedbackState(title, body, bullets = []) {
+  if (coachFeedbackTitle) {
+    coachFeedbackTitle.textContent = title;
+  }
+  if (coachFeedbackBody) {
+    coachFeedbackBody.textContent = body;
+  }
+  if (coachFeedbackList) {
+    coachFeedbackList.replaceChildren(...bullets.map((item) => {
+      const li = document.createElement("li");
+      li.textContent = String(item);
+      return li;
+    }));
+  }
+}
+
+function renderCoachFeedback(payload) {
+  const feedback = payload?.coachFeedback || {};
+  if (!feedback.ready) {
+    renderCoachFeedbackState("코치 피드백 대기", feedback.summary || "분석 결과를 기다리는 중입니다.", []);
+    return;
+  }
+  const bullets = [
+    feedback.answerEvaluation,
+    feedback.multimodalEvaluation,
+    ...(Array.isArray(feedback.bullets) ? feedback.bullets : []),
+  ].filter(Boolean);
+  renderCoachFeedbackState("코치 피드백", feedback.summary || "답변 피드백이 준비되었습니다.", bullets);
+}
+
+async function requestCoachFeedback(turnIndex) {
+  renderCoachFeedbackState("코치 피드백 생성 중", "분석 결과를 코치 피드백으로 정리하고 있습니다.", []);
+  try {
+    const endpoint = `/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/coach-feedback`;
+    let lastPayload = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
+      const payload = await response.json().catch(() => ({}));
+      lastPayload = payload;
+      if (!response.ok && response.status !== 202) {
+        throw new Error(payload.message || payload.error || `coach feedback failed: HTTP ${response.status}`);
+      }
+      renderCoachFeedback(payload);
+      if (response.ok && payload?.coachFeedback?.ready) {
+        appendLog(`coach feedback ${payload.status || "received"} for turn ${turnIndex}; raw analysis hidden`);
+        return payload;
+      }
+      appendLog(`coach feedback pending for turn ${turnIndex}: ${payload?.coachFeedback?.reason || payload?.status || "pending"}`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    renderCoachFeedback(lastPayload);
+    return lastPayload;
+  } catch (error) {
+    const message = errorMessage(error);
+    renderCoachFeedbackState("코치 피드백 사용 불가", "이번 턴의 코치 피드백을 가져오지 못했습니다. 다음 턴 진행은 계속됩니다.", []);
+    appendLog(`coach feedback unavailable: ${message}`);
+    return null;
   }
 }
 
@@ -1723,6 +1787,7 @@ setRoomMode("prejoin");
 setAnswerTurnAvailability(false);
 syncMediaUi();
 hydrateProductionRoutes();
+renderCoachFeedbackState("코치 피드백 대기", "답변 분석이 정리되면 코치 피드백이 표시됩니다.", []);
 renderTranscriptStatus("OpenAI Realtime 전사와 bounded vision metadata를 analysis-engine에 전달한 뒤, API가 MMM 준비 후 다음 질문을 생성합니다.");
 appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);
 connectProductionRoomRoute();

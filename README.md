@@ -281,6 +281,23 @@ LIVEKIT_NODE_IP=127.0.0.1
 SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false
 ```
 
+Optional coach feedback LLM을 실제 provider로 켤 때만 추가:
+
+```env
+COACH_LLM_PROVIDER=gemini
+COACH_GEMINI_API_KEY=replace-me-gemini-key
+GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta
+
+# 또는 기존 OpenAI server key를 사용:
+# COACH_LLM_PROVIDER=openai
+# OPENAI_API_KEY=replace-me-openai-server-key
+# OPENAI_API_BASE=https://api.openai.com/v1
+
+# 비워두면 provider 기본값(openai: gpt-4.1-mini, gemini: gemini-2.5-flash)을 사용합니다.
+COACH_LLM_MODEL=
+COACH_LLM_TIMEOUT_SECONDS=15
+```
+
 > `.env`는 절대 commit하지 않습니다. README와 test output에도 provider key, JWT, session token을 출력하지 않습니다.
 
 ### 3. Python requirements 설치 (로컬 개발/테스트용)

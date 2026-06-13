@@ -29,9 +29,15 @@ LIVEKIT_ENV_NAMES = (
     "LIVEKIT_API_KEY",
     "LIVEKIT_API_SECRET",
     "OPENAI_API_KEY",
+    "OPENAI_API_BASE",
     "OPENAI_REALTIME_API_BASE",
     "OPENAI_REALTIME_CALL_BROKER_ENABLED",
     "OPENAI_REALTIME_SAFETY_SALT",
+    "GEMINI_API_BASE",
+    "COACH_GEMINI_API_KEY",
+    "COACH_LLM_PROVIDER",
+    "COACH_LLM_MODEL",
+    "COACH_LLM_TIMEOUT_SECONDS",
     "REALTIME_MMM_EVENT_LOG_PATH",
     "REALTIME_MMM_FORWARD_ENABLED",
     "REALTIME_MMM_RESULT_TIMEOUT_SECONDS",
@@ -81,6 +87,13 @@ class ApiHttpContractTest(unittest.TestCase):
         )
         try:
             with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status, res.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read().decode("utf-8")
+
+    def _get(self, path: str) -> tuple[int, str]:
+        try:
+            with urllib.request.urlopen(self.base_url + path, timeout=5) as res:
                 return res.status, res.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode("utf-8")
@@ -362,6 +375,170 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(forwarded["detail"]["visionFrame"]["encoding"], "image/jpeg;base64")
         self.assertEqual(forwarded["detail"]["visionFrame"]["data"], "ZmFrZQ==")
         self.assertNotIn("visionFrame", payload)
+
+    def test_coach_feedback_reads_exact_turn_result_without_exposing_raw_analysis(self) -> None:
+        analysis = self._start_fake_analysis_engine(result_payload={
+            "result": {
+                "schemaVersion": "2026-06-13.rnas-turn-result.v2",
+                "status": "ready",
+                "sessionId": "local-demo",
+                "turnIndex": 1,
+                "confidence": 0.86,
+                "latencyMs": 412,
+                "candidatePromptFragment": "raw transcript must not leak",
+                "candidateSafePromptFragment": {
+                    "text": "다음 답변에서는 프로젝트 맥락과 본인 기여를 더 구체적으로 확인하세요.",
+                    "containsRawTranscript": False,
+                    "containsRawMedia": False,
+                },
+                "transcriptSignals": {"status": "sentence_observed", "specificityScore": 0.58},
+                "visionSignals": {"status": "frame_observed", "faceVisible": True},
+                "prosodySignals": {"status": "timing_observed", "speechDurationMs": 1660},
+                "behavioralSignals": {"engagement": "steady"},
+                "coverage": {"speech": 6, "visual": 8, "nv": 8},
+                "rawTranscriptLogged": False,
+                "rawMediaAccepted": False,
+            }
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["interviewId"], "local-demo")
+        self.assertEqual(payload["turnIndex"], 1)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["delivery"]["mode"], "api-mediated-coach-feedback")
+        self.assertEqual(payload["delivery"]["analysisEndpoint"], "/realtime/turn-results")
+        self.assertFalse(payload["delivery"]["rawAnalysisReturned"])
+        self.assertTrue(payload["coachFeedback"]["ready"])
+        self.assertIn("summary", payload["coachFeedback"])
+        self.assertIn("answerEvaluation", payload["coachFeedback"])
+        self.assertIn("multimodalEvaluation", payload["coachFeedback"])
+        self.assertIsInstance(payload["coachFeedback"]["bullets"], list)
+        self.assertEqual(payload["coachLlm"]["provider"], "fake")
+        self.assertEqual(payload["coachLlm"]["providerStatus"], "fake")
+        self.assertEqual(payload["coachLlm"]["model"], "fake-coach")
+        self.assertEqual(payload["analysis"]["endpoint"], "/realtime/turn-results")
+        self.assertEqual(payload["analysis"]["resultStatus"], "ready")
+        self.assertEqual(payload["analysis"]["coverage"], {"nv": 8, "speech": 6, "visual": 8})
+        self.assertEqual(analysis[-1]["method"], "GET")
+        self.assertIn("/realtime/turn-results?interviewId=local-demo&turnIndex=1", analysis[-1]["path"])
+        self.assertNotIn('"candidatePromptFragment":', body)
+        self.assertNotIn("raw transcript must not leak", body)
+        self.assertNotIn("candidateSafePromptFragment", body)
+        self.assertNotIn("ai-engine", body)
+
+    def test_coach_feedback_is_pending_until_exact_turn_result_is_ready(self) -> None:
+        captured = self._start_fake_analysis_engine(result_payload={
+            "result": {
+                "status": "pending",
+                "sessionId": "local-demo",
+                "turnIndex": 1,
+            }
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["status"], "pending")
+        self.assertFalse(payload["coachFeedback"]["ready"])
+        self.assertEqual(payload["coachFeedback"]["reason"], "analysis_result_not_ready")
+        self.assertFalse(payload["coachLlm"]["attempted"])
+        self.assertEqual(payload["analysis"]["endpoint"], "/realtime/turn-results")
+        self.assertEqual(captured[-1]["method"], "GET")
+        self.assertIn("/realtime/turn-results?interviewId=local-demo&turnIndex=1", captured[-1]["path"])
+        self.assertNotIn('"candidatePromptFragment":', body)
+
+    def test_coach_feedback_rejects_wrong_turn_result_as_pending(self) -> None:
+        self._start_fake_analysis_engine(result_payload={
+            "result": {
+                "status": "ready",
+                "sessionId": "local-demo",
+                "turnIndex": 2,
+                "candidateSafePromptFragment": {"text": "다른 턴 결과입니다."},
+                "rawTranscriptLogged": False,
+                "rawMediaAccepted": False,
+            }
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["status"], "pending")
+        self.assertEqual(payload["coachFeedback"]["reason"], "exact_turn_analysis_result_required")
+        self.assertFalse(payload["coachLlm"]["attempted"])
+        self.assertNotIn("다른 턴 결과입니다", body)
+
+    def test_gemini_coach_feedback_calls_provider_without_key_or_raw_leak(self) -> None:
+        os.environ["COACH_LLM_PROVIDER"] = "gemini"
+        os.environ["COACH_LLM_MODEL"] = "gemini-test-model"
+        os.environ["COACH_GEMINI_API_KEY"] = "secret-gemini-key"
+        captured: list[urllib.request.Request] = []
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({
+                    "candidates": [{
+                        "content": {
+                            "parts": [{
+                                "text": json.dumps({
+                                    "summary": "멀티모달 신호를 함께 본 코칭입니다.",
+                                    "answerEvaluation": "답변은 구체성이 조금 더 필요합니다.",
+                                    "multimodalEvaluation": "시선과 발화 흐름은 안정적입니다.",
+                                    "bullets": ["핵심 성과를 수치로 덧붙이세요."],
+                                })
+                            }]
+                        }
+                    }]
+                }).encode("utf-8")
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> FakeResponse:
+            captured.append(request)
+            self.assertIn("generativelanguage.googleapis.com", request.full_url)
+            upstream_body = request.data.decode("utf-8")
+            self.assertIn("다음 답변에서는 근거를 확인하세요.", upstream_body)
+            self.assertNotIn("raw transcript must not leak", upstream_body)
+            return FakeResponse()
+
+        result = {
+            "schemaVersion": "2026-06-13.rnas-turn-result.v2",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidatePromptFragment": "raw transcript must not leak",
+            "candidateSafePromptFragment": {
+                "text": "다음 답변에서는 근거를 확인하세요.",
+                "containsRawTranscript": False,
+                "containsRawMedia": False,
+            },
+            "coverage": {"speech": 6, "visual": 8, "nv": 8},
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        }
+
+        with patch("server.urllib.request.urlopen", side_effect=fake_urlopen):
+            status, payload = api_server._gemini_coach_feedback(api_server._coach_llm_settings(), result, "local-demo", 1)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["provider"], "gemini")
+        self.assertEqual(payload["providerStatus"], "provider")
+        self.assertEqual(payload["model"], "gemini-test-model")
+        self.assertEqual(payload["coachFeedback"]["summary"], "멀티모달 신호를 함께 본 코칭입니다.")
+        self.assertEqual(captured[0].headers.get("X-goog-api-key"), "secret-gemini-key")
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("secret-gemini-key", serialized)
+        self.assertNotIn("raw transcript must not leak", serialized)
 
 
     def test_realtime_response_create_allows_bootstrap_first_question_without_mmm_gate(self) -> None:
