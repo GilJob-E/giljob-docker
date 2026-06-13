@@ -142,6 +142,9 @@ try {
   const questionStarted = after(/interviewer question started/);
 
   const ms = (l) => (l ? Math.round(l.ts - tAnswerEnd) : null);
+  // Click-relative fields are the primary record: the gap between speech end and
+  // the 답변 종료 click is a harness/human variable the benchmark excludes.
+  const msClick = (l) => (l ? Math.round(l.ts - tEndClick) : null);
   console.log(JSON.stringify({
     interview_id: args.interviewId,
     turn_end_s: args.turnEndS,
@@ -150,6 +153,10 @@ try {
     response_create_ms: ms(create),
     next_question_started_ms: ms(questionStarted),
     first_audio_ms: ms(firstAudio),
+    full_mmm_ready_after_click_ms: msClick(gate),
+    response_create_after_click_ms: msClick(create),
+    next_question_started_after_click_ms: msClick(questionStarted),
+    first_audio_after_click_ms: msClick(firstAudio),
     log_after_answer_end: lines.filter((l) => l.ts >= tAnswerEnd - 100 && !/vision event sent/.test(l.msg)).map((l) => `${l.iso} ${l.msg}`),
   }, null, 2));
 } finally {

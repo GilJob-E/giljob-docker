@@ -82,14 +82,19 @@ def main() -> int:
         "count": len(rows),
         "responded": len(responded),
         "no_response_examples": [r["example_id"] for r in rows if r not in responded],
+        "first_audio_after_click_ms": stat(rows, "first_audio_after_click_ms"),
+        "full_mmm_ready_after_click_ms": stat(rows, "full_mmm_ready_after_click_ms"),
+        "response_create_after_click_ms": stat(rows, "response_create_after_click_ms"),
+        "next_question_started_after_click_ms": stat(rows, "next_question_started_after_click_ms"),
         "first_audio_ms": stat(rows, "first_audio_ms"),
         "full_mmm_ready_ms": stat(rows, "full_mmm_ready_ms"),
         "response_create_ms": stat(rows, "response_create_ms"),
         "next_question_started_ms": stat(rows, "next_question_started_ms"),
         "measurement_note": (
-            "Minimal room runner, product path through real room UI. Reference = annotated turn end. "
-            "QA stack OPENAI_REALTIME_TRANSCRIPTION_LANGUAGE=en for this window; avatar SDK blocked "
-            "(excluded boundary); mic = WebAudio-injected clip + room-tone tail; 답변 종료 click at turn end + 3s."
+            "Minimal room runner, product path through real room UI. Primary reference = 답변 종료 click "
+            "(*_after_click_ms); speech-end-relative values (*_ms, includes the harness click pad) kept for "
+            "reference. Avatar SDK blocked (excluded boundary); mic = WebAudio-injected clip + room-tone tail; "
+            "답변 종료 click at turn end + pad (default 3s, VAD window for single-segment answers)."
         ),
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
