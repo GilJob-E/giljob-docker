@@ -810,6 +810,29 @@ async function endAvatarPcmBridgeRound() {
   }
 }
 
+function avatarSdkBeginResponseFeed() {
+  if (!activeAvatarSdkRuntime?.controller) {
+    return;
+  }
+  startAvatarPcmBridgeIfReady(realtimeRemoteAudioTrack).catch((error) => {
+    renderAvatarSdkDegraded(`sdk_pcm_bridge_failed:${errorMessage(error)}`);
+  });
+}
+
+function avatarSdkEndResponseFeed(responseId = "") {
+  if (!activeAvatarSdkRuntime?.controller && !avatarPcmBridge) {
+    return;
+  }
+  endAvatarPcmBridgeRound()
+    .then(() => {
+      const safeResponseId = String(responseId || "response").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+      appendLog(`avatar SDK response feed ended: ${safeResponseId}; Realtime question boundary already released; tokens hidden`);
+    })
+    .catch((error) => {
+      appendLog(`avatar SDK response feed end skipped: ${errorMessage(error)}; Realtime question boundary already released`);
+    });
+}
+
 function renderAvatarSdkModeStatus(payload = activeAvatarSession) {
   const state = normalizeAvatarSdkModeState(payload);
   avatarSdkModeState = { ...avatarSdkModeState, ...state };
@@ -1037,12 +1060,12 @@ function handleRealtimeServerEvent(event) {
     return;
   }
   if (type === "response.done") {
-    endAvatarPcmBridgeRound();
+    const responseId = event.response?.id || event.response_id || activeRealtimeResponseId;
     renderRealtimeQuestionDone(event);
-    avatarSdkEndResponseFeed(event.response?.id || event.response_id || activeRealtimeResponseId);
     realtimeResponseInFlight = false;
     markInterviewerQuestionEnded({ provider: "openai-realtime", turnIndex: currentTurnIndex });
     activeRealtimeResponseId = "";
+    avatarSdkEndResponseFeed(responseId);
   }
 }
 

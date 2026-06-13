@@ -319,7 +319,8 @@ class WebStaticContractTest(unittest.TestCase):
             "PCM16",
             "controller.send(pcm, false)",
             "response.done",
-            "avatarSdkEndResponseFeed",
+            "function avatarSdkBeginResponseFeed",
+            "function avatarSdkEndResponseFeed",
         ]
         for marker in required_activation_markers:
             with self.subTest(marker=marker):
@@ -350,6 +351,7 @@ class WebStaticContractTest(unittest.TestCase):
             ("remoteStream.addTrack(event.track)", "captureRealtimeRemoteAudioTrack(event.track)"),
             ("remoteStream.addTrack(event.track)", "attachRealtimeRemoteAudio(remoteStream)"),
             ("response.done", "markInterviewerQuestionEnded"),
+            ('markInterviewerQuestionEnded({ provider: "openai-realtime"', "avatarSdkEndResponseFeed(responseId)"),
             ("disconnectRealtimeRoom", "realtimeRemoteAudioTrack = null"),
         ]
         for before, after in order_pairs:
