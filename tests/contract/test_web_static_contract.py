@@ -276,11 +276,15 @@ class WebStaticContractTest(unittest.TestCase):
 
         # Any avatar spike must be non-default SDK Mode Web, not the previous
         # AvatarKit RTC/LiveKit bridge. It remains disabled/deferred unless an
-        # explicit SDK Mode feature flag is enabled.
+        # explicit SDK Mode feature flag is enabled, but must accept API-owned
+        # sdk_mode_ready metadata once the token broker succeeds.
         self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED", body)
         self.assertIn("sdk_mode_deferred", body)
+        self.assertIn("sdk_mode_ready", body)
+        self.assertIn("SPATIALREAL_SDK_ACCEPTED_OUTCOMES", body)
         self.assertIn("Avatar disabled/deferred", body)
         self.assertIn("providerSecretsExposed === false", body)
+        self.assertNotIn("sdkMode.outcome === SPATIALREAL_SDK_MODE_OUTCOME", body)
         self.assertIn("rawMediaExposed === false", body)
         self.assertNotIn("experimental-openai-realtime-audio-to-avatar", body)
         self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", body)
