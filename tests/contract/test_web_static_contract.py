@@ -44,10 +44,10 @@ class WebStaticContractTest(unittest.TestCase):
         status, content_type, body = self._get("/")
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
-        self.assertIn("Self-hosted LiveKit", body)
-        self.assertIn("session route", body)
+        self.assertIn("Giljob-E", body)
+        self.assertIn("AI 화상 면접", body)
         self.assertIn('href="/interviews/new"', body)
-        self.assertIn("새 면접 시작", body)
+        self.assertIn("면접 시작하기", body)
         self.assertNotIn('id="join-form"', body)
         self.assertNotIn('src="/app.js"', body)
 
