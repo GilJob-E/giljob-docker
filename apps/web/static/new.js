@@ -80,6 +80,25 @@ function assignToInput(file) {
   }
 }
 
+const jobUrlInput = document.querySelector("#job-url");
+const interviewerSelect = document.querySelector("#interviewer-select");
+const submitLink = document.querySelector(".actions .button-primary");
+
+if (submitLink) {
+  submitLink.addEventListener("click", () => {
+    const cvFileName = fileInput && fileInput.files && fileInput.files[0]
+      ? fileInput.files[0].name
+      : "";
+    const jobUrl = jobUrlInput ? jobUrlInput.value.trim() : "";
+    const interviewer = interviewerSelect
+      ? (interviewerSelect.options[interviewerSelect.selectedIndex]?.text || "")
+      : "";
+    try {
+      sessionStorage.setItem("giljob_new_setup", JSON.stringify({ cvFileName, jobUrl, interviewer }));
+    } catch (_) {}
+  });
+}
+
 if (fileInput && dropzone) {
   fileInput.addEventListener("change", () => {
     renderFile(fileInput.files && fileInput.files[0] ? fileInput.files[0] : null);

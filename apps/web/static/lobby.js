@@ -259,3 +259,24 @@ if (!mediaSupported()) {
   setState(micStatus, "지원 안 됨", "error");
   setState(camStatus, "지원 안 됨", "error");
 }
+
+// ── Session setup summary ─────────────────────────────────────────────────
+(function restoreSessionSetup() {
+  let setup = {};
+  try {
+    const raw = sessionStorage.getItem("giljob_new_setup");
+    if (raw) setup = JSON.parse(raw);
+  } catch (_) {}
+
+  const resumeEl = document.getElementById("summary-resume");
+  const jobEl = document.getElementById("summary-job");
+  const interviewerEl = document.getElementById("summary-interviewer");
+
+  if (resumeEl && setup.cvFileName) resumeEl.textContent = setup.cvFileName;
+  if (jobEl) {
+    if (setup.jobUrl) {
+      jobEl.textContent = setup.jobUrl;
+    }
+  }
+  if (interviewerEl && setup.interviewer) interviewerEl.textContent = setup.interviewer;
+}());
