@@ -2410,7 +2410,8 @@ def build_report(interview_id: str) -> dict[str, object]:
                 "coverage": {"visualMeasurable": visual_measurable},
             },
         }
-        raw = row.get("signals") or {}
+        _sig = row.get("signals")
+        raw = _sig if isinstance(_sig, dict) else {}
         fragment = raw.get("candidateSafePromptFragment")
         raw_critique = (
             fragment.get("text") if isinstance(fragment, dict) else fragment

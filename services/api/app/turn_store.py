@@ -34,7 +34,7 @@ def _visual_measurable(evals: list[dict[str, Any]]) -> bool:
 class TurnStore(Protocol):
     def upsert_question(self, session_id: str, turn_id: int, question: str, metadata: dict[str, Any] | None = None) -> None: ...
     def upsert_answer(self, session_id: str, turn_id: int, answer: str, overwrite: bool = True) -> None: ...
-    def upsert_signals(self, session_id: str, turn_id: int, signals: list[dict[str, Any]], giljobe_ref: object = None) -> None: ...
+    def upsert_signals(self, session_id: str, turn_id: int, signals: dict[str, Any], giljobe_ref: object = None) -> None: ...
     def report_rows(self, session_id: str) -> list[dict[str, Any]]: ...
 
 
@@ -69,10 +69,10 @@ class InMemoryTurnStore:
             if overwrite or not entry.get("answer"):
                 entry["answer"] = answer
 
-    def upsert_signals(self, session_id: str, turn_id: int, signals: list[dict[str, Any]], giljobe_ref: object = None) -> None:
+    def upsert_signals(self, session_id: str, turn_id: int, signals: dict[str, Any], giljobe_ref: object = None) -> None:
         with self._lock:
             self._entry(session_id, turn_id)  # ensure parent turn exists (FK parity)
-            self._signals[(session_id, turn_id)] = {"signals": list(signals), "giljobeRef": giljobe_ref}
+            self._signals[(session_id, turn_id)] = {"signals": signals, "giljobeRef": giljobe_ref}
 
     def report_rows(self, session_id: str) -> list[dict[str, Any]]:
         with self._lock:  # take a consistent snapshot under the lock
@@ -176,16 +176,18 @@ class PostgresTurnStore:
                     (session_id, turn_id, answer),
                 )
 
-    def upsert_signals(self, session_id: str, turn_id: int, signals: list[dict[str, Any]], giljobe_ref: object = None) -> None:
+    def upsert_signals(self, session_id: str, turn_id: int, signals: dict[str, Any], giljobe_ref: object = None) -> None:
         from psycopg.types.json import Json
 
-        rows = list(signals)
         with self._connect() as conn, conn.cursor() as cur:
             # Guarantee the parent turn row exists before inserting signals (FK).
             cur.execute(
                 "INSERT INTO interview_turns (session_id, turn_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 (session_id, turn_id),
             )
+            vs = signals.get("visionSignals") or {}
+            face_seen = float(vs.get("face_seen_ratio") or 0) if isinstance(vs, dict) else 0.0
+            visual_measurable = face_seen > 0
             cur.execute(
                 """
                 INSERT INTO interview_turn_signals
@@ -198,7 +200,7 @@ class PostgresTurnStore:
                               giljobe_ref = EXCLUDED.giljobe_ref,
                               updated_at = now()
                 """,
-                (session_id, turn_id, Json(rows), len(rows), _visual_measurable(rows),
+                (session_id, turn_id, Json(signals), 1, visual_measurable,
                  None if giljobe_ref is None else str(giljobe_ref)),
             )
 

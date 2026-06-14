@@ -451,7 +451,7 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(vad_stop_forward["detail"], {"audioEndMs": 1780, "rawAudioIncluded": False})
         prosody_forward = forwarded[5]
         self.assertEqual(prosody_forward["detail"], {"energy": 0.3, "rawAudioIncluded": False})
-        persisted = pathlib.Path(event_log_path).read_text()
+        persisted = pathlib.Path(event_log_path).read_text(encoding="utf-8")
         self.assertNotIn("bounded candidate answer", persisted)
 
     def test_realtime_vision_events_forward_to_analysis_engine(self) -> None:
@@ -1414,7 +1414,7 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["reason"], "realtime_only")
 
     def test_caddy_keeps_public_tts_blocked_but_allows_api_tts_route(self) -> None:
-        caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text()
+        caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text(encoding="utf-8")
         self.assertIn("@blocked_tts path /tts /tts/* /ai/tts /ai/tts/*", caddyfile)
         self.assertIn("@blocked_avatar path /avatar /avatar/* /ai/avatar /ai/avatar/*", caddyfile)
         self.assertIn("@blocked_ai path /ai /ai/*", caddyfile)
@@ -1495,7 +1495,7 @@ class ApiHttpContractTest(unittest.TestCase):
             _ts_mod._STORE = old_store
 
     def test_compose_removes_ai_engine_and_keeps_analysis_engine_internal_url(self) -> None:
-        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertNotIn("AI_ENGINE_INTERNAL_URL", compose)
         self.assertNotIn("http://ai-engine:8100", compose)
         self.assertNotIn("ai-engine:", compose)

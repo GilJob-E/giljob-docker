@@ -408,7 +408,7 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertEqual(json.loads(body)["error"], "not_found")
 
     def test_browser_smoke_redacts_sensitive_console_output(self) -> None:
-        smoke_script = (REPO_ROOT / "scripts" / "browser-join-smoke.mjs").read_text()
+        smoke_script = (REPO_ROOT / "scripts" / "browser-join-smoke.mjs").read_text(encoding="utf-8")
         self.assertIn("/interviews/local-demo/room", smoke_script)
         self.assertIn("function redactSensitiveText", smoke_script)
         self.assertIn("access_token=<redacted>", smoke_script)
@@ -419,13 +419,13 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("${message.text()}", smoke_script)
 
     def test_smoke_script_does_not_assert_raw_livekit_payload(self) -> None:
-        smoke_script = (REPO_ROOT / "scripts" / "smoke.sh").read_text()
+        smoke_script = (REPO_ROOT / "scripts" / "smoke.sh").read_text(encoding="utf-8")
         self.assertIn("invalid LiveKit candidate token shape", smoke_script)
         self.assertNotIn('payload["livekit"]', smoke_script)
         self.assertNotIn('candidateToken"], payload', smoke_script)
 
     def test_package_keeps_livekit_and_avatarkit_rtc_out_of_default_dependencies(self) -> None:
-        package_json = json.loads((WEB_ROOT / "package.json").read_text())
+        package_json = json.loads((WEB_ROOT / "package.json").read_text(encoding="utf-8"))
         dependencies = package_json.get("dependencies", {})
         optional_dependencies = package_json.get("optionalDependencies", {})
         self.assertNotIn("livekit-client", dependencies)
@@ -437,7 +437,7 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("@spatialwalk/avatarkit-rtc", optional_dependencies)
 
     def test_web_dockerfile_does_not_vendor_livekit_rtc_assets_for_default_path(self) -> None:
-        dockerfile = (WEB_ROOT / "Dockerfile").read_text()
+        dockerfile = (WEB_ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertNotIn("node_modules/livekit-client/dist", dockerfile)
         self.assertNotIn("node_modules/@spatialwalk/avatarkit-rtc/dist", dockerfile)
         if "node_modules/@spatialwalk/avatarkit/dist" in dockerfile:

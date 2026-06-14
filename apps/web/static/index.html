@@ -3,44 +3,43 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>GilJob · 비언어 신호까지 읽는 AI 면접</title>
+    <title>GilJob v2 · Local Interview Media</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="top-nav" aria-label="Primary navigation">
-      <a class="brand" href="#page-title" aria-label="GilJob home">
+      <a class="brand" href="#page-title" aria-label="GilJob v2 home">
         <span class="brand-mark" aria-hidden="true">G</span>
         <span>GilJob</span>
       </a>
-      <nav class="nav-pill-group" aria-label="Interview flow steps">
-        <a class="active">New</a>
-        <a >Lobby</a>
-        <a >Room</a>
-        <a >Report</a>
+      <nav class="nav-pill-group" aria-label="Landing sections">
+        <a class="active" href="#page-title">Home</a>
+        <a href="#architecture-title">Architecture</a>
+        <a href="#next-title">Next</a>
       </nav>
       <div class="nav-actions">
-        <span class="nav-mode">멀티모달 AI 면접</span>
-        <a class="button button-primary nav-cta" href="/interviews/new">새 면접 시작</a>
+        <span class="nav-mode">Local mode</span>
+        <a class="button button-primary nav-cta" href="/interviews/new">New interview</a>
       </div>
     </header>
 
     <main>
       <section class="hero-band landing-hero" aria-labelledby="page-title">
         <div class="hero-copy">
-          <p class="badge-pill">멀티모달 AI 면접 · GilJob</p>
-          <h1 id="page-title">살아있는 면접관<br />GilJob-E</h1>
+          <p class="badge-pill">Self-hosted LiveKit · GilJob v2</p>
+          <h1 id="page-title">면접은 session route로<br />진행합니다</h1>
           <p class="lede">
-            GilJob은 AI 면접관과 실시간 화상 면접을 진행하고, 표정·음성·답변을 함께 분석해 지원자의 성향까지
-            구조화된 리포트로 정리합니다. 사람이 놓치는 비언어 신호를 해석해, 더 공정하고 일관된 평가를 돕습니다.
+            메인 페이지는 제품의 입구와 현재 아키텍처를 보여주고, 실제 LiveKit join/leave와 camera preview는
+            production-style `/interviews/:id/*` 흐름에서 실행합니다. landing, lobby, room, report를 분리합니다.
           </p>
           <div class="hero-actions" aria-label="Primary actions">
             <a class="button button-primary" href="/interviews/new">새 면접 시작</a>
-            <a class="button button-secondary" href="#capability-title">기능 살펴보기</a>
+            <a class="button button-secondary" href="#architecture-title">아키텍처 보기</a>
           </div>
-          <div class="trust-row" aria-label="Key guarantees">
-            <span>멀티모달 평가</span>
-            <span>비언어 신호 분석</span>
-            <span>일관된 평가 기준</span>
+          <div class="trust-row" aria-label="Current guarantees">
+            <span>Token hidden</span>
+            <span>Self-hosted</span>
+            <span>Session route</span>
           </div>
         </div>
 
@@ -50,84 +49,78 @@
           </div>
           <div class="mockup-header">
             <div>
-              <p class="mockup-kicker">Live interview</p>
-              <h2 id="room-card-title">AI 면접관과 화상 면접</h2>
+              <p class="mockup-kicker">Interview entry</p>
+              <h2 id="room-card-title">Production interview flow</h2>
             </div>
-            <span class="status">분석 중</span>
+            <span class="status">Ready</span>
           </div>
           <div class="landing-room-preview" aria-hidden="true">
             <div class="mini-video-tile primary">
               <span class="avatar-circle">C</span>
-              <strong>지원자</strong>
-              <small>표정 · 음성 신호 분석</small>
+              <strong>Candidate</strong>
+              <small>camera preview</small>
             </div>
             <div class="mini-video-tile">
               <span class="bot-orb small">G</span>
-              <strong>AI 면접관</strong>
-              <small>실시간 질문 · 음성</small>
+              <strong>Interviewer bot</strong>
+              <small>placeholder</small>
             </div>
           </div>
-          <p class="note">면접이 진행되는 동안 영상·음성·답변 텍스트가 함께 분석되어 성향 신호로 정리됩니다.</p>
-          <a class="button button-primary full-width" href="/interviews/new">지금 면접 시작하기</a>
+          <p class="note">실제 브라우저 media permission과 LiveKit connect는 `/interviews/:id/room`에서만 시작됩니다.</p>
+          <a class="button button-primary full-width" href="/interviews/new">Production flow로 이동</a>
         </section>
       </section>
 
-      <section class="section-heading landing-section-heading" aria-labelledby="capability-title">
-        <p class="badge-pill muted-pill">기능</p>
-        <h2 id="capability-title">GilJob-E 에서는 </h2>
-      </section>
-
-      <section class="feature-band" aria-label="Core capabilities">
+      <section class="feature-band" aria-label="Current slice guarantees">
         <article class="feature-card">
           <span class="feature-icon">01</span>
-          <h3>비언어 신호까지 읽는 멀티모달 평가</h3>
-          <p>표정(영상), 음성 톤(오디오), 답변 내용(텍스트)을 함께 분석합니다. 단순한 답변 정확도를 넘어, 사람이 놓치기 쉬운 비언어 신호로 평가 근거를 만듭니다.</p>
+          <h3>Landing과 Room을 분리합니다</h3>
+          <p>메인 페이지는 설명과 진입 CTA만 담당하고, 실시간 media UI는 `/interviews/:id/room`에서만 실행합니다.</p>
         </article>
         <article class="feature-card">
           <span class="feature-icon">02</span>
-          <h3>AI 면접관과 실시간 화상 면접</h3>
-          <p>AI가 직무 맥락에 맞춰 질문을 생성하고, 음성과 아바타로 실제 사람과 대화하듯 면접을 이끌어 갑니다. 지원자는 언제 어디서든 동일한 조건으로 면접을 봅니다.</p>
+          <h3>LiveKit은 로컬 self-hosted입니다</h3>
+          <p>LiveKit Cloud가 아니라 `kiostation`의 로컬 compose stack과 브라우저 direct media port를 사용합니다.</p>
         </article>
         <article class="feature-card">
           <span class="feature-icon">03</span>
-          <h3>모든 지원자에게 같은 면접</h3>
-          <p>면접관의 컨디션이나 주관에 따라 평가가 흔들리지 않습니다. 모든 지원자가 같은 질문 흐름과 같은 분석 기준으로 면접을 보기 때문에, 결과를 동일한 기준에서 비교할 수 있습니다.</p>
+          <h3>원시 토큰은 노출하지 않습니다</h3>
+          <p>room page에서도 candidate/session/report token은 화면과 로그에 직접 렌더링하지 않습니다.</p>
         </article>
       </section>
 
-      <section class="product-grid" aria-label="How it works">
-        <section class="product-mockup-card" aria-labelledby="evaluation-title">
+      <section class="product-grid" aria-label="Product details">
+        <section class="product-mockup-card" aria-labelledby="architecture-title">
           <div class="section-heading">
-            <p class="badge-pill muted-pill">평가 방식</p>
-            <h2 id="evaluation-title">신호를 성향으로</h2>
+            <p class="badge-pill muted-pill">Architecture</p>
+            <h2 id="architecture-title">현재 연결 구조</h2>
           </div>
-          <p class="note">한 번의 면접에서 세 가지 모달리티를 모아 지원자의 성향 프로필을 산출합니다.</p>
           <ol class="pipeline-list">
-            <li><span>표정·시선 신호</span><small>영상 분석</small></li>
-            <li><span>음성 운율·톤</span><small>오디오 분석</small></li>
-            <li><span>답변 의미</span><small>STT 텍스트 분석</small></li>
-            <li class="active"><span>성향 프로필</span><small>정직·정서성·원만성·성실성</small></li>
+            <li><span>Landing page</span><small>`/` · 설명/진입</small></li>
+            <li><span>New interview</span><small>`/interviews/new` · setup</small></li>
+            <li><span>Lobby</span><small>`/interviews/:id/lobby` · pre-join</small></li>
+            <li class="active"><span>Interview Room</span><small>`/interviews/:id/room` · LiveKit join</small></li>
+            <li><span>Report</span><small>`/interviews/:id/report` · placeholder</small></li>
+            <li><span>Self-hosted LiveKit</span><small>ws://127.0.0.1:7880 via tunnel</small></li>
           </ol>
         </section>
 
-        <section class="product-mockup-card" aria-labelledby="flow-title">
+        <section class="product-mockup-card" aria-labelledby="next-title">
           <div class="section-heading">
-            <p class="badge-pill muted-pill">면접 흐름</p>
-            <h2 id="flow-title">준비부터 리포트까지</h2>
+            <p class="badge-pill muted-pill">Next</p>
+            <h2 id="next-title">다음에 붙일 것</h2>
           </div>
-          <p class="note">처음 면접 보는 지원자도 전체 흐름을 한눈에 확인 해 보세요.</p>
           <ol class="pipeline-list">
-            <li><span>면접 준비</span><small>직무·지원 정보 입력</small></li>
-            <li><span>입장 전 점검</span><small>카메라·마이크 확인</small></li>
-            <li class="active"><span>면접 진행</span><small>질문에 답변</small></li>
-            <li><span>결과 리포트</span><small>면접 후 평가 확인</small></li>
+            <li><span>Interviewer bot participant</span><small>room에 면접관 존재감 추가</small></li>
+            <li><span>Main LLM question loop</span><small>질문/답변 상태 연결</small></li>
+            <li><span>Transcript and signals</span><small>답변 transcript, multimodal signal</small></li>
           </ol>
         </section>
       </section>
 
-      <section class="cta-band-light" aria-label="Start an interview">
-        <h2>지금 바로 AI 면접을 경험해 보세요</h2>
-        <p>새 면접 세션을 만들면 입장 전 점검을 거쳐 AI 면접관과의 화상 면접으로 이어집니다.</p>
+      <section class="cta-band-light" aria-label="Open interview room">
+        <h2>실제 테스트는 production route에서 합니다</h2>
+        <p>아래로 스크롤해서 room shell을 찾는 대신, `/interviews/new`에서 시작해 lobby와 room으로 이동합니다.</p>
         <a class="button button-primary" href="/interviews/new">새 면접 시작</a>
       </section>
     </main>
@@ -135,17 +128,16 @@
     <footer class="footer">
       <div class="footer-inner">
         <div>
-          <a class="brand footer-brand" href="#page-title" aria-label="GilJob home">
+          <a class="brand footer-brand" href="#page-title" aria-label="GilJob v2 home">
             <span class="brand-mark" aria-hidden="true">G</span>
             <span>GilJob</span>
           </a>
-          <p>비언어 신호까지 읽는 AI 면접. 표정·음성·답변을 함께 분석해 더 공정한 평가를 돕습니다.</p>
+          <p>Local self-hosted LiveKit interview room scaffold for GilJob v2.</p>
         </div>
         <div class="footer-links" aria-label="Footer links">
-          <a href="/interviews/new">새 면접</a>
-          <a href="#capability-title">기능</a>
-          <a href="#evaluation-title">평가 방식</a>
-          <a href="#flow-title">면접 흐름</a>
+          <a href="/interviews/new">New</a>
+          <a href="#architecture-title">Architecture</a>
+          <a href="#next-title">Next</a>
           <a href="https://github.com/GilJob-E/giljob-docker">GitHub</a>
         </div>
       </div>
