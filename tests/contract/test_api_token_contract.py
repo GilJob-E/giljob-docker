@@ -258,10 +258,13 @@ class TokenContractTest(unittest.TestCase):
             restore_env(old_env)
 
     def test_postgres_schema_contains_hash_only_contract(self) -> None:
-        schema = (REPO_ROOT / "services" / "api" / "db" / "schema.sql").read_text()
+        schema = (REPO_ROOT / "services" / "api" / "db" / "schema.sql").read_text(encoding="utf-8")
         self.assertIn("session_token_hash TEXT NOT NULL", schema)
         self.assertIn("report_token_hash TEXT NOT NULL", schema)
         self.assertIn("state_version INTEGER NOT NULL DEFAULT 1", schema)
+        self.assertIn("topic TEXT", schema)
+        self.assertIn("hashimoto_as_of_turn_id TEXT", schema)
+        self.assertIn("hashimoto_topic_changed BOOLEAN NOT NULL DEFAULT FALSE", schema)
         self.assertNotIn("session_token TEXT", schema)
         self.assertNotIn("report_token TEXT", schema)
 

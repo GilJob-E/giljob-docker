@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from http.server import ThreadingHTTPServer
 import importlib.util
@@ -44,10 +44,10 @@ class WebStaticContractTest(unittest.TestCase):
         status, content_type, body = self._get("/")
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
-        self.assertIn("Self-hosted LiveKit", body)
-        self.assertIn("session route", body)
+        self.assertIn("Giljob-E", body)
+        self.assertIn("AI 화상 면접", body)
         self.assertIn('href="/interviews/new"', body)
-        self.assertIn("새 면접 시작", body)
+        self.assertIn("면접 시작하기", body)
         self.assertNotIn('id="join-form"', body)
         self.assertNotIn('src="/app.js"', body)
 
@@ -56,7 +56,7 @@ class WebStaticContractTest(unittest.TestCase):
             "/interviews/new": ["Production flow · Step 1", "local-demo", "CV upload"],
             "/interviews/prod-demo_01/lobby": ["Production flow · Step 2", "Pre-join lobby", "Device check"],
             "/interviews/prod-demo_01/room": ["production-room-shell", "light-media-room-shell", "room-context-drawer", "avatar-surface", 'src="/app.js"'],
-            "/interviews/prod-demo_01/report": ["Production flow · Step 4", "리포트 placeholder", "Background analysis"],
+            "/interviews/prod-demo_01/report": ["Production flow · Step 4", "면접 리포트", "비언어 종합"],
         }
         for path, expected_strings in route_expectations.items():
             with self.subTest(path=path):
@@ -105,9 +105,11 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn('class="question-answer-panel-region"', body)
         self.assertLess(body.index('class="panel-card coach-card"'), body.index('class="question-answer-panel-region"'))
         self.assertLess(body.index('id="current-question-title"'), body.index('id="transcript-body"'))
-        self.assertIn("mmm-debug-summary", body)
-        self.assertIn("Operator MMM debug", body)
-        self.assertIn("readiness/response", body)
+        self.assertNotIn("mmm-debug-summary", body)
+        self.assertNotIn("Operator MMM debug", body)
+        self.assertIn('id="debug-drawer"', body)
+        self.assertIn('id="toggle-debug-drawer"', body)
+        self.assertIn('aria-controls="debug-drawer"', body)
         self.assertIn("interviewer-question-text", body)
         self.assertIn("avatar-surface", body)
         self.assertIn("avatar-status-text", body)
@@ -145,8 +147,8 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertRegex(body, r"\.drawer-panel-stack\s*\{[^}]*grid-template-rows: minmax\(0, 1fr\) minmax\(0, 2fr\);")
         self.assertRegex(body, r"\.question-answer-panel-region\s*\{[^}]*overflow-y: auto;")
         self.assertIn("#current-question-body,\n#transcript-body,\n#coach-feedback-body,\n.coach-feedback-list", body)
-        self.assertIn(".mmm-debug-summary {", body)
-        self.assertIn("max-height: min(34vh, 360px);", body)
+        self.assertNotIn(".mmm-debug-summary {", body)
+        self.assertNotIn("max-height: min(34vh, 360px);", body)
         self.assertIn(".room-debug-drawer details {", body)
         self.assertIn("overscroll-behavior: contain;", body)
         self.assertNotIn("right: 24px;", body)
@@ -201,13 +203,11 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("candidate-answer-ended-browser-clean-boundary", body)
         self.assertIn("API sideband", body)
         self.assertIn("browser analysis control disabled", body)
-        self.assertIn("const mmmDebugSummary", body)
-        self.assertIn("function renderMmmDebug", body)
+        self.assertNotIn("mmmDebugSummary", body)
+        self.assertNotIn("renderMmmDebug", body)
         self.assertIn("isForbiddenDebugKey", body)
         self.assertIn("/mmm-ready", body)
         self.assertIn("/realtime/response", body)
-        self.assertIn("analysisResult.confidence", body)
-        self.assertIn("analysisEngine.endpoint", body)
         self.assertIn("captureInternalVisionFrame", body)
         self.assertIn("visionFrame", body)
         self.assertIn("internalVisionFrameIncluded", body)
@@ -251,6 +251,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("aria-pressed", body)
         self.assertIn("setContextDrawerOpen", body)
         self.assertIn("toggle-context-drawer", body)
+        self.assertIn("setDebugDrawerOpen", body)
+        self.assertIn("toggle-debug-drawer", body)
+        self.assertIn("toggleDebugDrawer", body)
         self.assertIn("aria-expanded", body)
         self.assertIn("function redactSensitiveText", body)
         self.assertIn("access_token=<redacted>", body)
@@ -433,7 +436,7 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertEqual(json.loads(body)["error"], "not_found")
 
     def test_browser_smoke_redacts_sensitive_console_output(self) -> None:
-        smoke_script = (REPO_ROOT / "scripts" / "browser-join-smoke.mjs").read_text()
+        smoke_script = (REPO_ROOT / "scripts" / "browser-join-smoke.mjs").read_text(encoding="utf-8")
         self.assertIn("/interviews/local-demo/room", smoke_script)
         self.assertIn("function redactSensitiveText", smoke_script)
         self.assertIn("access_token=<redacted>", smoke_script)
@@ -444,13 +447,13 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("${message.text()}", smoke_script)
 
     def test_smoke_script_does_not_assert_raw_livekit_payload(self) -> None:
-        smoke_script = (REPO_ROOT / "scripts" / "smoke.sh").read_text()
+        smoke_script = (REPO_ROOT / "scripts" / "smoke.sh").read_text(encoding="utf-8")
         self.assertIn("invalid LiveKit candidate token shape", smoke_script)
         self.assertNotIn('payload["livekit"]', smoke_script)
         self.assertNotIn('candidateToken"], payload', smoke_script)
 
     def test_package_keeps_livekit_and_avatarkit_rtc_out_of_default_dependencies(self) -> None:
-        package_json = json.loads((WEB_ROOT / "package.json").read_text())
+        package_json = json.loads((WEB_ROOT / "package.json").read_text(encoding="utf-8"))
         dependencies = package_json.get("dependencies", {})
         optional_dependencies = package_json.get("optionalDependencies", {})
         self.assertNotIn("livekit-client", dependencies)
@@ -462,7 +465,7 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("@spatialwalk/avatarkit-rtc", optional_dependencies)
 
     def test_web_dockerfile_does_not_vendor_livekit_rtc_assets_for_default_path(self) -> None:
-        dockerfile = (WEB_ROOT / "Dockerfile").read_text()
+        dockerfile = (WEB_ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertNotIn("node_modules/livekit-client/dist", dockerfile)
         self.assertNotIn("node_modules/@spatialwalk/avatarkit-rtc/dist", dockerfile)
         if "node_modules/@spatialwalk/avatarkit/dist" in dockerfile:

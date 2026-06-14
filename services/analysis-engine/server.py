@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """GilJobE analysis-engine entrypoint with GilJob v2 Realtime MMM ingress.
 
 GilJobE still owns the STT/subscriber HTTP contract. This wrapper builds the
@@ -973,6 +973,8 @@ async def _realtime_turn_results(req: web.Request) -> web.Response:
             "turnIndex": int(turn_index) if turn_index.isdigit() else None,
             "candidatePromptFragment": render_prompt_fragment(handoff),
             "coverage": (handoff.get("meta") or {}).get("coverage"),
+            "speechLane": handoff.get("speech"),
+            "visualLane": handoff.get("visual"),
             "rawTranscriptLogged": False,
             "rawMediaAccepted": False,
         },

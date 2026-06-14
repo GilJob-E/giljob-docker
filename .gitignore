@@ -1,4 +1,4 @@
-# Local secrets and machine-specific runtime files
+﻿# Local secrets and machine-specific runtime files
 .env
 .env.*
 .env_*

@@ -1,4 +1,4 @@
-const form = document.querySelector("#join-form");
+﻿const form = document.querySelector("#join-form");
 const createButton = document.querySelector("#create-session");
 const joinButton = document.querySelector("#join-room");
 const leaveButton = document.querySelector("#leave-room");
@@ -24,6 +24,8 @@ const interviewRouteLabel = document.querySelector("#interview-route-label");
 const contextDrawer = document.querySelector("#room-context-drawer");
 const toggleContextDrawerButton = document.querySelector("#toggle-context-drawer");
 const closeContextDrawerButton = document.querySelector("#close-context-drawer");
+const debugDrawer = document.querySelector("#debug-drawer");
+const toggleDebugDrawerButton = document.querySelector("#toggle-debug-drawer");
 const currentQuestionTitle = document.querySelector("#current-question-title");
 const currentQuestionBody = document.querySelector("#current-question-body");
 const interviewerQuestionText = document.querySelector("#interviewer-question-text");
@@ -38,7 +40,6 @@ const transcriptBody = document.querySelector("#transcript-body");
 const coachFeedbackTitle = document.querySelector("#coach-feedback-title");
 const coachFeedbackBody = document.querySelector("#coach-feedback-body");
 const coachFeedbackList = document.querySelector("#coach-feedback-list");
-const mmmDebugSummary = document.querySelector("#mmm-debug-summary");
 
 let activeSession = null;
 let localPreviewStream = null;
@@ -171,6 +172,22 @@ function setContextDrawerOpen(isOpen) {
 
 function toggleContextDrawer() {
   setContextDrawerOpen(Boolean(contextDrawer?.hidden));
+}
+
+function setDebugDrawerOpen(isOpen) {
+  if (!debugDrawer) {
+    return;
+  }
+  debugDrawer.hidden = !isOpen;
+  debugDrawer.setAttribute("aria-hidden", String(!isOpen));
+  if (toggleDebugDrawerButton) {
+    toggleDebugDrawerButton.setAttribute("aria-expanded", String(isOpen));
+    toggleDebugDrawerButton.textContent = isOpen ? "디버그 닫기" : "디버그";
+  }
+}
+
+function toggleDebugDrawer() {
+  setDebugDrawerOpen(Boolean(debugDrawer?.hidden));
 }
 
 function appendLog(message) {
@@ -1247,7 +1264,6 @@ async function requestApiRealtimeResponse(reason = "manual", turnIndex = current
     }),
   });
   const payload = await response.json().catch(() => ({}));
-  renderMmmDebug("/realtime/response", payload);
   if (!response.ok) {
     throw new Error(payload.message || payload.error || `request failed: HTTP ${response.status}`);
   }
@@ -1376,7 +1392,6 @@ async function waitForFullMmmReady(turnIndex) {
   for (let attempt = 0; attempt < FULL_MMM_READY_MAX_ATTEMPTS; attempt += 1) {
     const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
     const payload = await response.json().catch(() => ({}));
-    renderMmmDebug("/mmm-ready", payload);
     if (response.ok && payload.full_mmm_ready === true) {
       await postRealtimeTurnEvent("analysis.full_mmm.ready", { ready: true, source: "api" }, turnIndex);
       appendLog(`full_mmm_ready received for turn ${turnIndex}; next Realtime audio allowed`);
@@ -1860,49 +1875,6 @@ function firstDebugValue(...values) {
   return "-";
 }
 
-function renderMmmDebug(source, payload = {}) {
-  if (!mmmDebugSummary) {
-    return;
-  }
-  const readiness = payload?.readiness && typeof payload.readiness === "object" ? payload.readiness : payload;
-  const responseCreate = payload?.responseCreate && typeof payload.responseCreate === "object" ? payload.responseCreate : {};
-  const analysisEngine = (payload?.analysisEngine && typeof payload.analysisEngine === "object")
-    ? payload.analysisEngine
-    : (readiness?.analysisEngine && typeof readiness.analysisEngine === "object" ? readiness.analysisEngine : {});
-  const analysisResult = (payload?.analysisResult && typeof payload.analysisResult === "object")
-    ? payload.analysisResult
-    : (readiness?.analysisResult && typeof readiness.analysisResult === "object" ? readiness.analysisResult : {});
-  const rows = [
-    ["source", source],
-    ["interviewId", payload?.interviewId || readiness?.interviewId],
-    ["turnIndex", payload?.turnIndex || readiness?.turnIndex],
-    ["analysisTurnIndex", payload?.analysisTurnIndex || readiness?.analysisTurnIndex],
-    ["readiness.full_mmm_ready", readiness?.full_mmm_ready],
-    ["readiness.state", readiness?.state || readiness?.status],
-    ["readiness.reasonCodes", safeDebugJson(readiness?.reasonCodes || (readiness?.reason ? [readiness.reason] : []))],
-    ["readiness.lanes", safeDebugJson(readiness?.lanes || {})],
-    ["responseCreate.created", responseCreate.created],
-    ["responseCreate.reason", responseCreate.reason || responseCreate.commandType],
-    ["analysisEngine.endpoint", analysisEngine.endpoint],
-    ["analysisEngine.status", analysisEngine.status],
-    ["analysisEngine.error", analysisEngine.error],
-    ["analysisResult.status", analysisResult.status],
-    ["analysisResult.summary", analysisResult.publicSummary || analysisResult.summary],
-    ["analysisResult.guidance", analysisResult.publicGuidance || analysisResult.guidance],
-    ["analysisResult.coverage", safeDebugJson(analysisResult.coverage || {})],
-    ["analysisResult.confidence", analysisResult.confidence],
-    ["analysisResult.latency", analysisResult.latencyMs || analysisResult.latency],
-  ];
-  mmmDebugSummary.replaceChildren(...rows.map(([label, value]) => {
-    const row = document.createElement("div");
-    const term = document.createElement("dt");
-    const detail = document.createElement("dd");
-    term.textContent = label;
-    detail.textContent = typeof value === "string" && value ? value : firstDebugValue(value);
-    row.append(term, detail);
-    return row;
-  }));
-}
 
 function analysisSessionId() {
   return activeSession?.sessionId || activeInterviewId;
@@ -1961,6 +1933,11 @@ function renderRealtimeQuestionDone(event) {
     turnIndex: currentTurnIndex,
     provider: "openai-realtime",
   });
+  if (question && isRealtimePrimary()) {
+    postRealtimeTurnEvent("interviewer.question.completed", { question }, currentTurnIndex).catch(
+      (err) => appendLog(`interviewer question store failed: ${errorMessage(err)}`)
+    );
+  }
   realtimeInterviewerQuestionTranscript = "";
 }
 
@@ -2388,6 +2365,7 @@ toggleMicButton?.addEventListener("click", handleToggleMicClick);
 toggleCameraButton?.addEventListener("click", toggleCamera);
 toggleContextDrawerButton?.addEventListener("click", toggleContextDrawer);
 closeContextDrawerButton?.addEventListener("click", () => setContextDrawerOpen(false));
+toggleDebugDrawerButton?.addEventListener("click", toggleDebugDrawer);
 document.addEventListener("giljob:interviewer-question-started", () => {
   if (!micEnabled) {
     setAnswerTurnAvailability(false, "interviewer question started; answer button disabled");
