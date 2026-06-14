@@ -1487,8 +1487,9 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
     const completedTurnIndex = currentTurnIndex;
     micEnabled = false;
     setAnswerTurnAvailability(false, "candidate answer ending; waiting for transcript/MMM gate");
-    await restartPreviewStream();
+    syncMediaUi();
     await applyRealtimeMediaState();
+    await syncCameraPreviewForCameraState("answer-end-camera-preserve");
     const transcriptReady = await waitForRealtimeTranscriptCompletion();
     if (!transcriptReady) {
       renderTranscriptStatus("Realtime 전사 결과가 없습니다. 마이크 입력/브라우저 권한/무음 상태를 확인한 뒤 다시 답변해 주세요.");
@@ -2087,7 +2088,7 @@ function syncMediaUi() {
   setButtonPressed(toggleMicButton, micEnabled, "답변 종료", "답변 시작");
   syncAnswerTurnButton();
   setButtonPressed(toggleCameraButton, cameraEnabled, "Camera on", "Camera off");
-  const hasCameraPreview = Boolean(cameraEnabled && localPreviewStream);
+  const hasCameraPreview = Boolean(cameraEnabled && hasLiveCameraPreviewStream());
   if (localPreviewVideo) {
     localPreviewVideo.hidden = !hasCameraPreview;
   }
@@ -2110,6 +2111,22 @@ function syncMediaUi() {
   }
 }
 
+function hasLiveCameraPreviewStream() {
+  return Boolean(localPreviewStream?.getVideoTracks?.().some((track) => track.readyState !== "ended"));
+}
+
+function attachCameraPreviewStream(stream = localPreviewStream) {
+  if (!stream) {
+    return;
+  }
+  if (localPreviewVideo && localPreviewVideo.srcObject !== stream) {
+    localPreviewVideo.srcObject = stream;
+  }
+  if (candidateRoomVideo && candidateRoomVideo.srcObject !== stream) {
+    candidateRoomVideo.srcObject = stream;
+  }
+}
+
 function stopPreviewStream() {
   if (!localPreviewStream) {
     return;
@@ -2124,44 +2141,46 @@ function stopPreviewStream() {
   }
 }
 
-async function restartPreviewStream() {
-  stopPreviewStream();
-  if (!micEnabled && !cameraEnabled) {
+async function syncCameraPreviewForCameraState(reason = "camera-state") {
+  if (!cameraEnabled) {
+    const hadPreview = Boolean(localPreviewStream);
+    stopPreviewStream();
     syncMediaUi();
-    appendLog("local preview stopped; mic/camera off");
-    return;
+    if (hadPreview) {
+      appendLog(`camera preview stopped; reason=${reason}; Realtime audio track preserved`);
+    }
+    return null;
+  }
+  if (hasLiveCameraPreviewStream()) {
+    attachCameraPreviewStream();
+    syncMediaUi();
+    appendLog(`camera preview reused; reason=${reason}; no video getUserMedia restart`);
+    return localPreviewStream;
   }
   if (!navigator.mediaDevices?.getUserMedia) {
-    micEnabled = false;
     cameraEnabled = false;
     syncMediaUi();
     throw new Error("browser media permissions are not available");
   }
 
-  setStatus("requesting media permission...", "connecting");
+  setStatus("requesting camera permission...", "connecting");
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: micEnabled,
-    video: cameraEnabled ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+    audio: false,
+    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
   });
   localPreviewStream = stream;
-  if (cameraEnabled) {
-    if (localPreviewVideo) {
-      localPreviewVideo.srcObject = stream;
-    }
-    if (candidateRoomVideo) {
-      candidateRoomVideo.srcObject = stream;
-    }
-  }
+  attachCameraPreviewStream(stream);
   syncMediaUi();
   setStatus("preview ready", activeRealtimeSession ? "connected" : "idle");
-  appendLog(`candidate answer turn ${micEnabled ? "started" : "idle"}; camera ${cameraEnabled ? "on" : "off"}; tokens hidden`);
+  appendLog(`camera preview started; reason=${reason}; answer ${micEnabled ? "recording" : "idle"}; tokens hidden`);
+  return stream;
 }
 
 async function startPreview() {
-  if (!micEnabled && !cameraEnabled) {
+  if (!cameraEnabled) {
     cameraEnabled = true;
   }
-  await restartPreviewStream();
+  await syncCameraPreviewForCameraState("preview-button");
 }
 
 async function applyMediaStateToRoom() {
@@ -2196,8 +2215,9 @@ async function finishAnswerAndRequestNextQuestion() {
     return;
   }
   micEnabled = false;
-  await restartPreviewStream();
+  syncMediaUi();
   await applyMediaStateToRoom();
+  await syncCameraPreviewForCameraState("legacy-answer-end-camera-preserve");
   renderTranscriptStatus("답변 종료. 브라우저 전사 주입 없이 다음 질문을 요청합니다.");
   lastAnswerTranscript = "브라우저 전사 주입 없음; 서버 분석 경계가 답변 evidence를 처리합니다.";
   lastAnalysisBlock = "";
@@ -2215,8 +2235,9 @@ async function toggleMic() {
   try {
     if (!micEnabled) {
       micEnabled = true;
-      await restartPreviewStream();
+      syncMediaUi();
       await applyMediaStateToRoom();
+      await syncCameraPreviewForCameraState("answer-start-camera-preserve");
       await startAnswerCapture();
       return;
     }
@@ -2224,8 +2245,8 @@ async function toggleMic() {
   } catch (error) {
     const message = errorMessage(error);
     micEnabled = false;
-    stopPreviewStream();
     syncMediaUi();
+    await applyMediaStateToRoom().catch((stateError) => appendLog(`answer failure media state sync failed: ${errorMessage(stateError)}`));
     setStatus(`answer turn failed: ${message}`, "error");
     appendLog(`answer turn failed: ${message}`);
   }
@@ -2251,11 +2272,10 @@ function handleToggleMicClick(event) {
 async function toggleCamera() {
   cameraEnabled = !cameraEnabled;
   try {
-    await restartPreviewStream();
+    await syncCameraPreviewForCameraState("camera-toggle");
     await applyMediaStateToRoom();
   } catch (error) {
     const message = errorMessage(error);
-    micEnabled = false;
     cameraEnabled = false;
     stopPreviewStream();
     syncMediaUi();

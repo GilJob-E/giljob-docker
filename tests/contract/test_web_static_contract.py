@@ -382,6 +382,31 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("AvatarPlayer.publishAudio", body)
         self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", body)
 
+
+    def test_app_js_preserves_camera_preview_across_answer_toggles(self) -> None:
+        body = (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("function hasLiveCameraPreviewStream", body)
+        self.assertIn("function attachCameraPreviewStream", body)
+        self.assertIn("syncCameraPreviewForCameraState", body)
+        self.assertIn("no video getUserMedia restart", body)
+        self.assertIn("Realtime audio track preserved", body)
+
+        start = body.index("async function syncCameraPreviewForCameraState")
+        end = body.index("async function startPreview", start)
+        camera_sync = body[start:end]
+        self.assertIn("navigator.mediaDevices.getUserMedia", camera_sync)
+        self.assertIn("audio: false", camera_sync)
+        self.assertIn("video: { width: { ideal: 1280 }, height: { ideal: 720 } }", camera_sync)
+
+        realtime_finish = body[body.index("async function finishRealtimeAnswerAndRequestNextQuestion"):body.index("function renderAvatarRtcEgressStatus")]
+        toggle_mic = body[body.index("async function toggleMic"):body.index("function rememberAnswerTogglePointerDown")]
+        self.assertNotIn("restartPreviewStream", realtime_finish)
+        self.assertNotIn("stopPreviewStream", realtime_finish)
+        self.assertNotIn("restartPreviewStream", toggle_mic)
+        self.assertNotIn("stopPreviewStream", toggle_mic)
+        self.assertIn("applyRealtimeMediaState", realtime_finish)
+        self.assertIn("applyMediaStateToRoom", toggle_mic)
+
     def test_app_js_realtime_lifecycle_order_matrix_is_explicit(self) -> None:
         body = (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8")
         order_pairs = [
