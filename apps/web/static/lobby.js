@@ -150,8 +150,7 @@ async function populateMicDevices() {
 
 async function startMic(deviceId) {
   if (!mediaSupported()) {
-    const msg = window.isSecureContext === false ? "HTTPS 필요 (현재 HTTP)" : "지원 안 됨";
-    setState(micStatus, msg, "error");
+    setState(micStatus, "지원 안 됨", "error");
     return;
   }
   setState(micStatus, "권한 요청 중", "connecting");
