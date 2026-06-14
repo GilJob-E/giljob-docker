@@ -32,7 +32,7 @@ HTTP contract served on `:8200` (Caddy prefixes `/analysis` externally; internal
 | `GET` | `/realtime/turn-events?sessionId=&turnIndex=` | Inspect the in-memory tail of accepted sideband records for smoke/debug only. |
 | `GET` | `/healthz` `/readyz` | Liveness / readiness (token-safe, never prints secrets). |
 
-The priority-1 Realtime architecture is **answer → analysis-engine `turnHandoff` → API `response.create` → OpenAI Realtime output**. Analysis-engine owns the GilJobE signal/handoff boundary; the API forwards lifecycle/sideband events and consumes only the candidate-safe fragment projected from `turnHandoff`. `/subscriber/start|stop` remains a legacy compatibility surface and is not an ordinary Realtime main-path fallback.
+The priority-1 Realtime architecture is **answer → analysis-engine `turnHandoff` → Hashimoto strategy adapter → API `response.create` → OpenAI Realtime output**. Analysis-engine owns the GilJobE signal/handoff boundary; the API forwards lifecycle/sideband events, consumes only the candidate-safe fragment projected from `turnHandoff`, and may merge candidate-safe Hashimoto strategy guidance. `/subscriber/start|stop` remains a legacy compatibility surface and is not an ordinary Realtime main-path fallback.
 
 ## Status
 

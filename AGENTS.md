@@ -24,7 +24,7 @@ GilJob v2 is a self-hosted AI interview scaffold for a single-server, multi-cont
 ## Module map
 - `apps/web/`: browser UI, production interview routes, OpenAI Realtime WebRTC client flow, manual answer controls, visible/log redaction, and SpatialReal SDK Mode Web UI states.
 - `services/api/`: session/report token issuing, hash-only records, OpenAI Realtime session/call broker, Realtime turn/MMM sideband routes, API-owned SpatialReal SDK token broker/metadata, and security contracts.
-- `services/analysis-engine/`: GilJobE-backed STT and multimodal analysis boundary; `server.py` builds GilJobE's HTTP app and adds `/realtime/turn-events` for sanitized Realtime MMM sideband ingress. This service remains the exact-turn MMM/RNAS source of truth.
+- `services/analysis-engine/`: GilJobE-backed STT and multimodal analysis boundary; `server.py` builds GilJobE's HTTP app and adds `/realtime/turn-events` for sanitized Realtime MMM sideband ingress. This service remains the exact-turn MMM analysis source of truth.
 - `services/agent1/`: future multimodal placeholder; structured signal boundary only.
 - `infra/`: Docker Compose, Caddy, optional LiveKit/coturn media overlay files, Postgres, and single-server deployment wiring. The default runtime services are API, Web, analysis-engine, agent1, Postgres, and Redis profile only when enabled.
 - `tests/`: contract and integration test guidance.

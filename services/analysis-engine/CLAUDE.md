@@ -5,7 +5,7 @@ Read the local `AGENTS.md` first.
 Claude reminders:
 - This container runs the local `server.py` entrypoint, which builds GilJobE's own HTTP app and adds
   GilJob-v2 Realtime sideband/fragment routes: `/realtime/turn-events` and `/realtime/turn-results`.
-- Owns the priority-1 answer → analysis-engine `turnHandoff` → API `response.create` → OpenAI Realtime output boundary. Legacy `/subscriber/start|stop` and `/signals` remain compatibility surfaces only.
+- Owns the priority-1 answer → analysis-engine `turnHandoff` → Hashimoto strategy adapter → API `response.create` → OpenAI Realtime output boundary. Legacy `/subscriber/start|stop` and `/signals` remain compatibility surfaces only.
 - Keep token handling redacted; never log raw LiveKit tokens/JWTs/API secrets, SDP, media, or transcripts. Internal Realtime sideband may consume STT text and low-resolution vision samples only to produce structured candidate-safe results.
 - Ordinary OpenAI Realtime follow-up gating does not call `/subscriber/start`; `ANALYSIS_ENGINE_ENABLE_SUBSCRIBER` is a legacy scaffold flag and is not consulted.
 - Objective grounding lanes (vision/prosody) are optional-by-design: extras + baked models +

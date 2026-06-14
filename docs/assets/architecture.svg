@@ -62,7 +62,7 @@
 	]
 
 	[&lt;analysis&gt; Analysis Engine Service\n(GilJobE)|
-	  Realtime sideband MMM/RNAS owner
+	  GilJobE MMM analysis owner
 	  exact-turn result readiness
 	  structured candidate-safe result
 	  legacy LiveKit subscriber only for compatibility
@@ -343,7 +343,7 @@
 							<g transform="translate(8, 8)" fill="#a16207" text-align="left" data-name="Analysis Engine Service
 							(GilJobE)" data-compartment="1">
 								<text x="0.0" y="14.1" stroke="none" data-name="Analysis Engine Service
-								(GilJobE)" data-compartment="1">Realtime sideband MMM/RNAS owner</text>
+								(GilJobE)" data-compartment="1">GilJobE MMM analysis owner</text>
 								<text x="0.0" y="30.3" stroke="none" data-name="Analysis Engine Service
 								(GilJobE)" data-compartment="1">exact-turn result readiness</text>
 								<text x="0.0" y="46.5" stroke="none" data-name="Analysis Engine Service

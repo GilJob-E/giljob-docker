@@ -7,7 +7,7 @@
 
 ## Context
 
-GilJob's product-critical interview loop is **candidate answer → analysis-engine MMM/RNAS → API-owned `response.create` → OpenAI Realtime output**. OpenAI Realtime WebRTC does not need LiveKit. The prior room/avatar scaffold still contains LiveKit media-room and AvatarKit RTC wiring, which made `LIVEKIT_PUBLIC_URL` and SpatialReal RTC reachability look like prerequisites for the main interview path.
+GilJob's product-critical interview loop is **candidate answer → analysis-engine MMM result → Hashimoto strategy adapter → API-owned `response.create` → OpenAI Realtime output**. OpenAI Realtime WebRTC does not need LiveKit. The prior room/avatar scaffold still contains LiveKit media-room and AvatarKit RTC wiring, which made `LIVEKIT_PUBLIC_URL` and SpatialReal RTC reachability look like prerequisites for the main interview path.
 
 SpatialReal itself is not inherently LiveKit-only. Official integration docs distinguish SDK Mode, RTC Mode, and Host Mode. The retired GilJob implementation was LiveKit-bound when it used AvatarKit RTC/UI concepts (`@spatialwalk/avatarkit-rtc`, `LiveKitProvider`, `AvatarPlayer.publishAudio(track)`). The current default target is SDK Mode Web through `@spatialwalk/avatarkit`, not because Realtime/MMM requires LiveKit.
 

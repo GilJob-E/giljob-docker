@@ -1,6 +1,6 @@
 # GilJob v2
 
-GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 OpenAI Realtime-only voice, GilJobE 기반 MMM/RNAS 분석, 그리고 선택적 SpatialReal avatar spike를 단계적으로 붙이는 것입니다. LiveKit은 기본 Realtime/MMM 경로가 아니라 legacy/media-overlay 및 AvatarKit RTC 실험 경로입니다. LiveKit is not required for the main Realtime/MMM path; OpenAI Realtime owns STT/VAD/interviewer audio; Avatar disabled/deferred is the default avatar state.
+GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hosted AI 면접 시스템 scaffold**입니다. 목표는 기존 `/home/hoddukzoa/GilJob`를 건드리지 않고, 별도 `GilJob_v2` 작업 공간에서 OpenAI Realtime-only voice, GilJobE 기반 MMM analysis engine boundary, Hashimoto strategy adapter, 그리고 선택적 SpatialReal avatar spike를 단계적으로 붙이는 것입니다. LiveKit은 기본 Realtime/MMM 경로가 아니라 legacy/media-overlay 및 AvatarKit RTC 실험 경로입니다. LiveKit is not required for the main Realtime/MMM path; OpenAI Realtime owns STT/VAD/interviewer audio; Avatar disabled/deferred is the default avatar state.
 
 ![GilJob v2 아키텍처](docs/assets/architecture.svg)
 
@@ -78,9 +78,9 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 2. API는 session/report token을 발급하되, 서버 쪽에는 purpose-separated hash만 저장합니다.
 3. API는 default Realtime/MMM 경로에서 LiveKit token을 요구하지 않습니다. Optional/legacy media overlay를 켠 경우에만 LiveKit candidate token과 SpatialReal AvatarKit RTC viewer token을 분리해 발급합니다.
 4. LiveKit을 사용하는 legacy/media overlay에서만 브라우저는 Caddy를 통해 media를 프록시하지 않고, API가 반환한 `LIVEKIT_PUBLIC_URL`로 LiveKit에 직접 연결합니다. 기본 Realtime/MMM 경로는 LiveKit 없이 동작해야 합니다.
-5. 후보자 답변 분석의 priority-1 Realtime 경로는 **answer → analysis-engine MMM/RNAS → API `response.create` → OpenAI Realtime output**입니다. 브라우저는 Realtime STT transcript/prosody와 low-resolution internal vision sideband를 API로 보내고, analysis-engine이 exact `(interviewId, turnIndex)` RNAS result/readiness의 단일 owner입니다. Durable/public records expose only structured signals and candidate-safe prompt fragments, never raw transcript/media/provider secrets.
+5. 후보자 답변 분석의 priority-1 Realtime 경로는 **answer → analysis-engine MMM result → Hashimoto strategy adapter → API `response.create` → OpenAI Realtime output**입니다. 브라우저는 Realtime STT transcript/prosody와 low-resolution internal vision sideband를 API로 보내고, analysis-engine이 exact `(interviewId, turnIndex)` MMM result/readiness의 단일 owner입니다. Hashimoto는 candidate-safe strategy guidance만 best-effort로 보강합니다. Durable/public records expose only structured signals and candidate-safe prompt fragments, never raw transcript/media/provider secrets.
 6. OpenAI Realtime primary mode에서는 API가 `/api/interviews/:id/realtime/session`에서 Realtime session metadata를 중개하고, 브라우저의 WebRTC SDP attach도 `/api/interviews/:id/realtime/call`을 통해 서버가 수행합니다. 표준 OpenAI API key와 provider route는 브라우저에 노출하지 않습니다.
-7. Realtime turn loop는 `turn 1 bootstrap`만 MMM 없이 시작하고, `turn N>=2`는 직전 답변의 exact-turn RNAS result가 `ready`일 때만 API-authored `response.create`를 허용합니다. 즉 ordinary follow-up은 `exact prior-turn full MMM readiness`가 필요합니다. 브라우저는 API-approved command를 data channel로 relay할 뿐 prompt나 `response.create`를 직접 작성하지 않습니다.
+7. Realtime turn loop는 `turn 1 bootstrap`만 MMM 없이 시작하고, `turn N>=2`는 직전 답변의 exact-turn MMM analysis result가 `ready`일 때만 API-authored `response.create`를 허용합니다. 즉 ordinary follow-up은 `exact prior-turn full MMM readiness`가 필요합니다. Hashimoto strategy guidance는 같은 서버-authored response path에서 candidate-safe 보조 입력으로만 소비됩니다. 브라우저는 API-approved command를 data channel로 relay할 뿐 prompt나 `response.create`를 직접 작성하지 않습니다.
 8. Legacy question/TTS routes are removed from the default path: API returns `deprecated_ai_engine_removed` with `reason=realtime_only`, and OpenAI Realtime-only owns live interviewer voice. Gemini fallback is not supported.
 9. SpatialReal/AvatarKit은 Realtime/MMM 성공 조건과 분리된 opt-in avatar path입니다. 기본값은 `sdk_mode_deferred`지만, `SPATIALREAL_SDK_MODE_WEB_ENABLED=true`와 서버측 `SPATIALREAL_API_KEY`가 있으면 API가 short-lived SpatialReal session token을 발급해 `/api/interviews/:id/avatar/session`에서 `sdk_mode_ready` browser-approved SDK metadata만 반환합니다.
 10. SpatialReal SDK Mode Web은 LiveKit 없이 브라우저에서 `@spatialwalk/avatarkit`을 초기화하고, OpenAI Realtime output audio의 muted PCM16 copy를 avatar controller에 feed하는 구조입니다. 이 token broker는 provider key를 브라우저에 노출하지 않으며, production lip-sync claim은 kiostation browser proof가 있어야만 가능합니다.
@@ -154,7 +154,7 @@ GilJob v2는 **한 대의 서버에서 Docker Compose로 실행하는 self-hoste
 ]
 
 [<analysis> Analysis Engine Service\n(GilJobE)|
-  Realtime sideband MMM/RNAS owner
+  GilJobE MMM analysis owner
   exact-turn result readiness
   legacy LiveKit subscriber only for compatibility
   transcript_full + structured signal emit
@@ -477,7 +477,7 @@ SPATIALREAL_RTC_EGRESS_ENABLED=true
 - session token과 report token은 purpose-separated hash secret을 사용합니다.
 - browser visible UI와 event log에는 raw JWT, `access_token`, `join_request`, `gj_session_*`, `gj_report_*`, provider key를 노출하지 않습니다.
 - OpenAI Realtime 표준 API key는 server-only입니다. 브라우저는 API broker가 발급한 ephemeral client secret으로만 WebRTC SDP attach를 수행합니다.
-- 첫 Realtime 질문은 이전 답변이 없으므로 bootstrap 예외로 처리합니다. 이후 ordinary Realtime next-question audio는 previous answer turn의 exact RNAS result가 analysis-engine에서 `ready`로 accepted 된 뒤에만 API-approved `response.create`를 browser transport로 relay합니다.
+- 첫 Realtime 질문은 이전 답변이 없으므로 bootstrap 예외로 처리합니다. 이후 ordinary Realtime next-question audio는 previous answer turn의 exact MMM analysis result가 analysis-engine에서 `ready`로 accepted 된 뒤, Hashimoto strategy guidance를 candidate-safe 보조 입력으로만 붙여 API-approved `response.create`를 browser transport로 relay합니다.
 - production/shared 환경에서는 `.env.example`의 `change-me`, `replace-me-local-only` 값을 그대로 쓰지 않습니다.
 
 ## 검증 명령

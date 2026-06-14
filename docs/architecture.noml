@@ -61,7 +61,7 @@
 ]
 
 [<analysis> Analysis Engine Service\n(GilJobE)|
-  Realtime sideband MMM/RNAS owner
+  GilJobE MMM analysis owner
   exact-turn result readiness
   structured candidate-safe result
   legacy LiveKit subscriber only for compatibility
