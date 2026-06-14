@@ -2337,6 +2337,8 @@ def aggregate_turn_signals(result: dict[str, Any] | None) -> dict[str, object]:
 
     ts = result.get("transcriptSignals") or {}
     vs = result.get("visionSignals") or {}
+    sp = result.get("speechLane") or {}
+    vi = result.get("visualLane") or {}
 
     def _float(obj: object, *keys: str) -> float | None:
         if not isinstance(obj, dict):
@@ -2353,14 +2355,18 @@ def aggregate_turn_signals(result: dict[str, Any] | None) -> dict[str, object]:
         v = _float(obj, *keys)
         return int(v) if v is not None else None
 
-    rate   = _float(ts, "speech_rate_syllables_per_sec", "speechRateSyllablesPerSec")
-    pitch  = _float(ts, "pitch_hz", "pitchHz")
-    pause  = _int(ts,   "pause_count_long", "pauseCountLong")
-    smile  = _float(vs, "smile_ratio", "smileRatio")
-    gaze   = _float(vs, "gaze_off_ratio", "gazeOffRatio")
-    blink  = _int(vs,   "blink_count", "blinkCount")
+    rate  = (_float(ts, "speech_rate_syllables_per_sec", "speechRateSyllablesPerSec")
+             or _float(sp.get("rate") or {}, "speech_rate_syl_per_s"))
+    pitch = (_float(ts, "pitch_hz", "pitchHz")
+             or _float(sp.get("pitch") or {}, "mean_hz"))
+    pause = (_int(ts, "pause_count_long", "pauseCountLong")
+             or _int(sp.get("pauses") or {}, "pause_count_ge_0p25"))
+    smile = _float(vs, "smile_ratio", "smileRatio") or _float(vi, "smile_ratio")
+    gaze  = _float(vs, "gaze_off_ratio", "gazeOffRatio") or _float(vi, "gaze_off_mean")
+    blink = _int(vs, "blink_count", "blinkCount") or _int(vi, "blink_count")
 
-    face_seen = _float(vs, "face_seen_ratio", "faceSeen") or 0.0
+    face_seen = (_float(vs, "face_seen_ratio", "faceSeen")
+                 or _float(vi, "face_seen_ratio", "faceSeenRatio") or 0.0)
     visual_measurable = face_seen > 0
 
     out: dict[str, object] = {"visualMeasurable": visual_measurable}

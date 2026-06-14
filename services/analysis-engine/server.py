@@ -1032,6 +1032,8 @@ async def _realtime_turn_results(req: web.Request) -> web.Response:
             "turnIndex": turn_index,
             "candidatePromptFragment": render_prompt_fragment(handoff),
             "coverage": (handoff.get("meta") or {}).get("coverage"),
+            "speechLane": handoff.get("speech"),
+            "visualLane": handoff.get("visual"),
             "rawTranscriptLogged": False,
             "rawMediaAccepted": False,
         },
