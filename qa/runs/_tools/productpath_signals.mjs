@@ -22,6 +22,7 @@
 //     [--session-instructions-file <path>]
 //     [--initial-instructions-file <path>] [--response-instructions-file <path>]
 //     [--analysis-fragment-mode append|omit]
+//     [--debug-instructions-comparison]
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -49,6 +50,7 @@ for (let i = 2; i < process.argv.length; i += 1) {
   else if (a === "--session-instructions") args.sessionInstructions = process.argv[++i];
   else if (a === "--session-instructions-file") args.sessionInstructionsFile = process.argv[++i];
   else if (a === "--analysis-fragment-mode") args.analysisFragmentMode = process.argv[++i];
+  else if (a === "--debug-instructions-comparison") args.debugInstructionsComparison = true;
   else if (a === "--headed") args.headed = true;
   else throw new Error(`unknown arg: ${a}`);
 }
@@ -66,6 +68,7 @@ const instructionOverride = {
   initialInstructions: readInstructions(args.initialInstructions, args.initialInstructionsFile),
   responseInstructions: readInstructions(args.responseInstructions, args.responseInstructionsFile),
   analysisFragmentMode: args.analysisFragmentMode === "omit" ? "omit" : "append",
+  debugInstructionsComparison: args.debugInstructionsComparison === true,
 };
 
 const PLAYWRIGHT = "/home/kio/workspace/giljob-docker/benchmark/data/cache/browser-tools/node_modules/playwright/index.mjs";
@@ -290,7 +293,10 @@ try {
     };
   }, instructionOverride);
   await page.addInitScript((override) => {
-    if (!override?.initialInstructions && !override?.responseInstructions) return;
+    if (!override?.initialInstructions && !override?.responseInstructions && !override?.debugInstructionsComparison) return;
+    if (override?.debugInstructionsComparison) {
+      window.__giljobDebugConsumerInstructions = {};
+    }
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       try {
@@ -300,6 +306,13 @@ try {
         const match = url.pathname.match(/\/interviews\/[^/]+\/turns\/([0-9]+)\/realtime\/response\/?$/);
         if (method === "POST" && match) {
           const turnIndex = Number(match[1]);
+          let requestInstructions = null;
+          if (override?.debugInstructionsComparison) {
+            try {
+              const preBody = init?.body ? JSON.parse(String(init.body)) : {};
+              requestInstructions = preBody?.response?.instructions ?? null;
+            } catch {}
+          }
           const instructions = turnIndex === 1 ? override.initialInstructions : override.responseInstructions;
           if (instructions) {
             const body = init?.body ? JSON.parse(String(init.body)) : {};
@@ -309,6 +322,17 @@ try {
               analysisFragmentMode: override.analysisFragmentMode,
             };
             init = { ...init, body: JSON.stringify(body) };
+          }
+          if (override?.debugInstructionsComparison) {
+            const response = await originalFetch(input, init);
+            response.clone().json().then((json) => {
+              const finalMerged = json?.sideband?.command?.response?.instructions ?? null;
+              window.__giljobDebugConsumerInstructions["turn" + turnIndex] = {
+                finalMergedInstructions: finalMerged,
+                requestInstructions,
+              };
+            }).catch(() => {});
+            return response;
           }
         }
       } catch {
@@ -449,6 +473,42 @@ try {
     caveat: "y4m은 캡처 시작부터 루프(clip+pad 동안 재생). 답변=면접 1턴(turnIndex 0). signals.json=/analysis/signals 정본 페이로드(records+turnHandoff). candidate-fragment.json=게이트용 thin 프래그먼트.",
   };
   fs.writeFileSync(path.join(args.outDir, "meta.json"), JSON.stringify(meta, null, 2) + "\n");
+
+  if (args.debugInstructionsComparison) {
+    let debugInstructions = {};
+    try { debugInstructions = await page.evaluate(() => window.__giljobDebugConsumerInstructions || {}); } catch {}
+    const promptBlock = th?.prompt_block ?? null;
+    const promptBlockStr = Array.isArray(promptBlock) ? promptBlock.join("\n") : (promptBlock ? String(promptBlock) : "");
+    const candidateFragmentVal = readyFragment?.[1]?.result?.candidatePromptFragment
+      ?? readyFragment?.[1]?.candidatePromptFragment
+      ?? null;
+    const candidateFragmentStr = candidateFragmentVal ? String(candidateFragmentVal) : "";
+    const turnKeys = Object.keys(debugInstructions).sort();
+    // Primary turn = highest turn key whose finalMergedInstructions contains "Guidance:"
+    // (that is the answer turn in QIVD mode and the followup turn in normal mode).
+    // Fallback: highest turn key so the opener is never chosen over an actual answer.
+    const answerTurnKey = turnKeys.slice().reverse().find(
+      (k) => String(debugInstructions[k]?.finalMergedInstructions || "").includes("Guidance:"),
+    ) ?? (turnKeys.length ? turnKeys[turnKeys.length - 1] : null);
+    const answerTurnDebug = answerTurnKey ? (debugInstructions[answerTurnKey] || {}) : {};
+    const finalMerged = answerTurnDebug?.finalMergedInstructions ?? null;
+    const requestInstr = answerTurnDebug?.requestInstructions ?? null;
+    const finalMergedStr = finalMerged ? String(finalMerged) : "";
+    const debugComparison = {
+      turnHandoff_prompt_block: promptBlockStr,
+      candidatePromptFragment: candidateFragmentStr,
+      final_merged_instructions: finalMerged,
+      request_instructions: requestInstr,
+      char_lengths: {
+        prompt_block: promptBlockStr.length,
+        fragment: candidateFragmentStr.length,
+        final: finalMergedStr.length,
+      },
+      all_turns: debugInstructions,
+    };
+    fs.writeFileSync(path.join(args.outDir, "debug-instructions-comparison.json"), JSON.stringify(debugComparison, null, 2) + "\n");
+  }
+
   console.log(JSON.stringify({ ...out, log_tail: `(${logLines.length} lines)` }, null, 2));
 } finally {
   await browser.close();

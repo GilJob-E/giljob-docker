@@ -30,6 +30,11 @@ services:
       - "8081:80"
       - "8443:443"
 
+  api:
+    environment:
+      # 벤치 전용(QIVD product-path): 소비자 LLM 태스크 프레이밍만 면접관→질문응답으로 전환
+      GILJOB_QIVD_QA_MODE: ${GILJOB_QIVD_QA_MODE:-0}
+
   livekit:
     ports: !override
       - "17880:7880"

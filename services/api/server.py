@@ -167,6 +167,13 @@ def _hashimoto_base_url() -> str:
     return os.getenv("HASHIMOTO_BASE_URL", "").strip().rstrip("/")
 
 
+def _qivd_qa_mode() -> bool:
+    # Benchmark-only toggle (QIVD product-path run): keeps the full pipeline —
+    # windowing, MMM gate, fragment carry — intact and swaps ONLY the consumer-LLM
+    # task framing from "interviewer" to "answer the candidate's spoken question".
+    return os.getenv("GILJOB_QIVD_QA_MODE", "0").strip().lower() in {"1", "true", "yes"}
+
+
 def _post_hashimoto(path: str, body: dict[str, object], timeout: float = 0.5) -> int | None:
     base = _hashimoto_base_url()
     if not base:
@@ -1606,6 +1613,8 @@ def _initial_realtime_question_instructions(payload: dict[str, Any]) -> str:
     instructions = _candidate_safe_fragment(requested.get("instructions"))
     if instructions:
         return instructions
+    if _qivd_qa_mode():
+        return "Say exactly this in English and nothing else: Please ask your question now."
     return (
         "You are a Korean live interviewer. Ask one concise opening interview question in Korean. "
         "Do not mention implementation details or internal labels. "
@@ -1812,13 +1821,22 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
         hashimoto_source["used"] = True
     elif hashimoto_strategy:
         hashimoto_source["reason"] = "no_safe_guidance"
-    instructions = _followup_realtime_question_instructions(payload, fragment)
-    if strategy_guidance:
+    if _qivd_qa_mode():
         instructions = (
-            f"{instructions}\n\n"
-            "Interview strategy guidance:\n"
-            f"{strategy_guidance}"
+            "The candidate's previous utterance was a spoken question about what is visible "
+            "in their camera video. Answer that question directly and concisely in English — "
+            "one short sentence. Use the candidate-safe guidance below as your visual context. "
+            "Do not ask any interview question back. "
+            f"Guidance: {fragment}"
         )
+    else:
+        instructions = _followup_realtime_question_instructions(payload, fragment)
+        if strategy_guidance:
+            instructions = (
+                f"{instructions}\n\n"
+                "Interview strategy guidance:\n"
+                f"{strategy_guidance}"
+            )
     command = _realtime_response_create_command(instructions, context_item_ids=context_item_ids)
     analysis_summary = _analysis_result_public_summary(result)
     hashimoto_summary = _safe_hashimoto_strategy_debug(hashimoto_source)
