@@ -1653,31 +1653,12 @@ dd { margin: 8px 0 0; color: var(--color-ink); font-size: 0.95rem; overflow-wrap
   font-size: 0.9rem;
   line-height: 1.5;
 }
-.mmm-debug-summary,
 .summary {
   min-width: 0;
 }
-.mmm-debug-summary {
-  display: grid;
-  gap: 8px;
-  max-height: min(34vh, 360px);
-  overflow: auto;
-  padding-right: 4px;
-}
-.mmm-debug-summary div { min-width: 0; }
-.mmm-debug-summary dt,
-.mmm-debug-summary dd {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-.mmm-debug-summary dd { white-space: pre-wrap; }
 .debug-note {
   color: var(--color-muted);
   font-size: 0.82rem;
-}
-.mmm-debug-card {
-  border-color: var(--color-hairline);
-  background: var(--color-canvas);
 }
 .coach-card {
   border-color: var(--color-hairline);
