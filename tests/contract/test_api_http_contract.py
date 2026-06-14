@@ -386,6 +386,40 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertNotIn("backend", body)
         self.assertNotIn("readiness gate", body)
 
+    def test_realtime_response_create_allows_api_owned_item_reference_context(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/1/realtime/response",
+            json.dumps({
+                "response": {
+                    "instructions": "Complete the final assistant turn.",
+                    "contextItemIds": ["item_user_1", "item_assistant_2", "item_user_1"],
+                }
+            }).encode("utf-8"),
+        )
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        response = payload["sideband"]["command"]["response"]
+        self.assertEqual(response["conversation"], "none")
+        self.assertEqual(response["input"], [
+            {"type": "item_reference", "id": "item_user_1"},
+            {"type": "item_reference", "id": "item_assistant_2"},
+        ])
+        self.assertEqual(response["metadata"], {"context": "api-approved-item-references"})
+        self.assertNotIn("input_text", body)
+
+    def test_realtime_response_create_rejects_invalid_item_reference_context(self) -> None:
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/1/realtime/response",
+            json.dumps({"response": {"contextItemIds": ["item ok"]}}).encode("utf-8"),
+        )
+        self.assertEqual(status, 400, body)
+        self.assertEqual(json.loads(body)["error"], "invalid_context_item_id")
+
     def test_realtime_response_create_blocks_followup_until_prior_answer_analysis_ready(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
@@ -402,23 +436,17 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["analysisTurnIndex"], 1)
         self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "full_mmm_required_for_prior_answer"})
 
-    def test_realtime_response_create_uses_candidate_safe_analysis_fragment_only(self) -> None:
+    def test_realtime_response_create_uses_turn_handoff_candidate_prompt_fragment_only(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
         os.environ["GILJOBE_VISION"] = "off"
         os.environ["GILJOBE_PROSODY"] = "off"
         analysis = self._start_fake_analysis_engine(result_payload={
-            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
             "status": "ready",
             "sessionId": "local-demo",
             "turnIndex": 1,
-            "candidateSafePromptFragment": {
-                "schemaVersion": "2026-06-12.candidate-safe-prompt-fragment.v1",
-                "text": "이전 답변의 협업 경험을 바탕으로 갈등 해결 과정을 한 가지 더 물어보세요.",
-                "containsRawTranscript": False,
-                "containsRawMedia": False,
-                "containsSecrets": False,
-            },
+            "candidatePromptFragment": "이전 답변의 협업 경험을 바탕으로 갈등 해결 과정을 한 가지 더 물어보세요.",
             "confidence": 0.82,
             "latencyMs": 740,
             "rawTranscriptLogged": False,
@@ -446,7 +474,7 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["sideband"]["command"]["response"]["output_modalities"], ["audio"])
         self.assertNotIn("modalities", payload["sideband"]["command"]["response"])
         self.assertIn("갈등 해결 과정", payload["sideband"]["command"]["response"]["instructions"])
-        self.assertEqual(payload["analysisResult"]["schemaVersion"], "2026-06-12.mmm-result.v1")
+        self.assertEqual(payload["analysisResult"]["schemaVersion"], "2026-06-12.turn-handoff-fragment.v2")
         self.assertEqual(analysis[-1]["method"], "GET")
         self.assertIn("/realtime/turn-results", analysis[-1]["path"])
         self.assertIn("interviewId=local-demo", analysis[-1]["path"])
@@ -455,7 +483,45 @@ class ApiHttpContractTest(unittest.TestCase):
         for forbidden in ("MMM", "analysis-engine", "backend", "readiness gate"):
             self.assertNotIn(forbidden, payload["sideband"]["command"]["response"]["instructions"])
 
-    def test_realtime_response_create_rejects_wrong_or_stale_turn_analysis_result(self) -> None:
+    def test_realtime_response_create_allows_task_instructions_without_fragment_pollution(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidatePromptFragment": "이 fragment 문장은 task prompt에 섞이면 안 됩니다.",
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/2/realtime/response",
+            json.dumps({
+                "response": {
+                    "instructions": "Answer the spoken task directly. Return only the final answer.",
+                    "analysisFragmentMode": "omit",
+                }
+            }).encode("utf-8"),
+        )
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        instructions = payload["sideband"]["command"]["response"]["instructions"]
+        self.assertEqual(instructions, "Answer the spoken task directly. Return only the final answer.")
+        self.assertNotIn("fragment 문장", instructions)
+
+    def test_realtime_response_create_accepts_turn_handoff_fragment_without_turn_index_rejection(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
         os.environ["GILJOBE_VISION"] = "off"
@@ -464,7 +530,8 @@ class ApiHttpContractTest(unittest.TestCase):
             "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
             "status": "ready",
             "turnIndex": 2,
-            "candidatePromptFragment": "STALE_GUIDANCE_SHOULD_NOT_BE_USED",
+            "sessionId": "local-demo",
+            "candidatePromptFragment": "같은 세션의 turnHandoff 조각으로 자연스러운 후속 질문을 하세요.",
             "rawTranscriptLogged": False,
             "rawMediaAccepted": False,
         })
@@ -478,13 +545,12 @@ class ApiHttpContractTest(unittest.TestCase):
             json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
         )
         status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
-        self.assertEqual(status, 409, body)
+        self.assertEqual(status, 202, body)
         payload = json.loads(body)
-        self.assertEqual(payload["error"], "analysis_result_stale_or_wrong_turn")
         self.assertEqual(payload["analysisTurnIndex"], 1)
-        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "exact_turn_analysis_required"})
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": True, "commandType": "response.create"})
         self.assertIn("turnIndex=1", analysis[-1]["path"])
-        self.assertNotIn("STALE_GUIDANCE_SHOULD_NOT_BE_USED", body)
+        self.assertIn("turnHandoff 조각", payload["sideband"]["command"]["response"]["instructions"])
 
     def test_realtime_response_create_rejects_unsafe_analysis_fragment(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
@@ -577,7 +643,7 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "structured_analysis_required"})
         self.assertNotIn("inline result must be ignored", body)
 
-    def test_realtime_response_create_rejects_wrong_turn_analysis_result(self) -> None:
+    def test_realtime_response_create_rejects_wrong_session_turn_handoff_result(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
         os.environ["GILJOBE_VISION"] = "off"
@@ -585,8 +651,8 @@ class ApiHttpContractTest(unittest.TestCase):
         self._start_fake_analysis_engine(result_payload={
             "schemaVersion": "2026-06-12.mmm-result.v1",
             "status": "ready",
-            "sessionId": "local-demo",
-            "turnIndex": 2,
+            "sessionId": "other-demo",
+            "turnIndex": 1,
             "candidatePromptFragment": "wrong turn fragment must not be used",
             "rawTranscriptLogged": False,
             "rawMediaAccepted": False,
@@ -603,12 +669,12 @@ class ApiHttpContractTest(unittest.TestCase):
         status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
         self.assertEqual(status, 409, body)
         payload = json.loads(body)
-        self.assertEqual(payload["error"], "analysis_result_not_usable")
-        self.assertEqual(payload["responseCreate"]["reason"], "candidate_safe_ready_result_required")
+        self.assertEqual(payload["error"], "analysis_result_wrong_session")
+        self.assertEqual(payload["responseCreate"]["reason"], "turn_handoff_session_required")
         self.assertNotIn("wrong turn fragment must not be used", body)
 
 
-    def test_realtime_response_create_rejects_wrong_turn_analysis_result(self) -> None:
+    def test_realtime_response_create_rejects_wrong_session_turn_handoff_result_duplicate_guard(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
         os.environ["GILJOBE_VISION"] = "off"
@@ -616,8 +682,8 @@ class ApiHttpContractTest(unittest.TestCase):
         self._start_fake_analysis_engine(result_payload={
             "schemaVersion": "2026-06-12.mmm-result.v1",
             "status": "ready",
-            "sessionId": "local-demo",
-            "turnIndex": 2,
+            "sessionId": "other-demo",
+            "turnIndex": 1,
             "candidatePromptFragment": "wrong turn fragment must not be used",
             "rawTranscriptLogged": False,
             "rawMediaAccepted": False,
@@ -634,13 +700,13 @@ class ApiHttpContractTest(unittest.TestCase):
         status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
         self.assertEqual(status, 409, body)
         payload = json.loads(body)
-        self.assertEqual(payload["error"], "analysis_result_not_usable")
-        self.assertEqual(payload["responseCreate"]["reason"], "candidate_safe_ready_result_required")
+        self.assertEqual(payload["error"], "analysis_result_wrong_session")
+        self.assertEqual(payload["responseCreate"]["reason"], "turn_handoff_session_required")
         self.assertNotIn("wrong turn fragment must not be used", body)
 
 
 
-    def test_realtime_response_create_rejects_wrong_turn_analysis_result(self) -> None:
+    def test_realtime_response_create_ignores_inline_wrong_turn_analysis_result(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
         os.environ["GILJOBE_VISION"] = "off"
@@ -654,17 +720,17 @@ class ApiHttpContractTest(unittest.TestCase):
         )
         self.assertEqual(status, 409, body)
         payload = json.loads(body)
-        self.assertEqual(payload["error"], "analysis_result_wrong_turn")
-        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "exact_turn_analysis_result_required"})
+        self.assertEqual(payload["error"], "analysis_result_unavailable")
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "structured_analysis_required"})
 
-    def test_mmm_ready_requires_exact_turn_analysis_result_acceptance(self) -> None:
+    def test_mmm_ready_requires_turn_handoff_fragment_ready(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
         os.environ["GILJOBE_VISION"] = "off"
         os.environ["GILJOBE_PROSODY"] = "off"
         self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"))
         self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"))
-        self._start_fake_analysis_engine(result_payload={"result": {"status": "pending", "reason": "no_exact_turn_result"}})
+        self._start_fake_analysis_engine(result_payload={"result": {"status": "pending", "reason": "no_turn_handoff"}})
 
         with urllib.request.urlopen(self.base_url + "/api/interviews/local-demo/turns/1/mmm-ready", timeout=5) as res:
             body = res.read().decode("utf-8")

@@ -64,9 +64,8 @@ class AnalysisEngineContractTest(unittest.TestCase):
         self.assertIn("candidateSafePromptFragment", wrapper)
         self.assertIn("class _EventOnlyRealtimeTurns", wrapper)
         self.assertIn("_install_event_only_realtime_fallback", wrapper)
-        self.assertIn("realtimeNativeAnalysisSession", wrapper)
-        self.assertIn("_active_by_key", wrapper)
-        self.assertIn("_finalized_by_key", wrapper)
+        self.assertIn("turnHandoff", wrapper)
+        self.assertIn("render_prompt_fragment", wrapper)
         self.assertIn("2026-06-12.per-turn-mmm-result.v1", wrapper)
         self.assertIn("2026-06-12.candidate-safe-prompt-fragment.v1", wrapper)
         dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
@@ -253,58 +252,28 @@ class TurnResultsContractTest(unittest.TestCase):
         # 구 핀 강등(ImportError → None) + 턴 미완결 pending — API 409 게이트와 정합
         self.assertIn("render_prompt_fragment = None", wrapper)
         self.assertIn('"status": "pending"', wrapper)
-        # 활성/last/session-wide 폴백 금지 — exact turn-keyed RNAS storage only.
-        self.assertIn("rnas.turn_result(interview_id, turn_index)", wrapper)
-        self.assertIn("no_exact_turn_result", wrapper)
+        # Gold source: GilJobE signals_payload(...).turnHandoff, projected by render_prompt_fragment.
+        self.assertIn("payload = service.signals(interview_id)", wrapper)
+        self.assertIn('payload.get("turnHandoff")', wrapper)
+        self.assertIn("render_prompt_fragment(handoff)", wrapper)
+        self.assertNotIn("rnas.turn_result(interview_id, turn_index)", wrapper)
         self.assertNotIn("service.signals(None)", wrapper)
-        # exact-turn RNAS: stale/wrong turn handoffs must degrade to pending
-        self.assertIn("_turn_handoff_matches_requested_turn", wrapper)
-        self.assertIn("requested_turn_index", wrapper)
 
-    def test_realtime_native_analysis_session_is_exact_turn_keyed_and_requires_all_lanes(self) -> None:
+    def test_event_only_fallback_keeps_legacy_signal_shape(self) -> None:
         module = load_analysis_engine_wrapper()
-        rnas = module._EventOnlyRealtimeTurns()
-        start = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_started"})
-        self.assertTrue(start["accepted"])
-        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
-        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.vad.speech_started", "detail": {"audioStartMs": 120, "rawAudioIncluded": False}})
-        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.vad.speech_stopped", "detail": {"audioEndMs": 1780, "rawAudioIncluded": False}})
-        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "prosody.window_metrics", "detail": {"energy": 0.3, "rawAudioIncluded": False}})
-        rnas.ingest({
-            "interviewId": "demo",
-            "turnIndex": 1,
-            "eventKind": "vision.frame_metrics",
-            "detail": {
-                "visionSignals": {"cameraEnabled": True, "faceVisible": True, "personVisible": True, "averageLuma": 80, "frameAvailable": True},
-                "visionFrame": {"encoding": "image/jpeg;base64", "data": "ZmFrZQ==", "byteLength": 4, "width": 2, "height": 2},
-            },
+        fallback = module._EventOnlyRealtimeTurns()
+        start = fallback.start("demo")
+        self.assertTrue(start["eventOnlyFallback"])
+        accepted = fallback.ingest({
+            "sessionId": "demo",
+            "eventKind": "analysis.transcript.completed",
+            "detail": {"transcript": "bounded answer", "itemId": "i1"},
         })
-        end = rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_ended"})
-        self.assertTrue(end["accepted"])
-        ready = rnas.turn_result("demo", 1)
-        self.assertEqual(ready["status"], "ready")
-        self.assertEqual(ready["turnIndex"], 1)
-        self.assertIn("candidatePromptFragment", ready)
-        self.assertEqual(ready["schemaVersion"], "2026-06-13.rnas-turn-result.v2")
-        self.assertIn("candidateSafePromptFragment", ready)
-        self.assertEqual(ready["visionSignals"]["status"], "frame_observed")
-        self.assertEqual(ready["visionSignals"]["sampledFrameCount"], 1)
-        self.assertTrue(ready["visionSignals"]["faceVisible"])
-        self.assertTrue(ready["visionSignals"]["personVisible"])
-        self.assertEqual(ready["visionSignals"]["objectiveVisionStatus"], "frame_decode_failed")
-        self.assertIn("카메라 신호상 후보자 얼굴", ready["nextQuestionGuidance"])
-        self.assertNotIn("MMM", ready["nextQuestionGuidance"])
-        self.assertIn("transcriptSignals", ready)
-        self.assertIn("prosodySignals", ready)
-        self.assertEqual(ready["prosodySignals"]["status"], "timing_observed")
-        self.assertEqual(ready["prosodySignals"]["speechDurationMs"], 1660)
-        self.assertEqual(ready["prosodySignals"]["energyMean"], 0.3)
-        self.assertFalse(ready["prosodySignals"]["rawAudioIncluded"])
-        self.assertIn("behavioralSignals", ready)
-        self.assertIn("nextQuestionGuidance", ready)
-        self.assertFalse(ready["rawTranscriptLogged"])
-        self.assertEqual(rnas.turn_result("demo", 2)["reason"], "no_exact_turn_result")
-        self.assertEqual(rnas.turn_result("other", 1)["reason"], "no_exact_turn_result")
+        self.assertTrue(accepted["accepted"])
+        fallback.ingest({"sessionId": "demo", "eventKind": "turn.answer_ended"})
+        signals = fallback.signals("demo")
+        self.assertEqual(signals["sessionId"], "demo")
+        self.assertGreaterEqual(signals["recordCount"], 2)
 
     def test_realtime_guidance_can_ack_camera_face_visibility_without_claiming_direct_video(self) -> None:
         module = load_analysis_engine_wrapper()
@@ -324,42 +293,8 @@ class TurnResultsContractTest(unittest.TestCase):
         self.assertNotIn("MMM", guidance)
         self.assertNotIn("직접 봤", guidance)
 
-    def test_realtime_native_analysis_session_missing_lane_stays_pending(self) -> None:
-        module = load_analysis_engine_wrapper()
-        rnas = module._EventOnlyRealtimeTurns()
-        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_started"})
-        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "analysis.transcript.completed", "detail": {"transcript": "bounded answer", "itemId": "i1"}})
-        rnas.ingest({"interviewId": "demo", "turnIndex": 1, "eventKind": "turn.answer_ended"})
-        pending = rnas.turn_result("demo", 1)
-        self.assertEqual(pending["status"], "pending")
-        self.assertIn(pending["reason"], {"missing_prosody", "missing_vision"})
-
     def test_turn_results_loads_with_legacy_pin_mocks(self) -> None:
         # giljobe.emit.handoff가 없는(구 핀) 모킹 환경에서도 래퍼 로드는 성공해야 한다
         module = load_analysis_engine_wrapper()
         self.assertTrue(hasattr(module, "_realtime_turn_results"))
         self.assertIsNone(module.render_prompt_fragment)
-
-    def test_turn_results_exact_turn_guard_rejects_wrong_stale_or_ambiguous_handoff(self) -> None:
-        module = load_analysis_engine_wrapper()
-        handoff = {"meta": {"turnIndex": 3, "coverage": {"transcript": True}}}
-        payload = {"sessionId": "local-demo", "turnHandoff": handoff}
-
-        self.assertTrue(module._turn_handoff_matches_requested_turn(payload, handoff, 3))
-        self.assertFalse(module._turn_handoff_matches_requested_turn(payload, handoff, 2))
-        self.assertFalse(module._turn_handoff_matches_requested_turn({"turnHandoff": {"meta": {}}}, {"meta": {}}, 3))
-
-    def test_turn_results_exact_turn_guard_accepts_record_backed_event_only_fallback(self) -> None:
-        module = load_analysis_engine_wrapper()
-        handoff = {"meta": {"coverage": {"transcript": True}}}
-        payload = {
-            "sessionId": "local-demo",
-            "turnHandoff": handoff,
-            "records": [
-                {"type": "sentence", "turnIndex": 4},
-                {"type": "turn_end", "turnIndex": 4},
-            ],
-        }
-
-        self.assertTrue(module._turn_handoff_matches_requested_turn(payload, handoff, 4))
-        self.assertFalse(module._turn_handoff_matches_requested_turn(payload, handoff, 5))

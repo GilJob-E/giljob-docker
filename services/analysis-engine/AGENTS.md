@@ -21,7 +21,7 @@ This module owns the GilJobE-backed analysis boundary. Follow the root `AGENTS.m
 - Treat `GilJobE` as the STT and multimodal input-analysis source of truth.
 - Serve the legacy hidden LiveKit analyzer HTTP contract: `/subscriber/start`, `/subscriber/stop`,
   `/signals`, `/healthz`, `/readyz` for compatibility/non-main-path testing.
-- Own the priority-1 Realtime-native analysis session (RNAS): accept API-forwarded answer lifecycle plus internal-only STT/prosody/low-resolution vision sideband at `/realtime/turn-events`, store exact `(interviewId, turnIndex)` state/results, and expose `/realtime/turn-results` for the API `response.create` gate. Public/durable records must expose only structured signals and candidate-safe prompt fragments; reject provider tokens, SDP, browser secrets, and any raw media/transcript fields outside the approved internal detail paths.
+- Own the GilJobE-backed `turnHandoff` analysis gold path: accept API-forwarded Realtime answer lifecycle plus internal-only STT/prosody/low-resolution vision sideband at `/realtime/turn-events`, let GilJobE build `/signals.turnHandoff`, and expose `/realtime/turn-results` only as a candidate-safe projection of that handoff for the API `response.create` gate. Public/durable records must expose only structured signals and candidate-safe prompt fragments; reject provider tokens, SDP, browser secrets, and any raw media/transcript fields outside the approved internal detail paths.
 - Report dependency/config readiness without exposing raw LiveKit tokens, JWTs, API secrets, media,
   or transcript payloads in logs. `/healthz` and `/readyz` are token-safe.
 
@@ -31,7 +31,7 @@ This module owns the GilJobE-backed analysis boundary. Follow the root `AGENTS.m
 - Do not reintroduce alternate STT paths in this service; STT belongs to GilJobE.
 - Do not add the Main LLM loop, avatar/TTS, or final report generation here — those are out of scope
   and are not complete product features yet.
-- `ANALYSIS_ENGINE_ENABLE_SUBSCRIBER` is a legacy scaffold flag. Ordinary OpenAI Realtime RNAS does not call `/subscriber/start`; LiveKit subscriber start/stop is compatibility-only, not a fallback for API `response.create`.
+- `ANALYSIS_ENGINE_ENABLE_SUBSCRIBER` is a legacy scaffold flag. Ordinary OpenAI Realtime follow-up gating consumes `turnHandoff`; LiveKit subscriber start/stop is compatibility-only, not a fallback for API `response.create`.
 
 ## Tests
 ```bash

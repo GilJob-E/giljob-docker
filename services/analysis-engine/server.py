@@ -179,8 +179,10 @@ class _EventOnlyRealtimeTurns:
         interview_id = _safe_str(payload.get("interviewId") or payload.get("sessionId"), 96)
         turn_index = _safe_turn_index(payload.get("turnIndex"))
         kind = _safe_str(payload.get("eventKind") or payload.get("normalizedType") or payload.get("type"), 120)
-        if interview_id and turn_index is not None:
-            return self.ingest_turn(payload, interview_id=interview_id, turn_index=turn_index, kind=kind)
+        if interview_id and (self._active is None or self._active.session_id != interview_id):
+            if self._active is not None:
+                self.stop()
+            self._active = _EventOnlySession(interview_id, "window", time.monotonic(), turn_index or 0)
         return self._ingest_legacy(payload, kind)
 
     def ingest_turn(self, payload: dict[str, Any], *, interview_id: str, turn_index: int, kind: str) -> dict[str, object]:
@@ -796,42 +798,6 @@ def _safe_list(value: object, max_items: int = 8, max_len: int = 80) -> list[str
     return [_safe_str(item, max_len) for item in value[:max_items] if _safe_str(item, max_len)]
 
 
-def _extract_turn_index(value: object) -> int | None:
-    if isinstance(value, int) and value >= 0:
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    return None
-
-
-def _record_matches_turn(record: object, requested_turn_index: int) -> bool:
-    if not isinstance(record, dict):
-        return False
-    for key in ("turnIndex", "turn_index", "answerTurnIndex", "analysisTurnIndex"):
-        observed = _extract_turn_index(record.get(key))
-        if observed == requested_turn_index:
-            return True
-    turn_id = _safe_str(record.get("turnId") or record.get("turn_id"), 32)
-    return bool(turn_id and turn_id == str(requested_turn_index))
-
-
-def _turn_handoff_matches_requested_turn(payload: dict[str, Any], handoff: dict[str, Any], requested_turn_index: int | None) -> bool:
-    """Fail closed when a handoff cannot be tied to the requested answer turn."""
-    if requested_turn_index is None:
-        return False
-    for container in (
-        handoff,
-        handoff.get("meta") if isinstance(handoff.get("meta"), dict) else None,
-        payload,
-    ):
-        if _record_matches_turn(container, requested_turn_index):
-            return True
-    records = payload.get("records")
-    if isinstance(records, list):
-        return any(_record_matches_turn(record, requested_turn_index) for record in records)
-    return False
-
-
 def _safe_lanes(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
@@ -956,21 +922,14 @@ async def _realtime_turn_events(req: web.Request) -> web.Response:
     records: list[dict[str, object]] = req.app["realtime_mmm_records"]
     records.append(record)
     del records[:-MAX_REALTIME_MMM_RECORDS]
-    rnas = req.app.get("event_only_realtime_turns")
-    rnas_result = {"accepted": False, "reason": "rnas_unavailable"}
-    if isinstance(rnas, _EventOnlyRealtimeTurns):
-        rnas_result = rnas.ingest(payload)
-    status = 202 if rnas_result.get("accepted") is not False else 409
     return _json({
-        "accepted": bool(rnas_result.get("accepted")),
+        "accepted": True,
         "service": "analysis-engine",
         "endpoint": "/realtime/turn-events",
-        "realtimeNativeAnalysisSession": bool(rnas_result.get("realtimeNativeAnalysisSession")),
-        "reason": _safe_str(rnas_result.get("reason"), 120),
         "rawTranscriptLogged": False,
         "rawMediaAccepted": False,
         "recordCount": len(records),
-    }, status=status)
+    }, status=202)
 
 
 async def _realtime_turn_events_tail(req: web.Request) -> web.Response:
@@ -992,16 +951,9 @@ async def _realtime_turn_events_tail(req: web.Request) -> web.Response:
 
 
 async def _realtime_turn_results(req: web.Request) -> web.Response:
-    """Return the exact turn-keyed RNAS result consumed by the API gate.
-
-    This route intentionally resolves only ``(interviewId, turnIndex)`` from
-    Realtime-native storage. It never falls back to active, last, global, or
-    session-wide GilJobE state, preventing stale cross-turn bleed into ordinary
-    ``response.create`` authorization.
-    """
+    """Return the candidate-safe projection of GilJobE's turnHandoff gold payload."""
     interview_id = _safe_str(req.query.get("interviewId"), 96)
-    turn_index_param = _safe_str(req.query.get("turnIndex"), 8)
-    turn_index = _extract_turn_index(turn_index_param)
+    turn_index = _safe_str(req.query.get("turnIndex"), 8)
     service = req.app.get("analysis_service")
     pending = {
         "result": None, "status": "pending",
@@ -1009,27 +961,16 @@ async def _realtime_turn_results(req: web.Request) -> web.Response:
     }
     if service is None or render_prompt_fragment is None or not interview_id:
         return _json(pending)
-    rnas = req.app.get("event_only_realtime_turns")
-    if isinstance(rnas, _EventOnlyRealtimeTurns) and turn_index is not None:
-        rnas_result = rnas.turn_result(interview_id, turn_index)
-        if rnas_result.get("status") == "ready":
-            return _json({
-                "result": rnas_result,
-                "rawTranscriptLogged": False,
-                "rawMediaAccepted": False,
-            })
     payload = service.signals(interview_id)
     handoff = payload.get("turnHandoff")
-    if not handoff:
-        return _json(pending)
-    if not isinstance(handoff, dict) or not _turn_handoff_matches_requested_turn(payload, handoff, turn_index):
+    if not isinstance(handoff, dict):
         return _json(pending)
     return _json({
         "result": {
             "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
             "status": "ready",
             "sessionId": _safe_str(payload.get("sessionId"), 96),
-            "turnIndex": turn_index,
+            "turnIndex": int(turn_index) if turn_index.isdigit() else None,
             "candidatePromptFragment": render_prompt_fragment(handoff),
             "coverage": (handoff.get("meta") or {}).get("coverage"),
             "rawTranscriptLogged": False,

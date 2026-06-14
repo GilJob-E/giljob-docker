@@ -69,6 +69,24 @@ BigBench Audio input
 2. 확보된 `ArtificialAnalysis/big_bench_audio` data subset과 MiMo evaluator 기준으로 provisional runner를 유지한다.
 3. Realtime audio adapter와 ASR/text diagnostic adapter를 분리해 재현성 낮음을 명확히 표시한다.
 
+## Product-path 준비 상태
+
+`benchmark/harness/productpath_signals_adapter.mjs`로 MP3 입력을 임시 black-video MP4로 변환하고 실제 interview room product path를 통과시킬 수 있다. Adapter는 BigBench용 spoken-task prompt를 후속 `response.create`에 주입한다. `official_answer`는 소비자 LLM prompt에 들어가지 않는다.
+
+Product-path runner는 Realtime data channel의 output transcript를 우선 응답으로 사용하고, room UI의 loading/fallback 문구는 답으로 채점하지 않는다. 복잡한 formal-fallacies 샘플처럼 응답 latency가 긴 경우에도 `#current-question-body`의 임시 상태 문구를 조기 채택하지 않는다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 benchmark/harness/run_bigbench_audio.py \
+  --limit 1 \
+  --adapter command \
+  --timeout-s 240 \
+  --model-label giljob-v2-interview-room-product-path \
+  --notes "productpath_signals_adapter with standalone spoken-task prompt; consumer LLM sees no official answer" \
+  --command "node benchmark/harness/productpath_signals_adapter.mjs --response-field answer-text --wait-s 90"
+```
+
+산출물은 `benchmark/runs/06-bigbench-audio/<run_id>/_productpath/<example_id>/`에 남는다. 채점은 runner의 answer evaluator가 하며, 소비자 LLM은 audio task의 최종 답만 생성한다.
+
 ## 주의점
 
-이 항목은 9개 중 가장 source transparency가 낮다. 지금 단계에서 GilJob 성능 주장에 쓰면 안 되고, "조사 필요" 상태로 둔다.
+이 항목은 현재 활성 벤치 중 source transparency가 가장 낮다. 지금 단계에서 GilJob 성능 주장에 쓰면 안 되고, "조사 필요" 상태로 둔다.

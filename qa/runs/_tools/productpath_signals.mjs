@@ -8,10 +8,10 @@
 //   2. wait for the opener question to end (mic button enables)
 //   3. camera ON (vision lanes need a published video track)
 //   4. 답변 시작 -> stream clip: video -> fake camera, audio -> injected WebAudio mic
-//   5. 답변 종료 -> full stack runs (Realtime STT + MMM/RNAS lanes -> fragment -> gate)
+//   5. 답변 종료 -> full stack runs (Realtime STT + GilJobE turnHandoff -> fragment -> gate)
 //   6. read the interviewer's spoken-answer transcript (page #current-question-body)
-//   7. NEW: poll /analysis/realtime/turn-results for the answer turn (objective
-//      vision/prosody/transcript lanes) + legacy /analysis/signals, write to out-dir.
+//   7. poll /analysis/signals as the gold turnHandoff payload, then save the thin
+//      /analysis/realtime/turn-results fragment as a secondary gate artifact.
 //
 // transcript_feed = openai-realtime (REAL text). Avatar bundle blocked (headless GL).
 //
@@ -19,6 +19,9 @@
 //   node productpath_signals.mjs --video <clip.mp4> --out-dir <dir> [--label <s>]
 //     [--base-url http://127.0.0.1:8081] [--interview-id <id>] [--wait-s 90]
 //     [--pad-ms 3000] [--headed]
+//     [--session-instructions-file <path>]
+//     [--initial-instructions-file <path>] [--response-instructions-file <path>]
+//     [--analysis-fragment-mode append|omit]
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -39,12 +42,31 @@ for (let i = 2; i < process.argv.length; i += 1) {
   else if (a === "--interview-id") args.interviewId = process.argv[++i];
   else if (a === "--wait-s") args.waitS = Number(process.argv[++i]);
   else if (a === "--pad-ms") args.padMs = Number(process.argv[++i]);
+  else if (a === "--initial-instructions") args.initialInstructions = process.argv[++i];
+  else if (a === "--initial-instructions-file") args.initialInstructionsFile = process.argv[++i];
+  else if (a === "--response-instructions") args.responseInstructions = process.argv[++i];
+  else if (a === "--response-instructions-file") args.responseInstructionsFile = process.argv[++i];
+  else if (a === "--session-instructions") args.sessionInstructions = process.argv[++i];
+  else if (a === "--session-instructions-file") args.sessionInstructionsFile = process.argv[++i];
+  else if (a === "--analysis-fragment-mode") args.analysisFragmentMode = process.argv[++i];
   else if (a === "--headed") args.headed = true;
   else throw new Error(`unknown arg: ${a}`);
 }
 if (!args.video) throw new Error("--video is required");
 if (!args.outDir) throw new Error("--out-dir is required");
 fs.mkdirSync(args.outDir, { recursive: true });
+
+function readInstructions(value, filePath) {
+  if (filePath) return fs.readFileSync(filePath, "utf8").trim();
+  return value ? String(value).trim() : "";
+}
+
+const instructionOverride = {
+  sessionInstructions: readInstructions(args.sessionInstructions, args.sessionInstructionsFile),
+  initialInstructions: readInstructions(args.initialInstructions, args.initialInstructionsFile),
+  responseInstructions: readInstructions(args.responseInstructions, args.responseInstructionsFile),
+  analysisFragmentMode: args.analysisFragmentMode === "omit" ? "omit" : "append",
+};
 
 const PLAYWRIGHT = "/home/kio/workspace/giljob-docker/benchmark/data/cache/browser-tools/node_modules/playwright/index.mjs";
 const workDir = "/tmp/qa-productpath";
@@ -80,6 +102,61 @@ async function getJson(url) {
   }
 }
 
+function isNonAnswerQuestionText(text) {
+  return [
+    /Realtime 음성 질문을 재생/,
+    /Realtime sideband가 full MMM 준비 이후 다음 질문을 발화합니다/,
+    /Realtime 음성 질문 재생이 완료되었습니다/,
+    /면접관 질문이 생성되면/,
+    /면접관 질문을 준비하고 있습니다/,
+    /Keyless scaffold InterviewController/,
+    /질문을 불러오지 못했습니다/,
+  ].some((pattern) => pattern.test(String(text || "")));
+}
+
+async function completedRealtimeResponseCount(page) {
+  return page.evaluate(() => window.__giljobBenchRealtime?.completed?.length || 0);
+}
+
+async function waitForRealtimeAnswer(page, openerText, completedBefore, tEndClick, waitS) {
+  let answer = "";
+  let answerSource = "";
+  let lastChange = Date.now();
+  let prev = "";
+  const deadline = tEndClick + waitS * 1000;
+  while (Date.now() < deadline) {
+    const captured = await page.evaluate(() => ({
+      completed: window.__giljobBenchRealtime?.completed || [],
+      current: window.__giljobBenchRealtime?.current || "",
+    }));
+    for (let index = captured.completed.length - 1; index >= completedBefore; index -= 1) {
+      const text = String(captured.completed[index]?.text || "").trim();
+      if (text && text !== openerText && !isNonAnswerQuestionText(text)) {
+        return {
+          answer: text,
+          answerSource: "realtime-output-transcript",
+          lastChange: Number(captured.completed[index]?.at || Date.now()),
+        };
+      }
+    }
+
+    const cur = await page.evaluate(() => document.querySelector("#current-question-body")?.textContent?.trim() || "");
+    if (cur !== prev) { prev = cur; lastChange = Date.now(); }
+    const settled = Date.now() - lastChange > 2500;
+    if (cur && cur !== openerText && !isNonAnswerQuestionText(cur) && settled) {
+      answer = cur;
+      answerSource = "question-body";
+      break;
+    }
+    await page.waitForTimeout(400);
+  }
+  if (!answer && prev && prev !== openerText && !isNonAnswerQuestionText(prev)) {
+    answer = prev;
+    answerSource = "question-body-timeout";
+  }
+  return { answer, answerSource: answerSource || "timeout", lastChange };
+}
+
 const { chromium } = await import(pathToFileURL(PLAYWRIGHT).href);
 const browser = await chromium.launch({
   executablePath: "/usr/bin/google-chrome",
@@ -99,6 +176,147 @@ try {
   await context.route("**/vendor/@spatialwalk/**", (route) => route.abort());
 
   const page = await context.newPage();
+  await page.addInitScript(() => {
+    if (window.__giljobBenchRealtimeCaptureInstalled) return;
+    window.__giljobBenchRealtimeCaptureInstalled = true;
+    window.__giljobBenchRealtime = { current: "", completed: [], events: [] };
+    const state = window.__giljobBenchRealtime;
+    const extractOutputTranscript = (event) => {
+      const chunks = [];
+      if (typeof event?.transcript === "string" && event.transcript.trim()) {
+        chunks.push(event.transcript.trim());
+      }
+      const responseOutputs = event?.response?.output;
+      if (Array.isArray(responseOutputs)) {
+        responseOutputs.forEach((item) => {
+          const content = Array.isArray(item?.content) ? item.content : [];
+          content.forEach((part) => {
+            if (typeof part?.transcript === "string" && part.transcript.trim()) chunks.push(part.transcript.trim());
+            if (typeof part?.text === "string" && part.text.trim()) chunks.push(part.text.trim());
+          });
+        });
+      }
+      const itemContent = Array.isArray(event?.item?.content) ? event.item.content : [];
+      itemContent.forEach((part) => {
+        if (typeof part?.transcript === "string" && part.transcript.trim()) chunks.push(part.transcript.trim());
+        if (typeof part?.text === "string" && part.text.trim()) chunks.push(part.text.trim());
+      });
+      return chunks.join(" ").trim();
+    };
+    const captureEvent = (raw) => {
+      const event = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const type = String(event?.type || "");
+      if (type === "response.audio_transcript.delta" || type === "response.output_audio_transcript.delta") {
+        if (typeof event.delta === "string") {
+          state.current = `${state.current}${event.delta}`.trim();
+        }
+      } else if (type === "response.audio_transcript.done" || type === "response.output_audio_transcript.done") {
+        const text = extractOutputTranscript(event);
+        if (text) state.current = text;
+      } else if (type === "response.done") {
+        const text = extractOutputTranscript(event) || state.current.trim();
+        state.completed.push({ at: Date.now(), text });
+        state.current = "";
+      }
+      if (type.startsWith("response.")) {
+        state.events.push({ at: Date.now(), type, textChars: state.current.length });
+        if (state.events.length > 100) state.events.shift();
+      }
+    };
+    const installOnChannel = (channel) => {
+      if (!channel || channel.__giljobBenchRealtimeCaptureInstalled) return;
+      channel.__giljobBenchRealtimeCaptureInstalled = true;
+      channel.addEventListener("message", (event) => {
+        try {
+          captureEvent(event.data);
+        } catch {
+          // Benchmark capture is observational only.
+        }
+      });
+    };
+    const originalCreateDataChannel = RTCPeerConnection.prototype.createDataChannel;
+    RTCPeerConnection.prototype.createDataChannel = function patchedCreateDataChannel(...channelArgs) {
+      const channel = originalCreateDataChannel.apply(this, channelArgs);
+      installOnChannel(channel);
+      return channel;
+    };
+  });
+  await page.addInitScript((override) => {
+    if (!override?.sessionInstructions) return;
+    const patchBody = (body) => ({
+      ...(body || {}),
+      instructions: override.sessionInstructions,
+    });
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init = {}) => {
+      try {
+        const urlText = typeof input === "string" ? input : input?.url || "";
+        const url = new URL(urlText, window.location.href);
+        const method = String(init?.method || (typeof input === "object" ? input?.method : "") || "GET").toUpperCase();
+        if (method === "POST" && /\/interviews\/[^/]+\/realtime\/(?:session|call)\/?$/.test(url.pathname)) {
+          const body = init?.body ? JSON.parse(String(init.body)) : {};
+          init = { ...init, body: JSON.stringify(patchBody(body)) };
+        }
+      } catch {
+        // Keep the normal product path if the optional benchmark override cannot parse.
+      }
+      return originalFetch(input, init);
+    };
+    const installOnChannel = (channel) => {
+      if (!channel || channel.__giljobBenchSessionPromptInstalled) return;
+      channel.__giljobBenchSessionPromptInstalled = true;
+      const originalSend = channel.send.bind(channel);
+      channel.send = (data) => {
+        try {
+          const event = typeof data === "string" ? JSON.parse(data) : null;
+          if (event?.type === "session.update" && typeof event.session === "object") {
+            event.session = {
+              ...(event.session || {}),
+              instructions: override.sessionInstructions,
+            };
+            data = JSON.stringify(event);
+          }
+        } catch {
+          // Relay the original data unchanged.
+        }
+        return originalSend(data);
+      };
+    };
+    const originalCreateDataChannel = RTCPeerConnection.prototype.createDataChannel;
+    RTCPeerConnection.prototype.createDataChannel = function patchedCreateDataChannel(...channelArgs) {
+      const channel = originalCreateDataChannel.apply(this, channelArgs);
+      installOnChannel(channel);
+      return channel;
+    };
+  }, instructionOverride);
+  await page.addInitScript((override) => {
+    if (!override?.initialInstructions && !override?.responseInstructions) return;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init = {}) => {
+      try {
+        const urlText = typeof input === "string" ? input : input?.url || "";
+        const url = new URL(urlText, window.location.href);
+        const method = String(init?.method || (typeof input === "object" ? input?.method : "") || "GET").toUpperCase();
+        const match = url.pathname.match(/\/interviews\/[^/]+\/turns\/([0-9]+)\/realtime\/response\/?$/);
+        if (method === "POST" && match) {
+          const turnIndex = Number(match[1]);
+          const instructions = turnIndex === 1 ? override.initialInstructions : override.responseInstructions;
+          if (instructions) {
+            const body = init?.body ? JSON.parse(String(init.body)) : {};
+            body.response = {
+              ...(body.response || {}),
+              instructions,
+              analysisFragmentMode: override.analysisFragmentMode,
+            };
+            init = { ...init, body: JSON.stringify(body) };
+          }
+        }
+      } catch {
+        // Keep the normal product path if the optional benchmark override cannot parse.
+      }
+      return originalFetch(input, init);
+    };
+  }, instructionOverride);
   await page.addInitScript(() => {
     const state = {};
     const ensure = () => {
@@ -153,22 +371,14 @@ try {
 
   // 4. clip done -> trailing room tone -> 답변 종료
   await page.waitForTimeout(clipDurS * 1000 + args.padMs);
+  const completedBeforeAnswer = await completedRealtimeResponseCount(page);
   await page.click("#toggle-mic");
   const tEndClick = Date.now();
 
   // 5. wait for the service's answer transcript (differs from opener, settled 2.5s)
-  let answer = "";
-  let lastChange = Date.now();
-  let prev = "";
-  const deadline = tEndClick + args.waitS * 1000;
-  while (Date.now() < deadline) {
-    const cur = await page.evaluate(() => document.querySelector("#current-question-body")?.textContent?.trim() || "");
-    if (cur !== prev) { prev = cur; lastChange = Date.now(); }
-    const settled = Date.now() - lastChange > 2500;
-    if (cur && cur !== openerText && !/Realtime 음성 질문을 재생/.test(cur) && settled) { answer = cur; break; }
-    await page.waitForTimeout(400);
-  }
-  if (!answer && prev && prev !== openerText) answer = prev;
+  const settledAnswer = await waitForRealtimeAnswer(page, openerText, completedBeforeAnswer, tEndClick, args.waitS);
+  const answer = settledAnswer.answer;
+  const lastChange = settledAnswer.lastChange;
 
   // 6. capture analysis signals. With pin f817f81 the GilJobE engine owns
   //    turn-events and exposes the rich per-turn analysis (records + turnHandoff
@@ -190,7 +400,7 @@ try {
   const readyFragment = Object.entries(probed).find(([, v]) => v?.result?.status === "ready" || v?.status === "ready");
 
   const logText = await page.evaluate(() => document.querySelector("#event-log")?.textContent || "");
-  const logLines = logText.split("\n").filter((l) => l.trim() && !/vision event sent/.test(l)).slice(0, 60).reverse();
+  const logLines = logText.split("\n").filter((l) => l.trim() && !/vision event sent/.test(l)).slice(-60);
 
   const th = signals?.turnHandoff || null;
   // signals.json = the canonical /analysis/signals payload (records + turnHandoff = objective lanes)
@@ -203,6 +413,7 @@ try {
     clip_dur_s: clipDurS,
     opener_text: openerText,
     answer_text: answer,
+    answer_source: settledAnswer.answerSource,
     answer_latency_after_click_ms: answer ? lastChange - tEndClick : null,
     record_count: signals?.recordCount ?? 0,
     transcript_full_chars: (signals?.transcriptFull || "").length,
@@ -229,6 +440,12 @@ try {
     interview_id: args.interviewId,
     publisher: `${chromeVer}, playwright(chromium 드라이브), SpatialReal avatar 번들 차단(headless GL 왜곡 방지)`,
     harness: "qa/runs/_tools/productpath_signals.mjs (qivd_room_smoke 룸 구동 경로 재사용 + /analysis/signals 캡처)",
+    instruction_override: {
+      session_present: Boolean(instructionOverride.sessionInstructions),
+      initial_present: Boolean(instructionOverride.initialInstructions),
+      response_present: Boolean(instructionOverride.responseInstructions),
+      analysis_fragment_mode: instructionOverride.analysisFragmentMode,
+    },
     caveat: "y4m은 캡처 시작부터 루프(clip+pad 동안 재생). 답변=면접 1턴(turnIndex 0). signals.json=/analysis/signals 정본 페이로드(records+turnHandoff). candidate-fragment.json=게이트용 thin 프래그먼트.",
   };
   fs.writeFileSync(path.join(args.outDir, "meta.json"), JSON.stringify(meta, null, 2) + "\n");

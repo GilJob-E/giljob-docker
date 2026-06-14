@@ -54,7 +54,9 @@ REALTIME_MMM_FORWARD_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_FORWARD_TIM
 REALTIME_MMM_RESULT_TIMEOUT_SECONDS = float(os.getenv("REALTIME_MMM_RESULT_TIMEOUT_SECONDS", "1.2"))
 MAX_REALTIME_INSTRUCTIONS_CHARS = 2_000
 MAX_REALTIME_PROMPT_FRAGMENT_CHARS = 900
+MAX_REALTIME_CONTEXT_ITEM_IDS = 64
 MAX_SDP_CHARS = 64_000
+REALTIME_CONTEXT_ITEM_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$")
 
 # In-process scaffold store for G006. The persistence contract is represented by
 # services/api/db/schema.sql; a later M2 slice will wire this to Postgres.
@@ -569,7 +571,7 @@ def _readiness_payload_with_analysis_result(interview_id: str, turn_index: int) 
         return payload
 
     result, source = _fetch_analysis_result(interview_id, turn_index)
-    failure = _analysis_result_gate_failure(result, interview_id, turn_index)
+    failure = _analysis_result_gate_failure(result)
     payload["analysisEngine"] = source
     if failure:
         reason = failure[0]
@@ -593,9 +595,9 @@ def _readiness_payload_with_analysis_result(interview_id: str, turn_index: int) 
         )
         return payload
 
-    if result is not None and not _analysis_result_turn_matches(result, interview_id, turn_index):
-        reason = "analysis_result_stale_or_wrong_turn"
-        response_create = {"owner": "api", "created": False, "reason": "exact_turn_analysis_required"}
+    if result is not None and not _analysis_result_session_matches(result, interview_id):
+        reason = "analysis_result_wrong_session"
+        response_create = {"owner": "api", "created": False, "reason": "turn_handoff_session_required"}
         payload["ready"] = False
         payload["full_mmm_ready"] = False
         payload["degraded"] = True
@@ -796,12 +798,12 @@ def _extract_analysis_result(payload: dict[str, Any]) -> dict[str, Any] | None:
         value = payload.get(key)
         if isinstance(value, dict):
             return value
-    if payload.get("schemaVersion") or payload.get("schema_version") or payload.get("candidatePromptFragment") or payload.get("candidateSafePromptFragment"):
+    if payload.get("schemaVersion") or payload.get("schema_version") or payload.get("candidatePromptFragment"):
         return payload
     return None
 
 
-def _analysis_result_gate_failure(result: dict[str, Any] | None, interview_id: str, turn_index: int) -> tuple[str, str] | None:
+def _analysis_result_gate_failure(result: dict[str, Any] | None) -> tuple[str, str] | None:
     if result is None:
         return ("analysis_result_unavailable", "structured_analysis_required")
     status = _safe_str(result.get("status"), 40)
@@ -831,33 +833,48 @@ def _fetch_analysis_result(interview_id: str, turn_index: int) -> tuple[dict[str
     return _extract_analysis_result(parsed), {"attempted": True, "status": status, "endpoint": "/realtime/turn-results"}
 
 
-def _analysis_result_turn_matches(result: dict[str, Any], interview_id: str, turn_index: int) -> bool:
-    result_turn = result.get("turnIndex") or result.get("turn_index")
-    try:
-        if int(result_turn) != turn_index:
-            return False
-    except (TypeError, ValueError):
-        return False
+def _analysis_result_session_matches(result: dict[str, Any], interview_id: str) -> bool:
     result_session = _safe_str(result.get("sessionId") or result.get("interviewId"), 96)
     return result_session == interview_id
 
 
 def _candidate_safe_fragment_from_result(result: dict[str, Any]) -> str:
-    structured = result.get("candidateSafePromptFragment")
-    if isinstance(structured, dict):
-        if any(bool(structured.get(key)) for key in ("containsRawTranscript", "containsRawMedia", "containsSecrets")):
-            return ""
-        return _candidate_safe_fragment(structured.get("text"))
     return _candidate_safe_fragment(result.get("candidatePromptFragment") or result.get("realtimePromptFragment") or result.get("nextQuestionGuidance"))
 
 
-def _realtime_response_create_command(instructions: str) -> dict[str, object]:
+def _requested_context_item_ids(payload: dict[str, Any]) -> tuple[list[str], str | None]:
+    requested = payload.get("response") if isinstance(payload.get("response"), dict) else {}
+    raw_ids = requested.get("contextItemIds") or requested.get("inputItemIds")
+    if raw_ids is None:
+        return [], None
+    if not isinstance(raw_ids, list):
+        return [], "context_item_ids_must_be_array"
+    item_ids: list[str] = []
+    seen: set[str] = set()
+    for raw_id in raw_ids:
+        item_id = _safe_str(raw_id, 192)
+        if not item_id or not REALTIME_CONTEXT_ITEM_ID_PATTERN.fullmatch(item_id):
+            return [], "invalid_context_item_id"
+        if item_id not in seen:
+            seen.add(item_id)
+            item_ids.append(item_id)
+        if len(item_ids) > MAX_REALTIME_CONTEXT_ITEM_IDS:
+            return [], "too_many_context_item_ids"
+    return item_ids, None
+
+
+def _realtime_response_create_command(instructions: str, *, context_item_ids: list[str] | None = None) -> dict[str, object]:
+    response: dict[str, object] = {
+        "output_modalities": ["audio"],
+        "instructions": instructions,
+    }
+    if context_item_ids:
+        response["conversation"] = "none"
+        response["input"] = [{"type": "item_reference", "id": item_id} for item_id in context_item_ids]
+        response["metadata"] = {"context": "api-approved-item-references"}
     return {
         "type": "response.create",
-        "response": {
-            "output_modalities": ["audio"],
-            "instructions": instructions,
-        },
+        "response": response,
     }
 
 
@@ -873,17 +890,52 @@ def _initial_realtime_question_instructions(payload: dict[str, Any]) -> str:
     )
 
 
+def _requested_followup_realtime_instructions(payload: dict[str, Any]) -> tuple[str, str]:
+    requested = payload.get("response") if isinstance(payload.get("response"), dict) else {}
+    if not isinstance(requested, dict):
+        return "", "append"
+    instructions = _candidate_safe_fragment(requested.get("instructions"))
+    mode = _safe_str(requested.get("analysisFragmentMode") or "append", 16).lower()
+    if mode not in {"append", "omit"}:
+        mode = "append"
+    return instructions, mode
+
+
+def _followup_realtime_question_instructions(payload: dict[str, Any], fragment: str) -> str:
+    requested, fragment_mode = _requested_followup_realtime_instructions(payload)
+    if requested:
+        if "{candidate_safe_guidance}" in requested:
+            return _safe_str(
+                requested.replace("{candidate_safe_guidance}", fragment),
+                MAX_REALTIME_INSTRUCTIONS_CHARS,
+            )
+        if fragment_mode == "omit":
+            return requested
+        return _safe_str(
+            f"{requested}\n\nCandidate-safe guidance from the previous candidate turn:\n{fragment}",
+            MAX_REALTIME_INSTRUCTIONS_CHARS,
+        )
+    return (
+        "Use this candidate-safe guidance from the previous answer to ask the next Korean interview question. "
+        "Do not mention internal infrastructure, private gating, or analysis labels. "
+        f"Guidance: {fragment}"
+    )
+
+
 def create_realtime_response(interview_id: str, turn_index: int, payload: dict[str, Any]) -> tuple[int, dict[str, object]]:
     start = time.perf_counter()
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
     if turn_index < 1:
         return 400, {"error": "invalid_turn_index"}
+    context_item_ids, context_error = _requested_context_item_ids(payload)
+    if context_error:
+        return 400, {"error": context_error}
 
     analysis_turn_index = turn_index - 1
     if turn_index == 1:
         instructions = _initial_realtime_question_instructions(payload)
-        command = _realtime_response_create_command(instructions)
+        command = _realtime_response_create_command(instructions, context_item_ids=context_item_ids)
         REALTIME_RESPONSE_COMMANDS.setdefault(interview_id, {})[turn_index] = {
             "commandType": "response.create",
             "bootstrap": True,
@@ -926,28 +978,7 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
     wait_start = time.perf_counter()
     result, source = _fetch_analysis_result(interview_id, analysis_turn_index)
     _log_latency_span("api.analysis.result.wait", _duration_ms(wait_start), status=200 if result else 504, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
-    inline_result = _extract_analysis_result(payload)
-    if result is None and inline_result is not None and not _analysis_result_turn_matches(inline_result, interview_id, analysis_turn_index):
-        response_create = {"owner": "api", "created": False, "reason": "exact_turn_analysis_result_required"}
-        return _return_with_latency(409, {
-            "error": "analysis_result_wrong_turn",
-            "interviewId": interview_id,
-            "turnIndex": turn_index,
-            "analysisTurnIndex": analysis_turn_index,
-            "readiness": readiness,
-            "analysisEngine": source,
-            "responseCreate": response_create,
-            "mmmDebug": _mmm_debug_envelope(
-                interview_id,
-                turn_index,
-                analysis_turn_index=analysis_turn_index,
-                readiness=readiness,
-                analysis_engine=source,
-                response_create=response_create,
-            ),
-            "delivery": _realtime_delivery("api-sideband-response-create"),
-        }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
-    gate_failure = _analysis_result_gate_failure(result, interview_id, analysis_turn_index)
+    gate_failure = _analysis_result_gate_failure(result)
     if gate_failure:
         error, reason = gate_failure
         response_create = {"owner": "api", "created": False, "reason": reason}
@@ -972,10 +1003,10 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
             "delivery": _realtime_delivery("api-sideband-response-create"),
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
-    if result is not None and not _analysis_result_turn_matches(result, interview_id, analysis_turn_index):
-        response_create = {"owner": "api", "created": False, "reason": "exact_turn_analysis_required"}
+    if result is not None and not _analysis_result_session_matches(result, interview_id):
+        response_create = {"owner": "api", "created": False, "reason": "turn_handoff_session_required"}
         return _return_with_latency(409, {
-            "error": "analysis_result_stale_or_wrong_turn",
+            "error": "analysis_result_wrong_session",
             "interviewId": interview_id,
             "turnIndex": turn_index,
             "analysisTurnIndex": analysis_turn_index,
@@ -1020,12 +1051,8 @@ def create_realtime_response(interview_id: str, turn_index: int, payload: dict[s
         }, start, "api.realtime.response.create", session_id=interview_id, turn_index=turn_index, provider="openai-realtime")
 
     _log_latency_span("api.analysis.result.ready", 0, status=200, sessionId=interview_id, turnIndex=analysis_turn_index, traceId=_trace_id(interview_id, analysis_turn_index), provider="analysis-engine")
-    instructions = (
-        "Use this candidate-safe guidance from the previous answer to ask the next Korean interview question. "
-        "Do not mention internal infrastructure, private gating, or analysis labels. "
-        f"Guidance: {fragment}"
-    )
-    command = _realtime_response_create_command(instructions)
+    instructions = _followup_realtime_question_instructions(payload, fragment)
+    command = _realtime_response_create_command(instructions, context_item_ids=context_item_ids)
     analysis_summary = _analysis_result_public_summary(result)
     REALTIME_RESPONSE_COMMANDS.setdefault(interview_id, {})[turn_index] = {
         "commandType": "response.create",
