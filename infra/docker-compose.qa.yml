@@ -1,0 +1,94 @@
+# Personal QA overlay: run a SECOND full stack — including the LiveKit media
+# path — on a workstation where another giljob-v2 stack is already running.
+#
+# Usage (from repo root, always together with the media overlay):
+#   docker compose --env-file .env -p giljob-qa \
+#     -f infra/docker-compose.yml -f infra/docker-compose.media.yml -f infra/docker-compose.qa.yml \
+#     up -d --build
+#
+# Isolation notes:
+# - `-p giljob-qa` is mandatory; it overrides the hardcoded `name:` so
+#   containers, networks, and the postgres volume stay separate.
+# - LiveKit RTC ports are moved INSIDE the container config (tcp 17881,
+#   udp 50200-50300) and published 1:1, so the ICE candidates LiveKit
+#   advertises match the host ports. Remapping alone would break media.
+# - Signaling is published as 17880 -> 7880; in-network containers keep
+#   using ws://livekit:7880, browsers use LIVEKIT_PUBLIC_URL (ws://...:17880).
+# - The primary stack's coturn binds the host network (single instance), so
+#   it is disabled here via a profile; same-host QA reaches LiveKit directly
+#   over the published UDP range (ICE-TCP 17881 as fallback).
+# - The QA stack runs its OWN vLLM on GPU 0 (the primary stack's
+#   giljob-v2-gemma-e4b occupies GPU 1), so analysis inference load is fully
+#   isolated. Model weights are read from the existing HF cache (read-only,
+#   offline mode) — no re-download, no gated-model credentials needed.
+#   Host port 8001 is published for direct vLLM debugging only.
+name: giljob-qa
+
+services:
+  caddy:
+    ports: !override
+      - "8081:80"
+      - "8443:443"
+
+  api:
+    environment:
+      # 벤치 전용(QIVD product-path): 소비자 LLM 태스크 프레이밍만 면접관→질문응답으로 전환
+      GILJOB_QIVD_QA_MODE: ${GILJOB_QIVD_QA_MODE:-0}
+
+  livekit:
+    ports: !override
+      - "17880:7880"
+      - "17881:17881"
+      - "50200-50300:50200-50300/udp"
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 17881
+          port_range_start: 50200
+          port_range_end: 50300
+          use_external_ip: false
+          node_ip: ${LIVEKIT_NODE_IP:-127.0.0.1}
+        keys:
+          ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY before enabling media overlay}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET before enabling media overlay}
+        turn:
+          enabled: false
+
+  coturn:
+    profiles: ["qa-disabled"]
+
+  analysis-engine:
+    environment:
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://gemma:8000}
+      # 기본 external (2026-06-12 사용자 확정 — realtime 베이스에선 전사=Realtime 위임이 표준).
+      # internal은 Realtime 플로우 없는 스택의 폴백.
+      GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}
+
+  gemma:
+    image: ${VLLM_IMAGE:-vllm-gemma4-audio:local}
+    command:
+      - google/gemma-4-E4B-it
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --dtype
+      - auto
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-model-len
+      - "8192"
+    environment:
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      - ${VLLM_HF_CACHE:-/home/hoddukzoa/.cache/huggingface}:/root/.cache/huggingface:ro
+    ports:
+      - "8001:8000"
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]

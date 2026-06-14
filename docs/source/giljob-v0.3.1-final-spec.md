@@ -9,6 +9,8 @@
 
 ---
 
+> Archive note: this is a historical source snapshot from 2026-05-30, not the active Realtime architecture. Current runtime/docs use OpenAI Realtime-only live interviewer voice and do not support a secondary LLM/TTS fallback.
+
 ## 0.1 v0.3 패치 요약
 
 Reviewer가 지적한 P0/P1 blocker를 반영해 다음을 명세에 고정했다.
@@ -777,14 +779,14 @@ ENGINE_SESSION_IDLE_TIMEOUT_SECONDS=300
 
 # Agent1
 AGENT1_PROVIDER=fake
-# AGENT1_PROVIDER=gemma-vllm | gemini | fake | replay
+# AGENT1_PROVIDER=gemma-vllm | legacy-cloud-provider | fake | replay
 AGENT1_NONVERBAL_WINDOW_SECONDS=3
 AGENT1_EVALUATION_WINDOW_SECONDS=16
 AGENT1_EVALUATION_TIMEOUT_SECONDS=12
 
 # Agent2
-AGENT2_PROVIDER=gemini
-AGENT2_MODEL=gemini-configured-model
+AGENT2_PROVIDER=legacy-cloud-provider
+AGENT2_MODEL=legacy-configured-model
 AGENT2_API_KEY=change-me-if-cloud-provider
 AGENT2_TIMEOUT_SECONDS=5
 

@@ -1,0 +1,374 @@
+{
+  "native": {
+    "summary": {
+      "hand_frames": 75,
+      "hand_seen_ratio": 0.31,
+      "finger_sequence": [
+        4,
+        2,
+        5
+      ],
+      "finger_segments": [
+        {
+          "count": 4,
+          "start_s": 10.0,
+          "end_s": 10.67
+        },
+        {
+          "count": 0,
+          "start_s": 11.0,
+          "end_s": 11.67
+        },
+        {
+          "count": 2,
+          "start_s": 12.0,
+          "end_s": 13.0
+        },
+        {
+          "count": 0,
+          "start_s": 13.34,
+          "end_s": 14.01
+        },
+        {
+          "count": 5,
+          "start_s": 14.34,
+          "end_s": 15.34
+        },
+        {
+          "count": 0,
+          "start_s": 15.67,
+          "end_s": 16.67
+        }
+      ],
+      "face_seen_ratio": 1.0,
+      "wrist_visible": 0.15,
+      "shed_frames_total": null
+    },
+    "timeline_3s": [
+      {
+        "win": [
+          0.0,
+          3.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          3.0,
+          6.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          6.0,
+          9.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          9.0,
+          12.0
+        ],
+        "hand_seen": 0.89,
+        "fingers": [
+          4
+        ]
+      },
+      {
+        "win": [
+          12.0,
+          15.0
+        ],
+        "hand_seen": 1.0,
+        "fingers": [
+          2
+        ]
+      },
+      {
+        "win": [
+          15.0,
+          18.0
+        ],
+        "hand_seen": 0.67,
+        "fingers": []
+      },
+      {
+        "win": [
+          18.0,
+          21.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          21.0,
+          24.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          24.0,
+          27.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      }
+    ]
+  },
+  "960x540": {
+    "summary": {
+      "hand_frames": 75,
+      "hand_seen_ratio": 0.31,
+      "finger_sequence": [
+        4,
+        2,
+        5
+      ],
+      "finger_segments": [
+        {
+          "count": 4,
+          "start_s": 10.0,
+          "end_s": 10.67
+        },
+        {
+          "count": 0,
+          "start_s": 11.0,
+          "end_s": 11.67
+        },
+        {
+          "count": 2,
+          "start_s": 12.0,
+          "end_s": 13.0
+        },
+        {
+          "count": 0,
+          "start_s": 13.34,
+          "end_s": 14.01
+        },
+        {
+          "count": 5,
+          "start_s": 14.34,
+          "end_s": 15.34
+        },
+        {
+          "count": 0,
+          "start_s": 15.67,
+          "end_s": 16.67
+        }
+      ],
+      "face_seen_ratio": 1.0,
+      "wrist_visible": 0.13,
+      "shed_frames_total": null
+    },
+    "timeline_3s": [
+      {
+        "win": [
+          0.0,
+          3.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          3.0,
+          6.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          6.0,
+          9.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          9.0,
+          12.0
+        ],
+        "hand_seen": 0.89,
+        "fingers": [
+          4
+        ]
+      },
+      {
+        "win": [
+          12.0,
+          15.0
+        ],
+        "hand_seen": 1.0,
+        "fingers": [
+          2
+        ]
+      },
+      {
+        "win": [
+          15.0,
+          18.0
+        ],
+        "hand_seen": 0.67,
+        "fingers": []
+      },
+      {
+        "win": [
+          18.0,
+          21.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          21.0,
+          24.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          24.0,
+          27.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      }
+    ]
+  },
+  "640x480-letterbox(harness)": {
+    "summary": {
+      "hand_frames": 75,
+      "hand_seen_ratio": 0.29,
+      "finger_sequence": [
+        4,
+        2,
+        5
+      ],
+      "finger_segments": [
+        {
+          "count": 4,
+          "start_s": 9.34,
+          "end_s": 10.67
+        },
+        {
+          "count": 0,
+          "start_s": 11.0,
+          "end_s": 11.67
+        },
+        {
+          "count": 2,
+          "start_s": 12.0,
+          "end_s": 13.0
+        },
+        {
+          "count": 0,
+          "start_s": 13.34,
+          "end_s": 14.01
+        },
+        {
+          "count": 5,
+          "start_s": 14.34,
+          "end_s": 15.34
+        },
+        {
+          "count": 0,
+          "start_s": 15.67,
+          "end_s": 16.67
+        }
+      ],
+      "face_seen_ratio": 1.0,
+      "wrist_visible": 0.0,
+      "shed_frames_total": null
+    },
+    "timeline_3s": [
+      {
+        "win": [
+          0.0,
+          3.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          3.0,
+          6.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          6.0,
+          9.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          9.0,
+          12.0
+        ],
+        "hand_seen": 0.78,
+        "fingers": [
+          4
+        ]
+      },
+      {
+        "win": [
+          12.0,
+          15.0
+        ],
+        "hand_seen": 1.0,
+        "fingers": [
+          2
+        ]
+      },
+      {
+        "win": [
+          15.0,
+          18.0
+        ],
+        "hand_seen": 0.67,
+        "fingers": []
+      },
+      {
+        "win": [
+          18.0,
+          21.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          21.0,
+          24.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      },
+      {
+        "win": [
+          24.0,
+          27.0
+        ],
+        "hand_seen": 0.0,
+        "fingers": null
+      }
+    ]
+  }
+}

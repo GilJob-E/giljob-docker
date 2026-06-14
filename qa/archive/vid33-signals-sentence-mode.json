@@ -1,0 +1,646 @@
+{
+  "service": "analysis-engine",
+  "sessionId": "qa-sentence-vid33",
+  "records": [
+    {
+      "type": "sentence",
+      "session_id": "qa-sentence-vid33",
+      "t": 2.49,
+      "start_s": 0.93,
+      "end_s": 4.06,
+      "text": "Good morning, my name is Anish.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 3.14,
+        "pitch": {
+          "voiced_frames": 219,
+          "voiced_ratio": 0.597,
+          "mean_hz": 130.8,
+          "sd_semitone": 2.49,
+          "pdq": 0.1479,
+          "range_st_10_90": 5.73,
+          "detrended_sd_semitone": 2.38,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 14,
+          "speech_rate_syl_per_s": 4.46,
+          "articulation_rate_syl_per_s": 5.25
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 0,
+          "short_juncture_count_0p1_0p25": 3,
+          "juncture_median_s": 0.12,
+          "longest_pauses_s": [
+            0.23,
+            0.12,
+            0.12
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": 0.867,
+          "half_to_half_delta_db": 3.05,
+          "sounding_trough_db": -17.79
+        }
+      },
+      "visual": null,
+      "nonverbal": null
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-sentence-vid33",
+      "t": 13.89,
+      "start_s": 9.2,
+      "end_s": 18.58,
+      "text": "I am pursuing computer science engineering with artificial intelligence and machine learning.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 9.37,
+        "pitch": {
+          "voiced_frames": 718,
+          "voiced_ratio": 0.618,
+          "mean_hz": 139.2,
+          "sd_semitone": 2.44,
+          "pdq": 0.1521,
+          "range_st_10_90": 6.62,
+          "detrended_sd_semitone": 2.41,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 51,
+          "speech_rate_syl_per_s": 5.44,
+          "articulation_rate_syl_per_s": 7.28
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 3,
+          "short_juncture_count_0p1_0p25": 6,
+          "juncture_median_s": 0.128,
+          "longest_pauses_s": [
+            0.8,
+            0.43,
+            0.39,
+            0.14,
+            0.13
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -0.136,
+          "half_to_half_delta_db": -1.61,
+          "sounding_trough_db": -20.66
+        }
+      },
+      "visual": null,
+      "nonverbal": null
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-sentence-vid33",
+      "t": 6.63,
+      "start_s": 4.06,
+      "end_s": 9.2,
+      "text": "I am a third year graduate from Manipal University.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 5.14,
+        "pitch": {
+          "voiced_frames": 364,
+          "voiced_ratio": 0.606,
+          "mean_hz": 125.7,
+          "sd_semitone": 1.97,
+          "pdq": 0.1224,
+          "range_st_10_90": 4.95,
+          "detrended_sd_semitone": 1.86,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 31,
+          "speech_rate_syl_per_s": 6.03,
+          "articulation_rate_syl_per_s": 7.32
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 1,
+          "short_juncture_count_0p1_0p25": 3,
+          "juncture_median_s": 0.232,
+          "longest_pauses_s": [
+            0.29,
+            0.23,
+            0.23,
+            0.15
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": 0.317,
+          "half_to_half_delta_db": 0.62,
+          "sounding_trough_db": -19.09
+        }
+      },
+      "visual": {
+        "face_frames": 2,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.202,
+        "smile_max": 0.402,
+        "smile_ratio": 0.5,
+        "brow_down_mean": 0.195,
+        "mouth_press_mean": 0.012,
+        "blink_count": 0,
+        "gaze_off_mean": 0.237,
+        "yaw_std_deg": 0.17,
+        "pitch_std_deg": 0.84,
+        "lip_motion": 0.0141,
+        "pose_frames": 2,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0003,
+        "head_sway": 0.0048,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.3,
+        "note": "시선 이탈 평균이 낮고, 미소 빈도가 낮으며, 자세 흔들림이 적어 전반적으로 안정적이나 강한 몰입도는 보이지 않음"
+      }
+    },
+    {
+      "type": "eval",
+      "session_id": "qa-sentence-vid33",
+      "t": 8.0,
+      "window_s": 16.0,
+      "eval": {
+        "window_start_s": 0.0,
+        "window_dur_s": 16.0,
+        "verbal": {
+          "logic": "지원자의 학력 및 전공을 설명하는 데 논리적 흐름은 있으나, 문장 구조가 다소 길고 복잡하여 전달력이 떨어짐.",
+          "structure": "자기소개-학력-전공-관심 분야 순으로 구성되어 있으나, 문장 간 연결이 매끄럽지 못함.",
+          "specificity": "전공 분야(AI, ML)를 언급했으나, 해당 분야에 대한 구체적인 경험이나 관심사를 제시하지 못함."
+        },
+        "vocal": {
+          "volume": "전반적으로 일정한 음량으로 발화했으나, 후반부로 갈수록 음량이 증가하는 경향이 관찰됨.",
+          "pace": "발화 속도는 적절한 편이나, 문장이 길어지면서 호흡이 다소 가빠지는 느낌을 줌.",
+          "pauses": "0.25초 이상의 긴 쉼이 6회 관찰되어, 문장 구조나 내용 구성에 대한 고민의 흔적이 보임.",
+          "intonation": "억양 변화의 표준편차가 2.48 semitone으로, 다소 단조로운 느낌을 줌."
+        },
+        "visual": {
+          "eye_contact": "시선 이탈 평균이 0.47로, 면접관과의 지속적인 아이 컨택트 유지에 어려움이 있음.",
+          "posture": "자세 흔들림이 매우 적어 안정적인 자세를 유지하려 노력하는 모습이 보임.",
+          "expression": "미소나 표정 변화가 거의 관찰되지 않아 다소 무표정한 인상을 줌.",
+          "gesture_over_time": "손동작/제스처는 관측 불가."
+        },
+        "critique": [
+          "문장 구조가 길고 복잡하여 핵심 메시지 전달에 방해가 됨. 간결하게 요약하는 연습이 필요함.",
+          "긴 쉼이 잦아 내용 구성이나 말의 흐름이 매끄럽지 못함. 문장 단위로 호흡을 조절하는 연습이 필요함.",
+          "시선 이탈이 잦아 면접관과의 소통에 집중하지 못하는 인상을 줌."
+        ],
+        "key_observations": [
+          "전공 분야에 대한 설명은 했으나, 구체적인 경험이나 기여도를 언급하지 못함.",
+          "전반적으로 안정적인 자세를 유지하려 노력했으나, 표정이나 시선 처리에서 다소 경직된 모습이 보임."
+        ],
+        "compact": false,
+        "objective_vocal": {
+          "duration_s": 16.01,
+          "pitch": {
+            "voiced_frames": 1069,
+            "voiced_ratio": 0.556,
+            "mean_hz": 133.8,
+            "sd_semitone": 2.48,
+            "pdq": 0.1554,
+            "range_st_10_90": 5.78,
+            "detrended_sd_semitone": 2.42,
+            "octave_error_frac": 0.0
+          },
+          "rate": {
+            "syllable_nuclei": 80,
+            "speech_rate_syl_per_s": 5.0,
+            "articulation_rate_syl_per_s": 6.72
+          },
+          "pauses": {
+            "pause_count_ge_0p25": 6,
+            "short_juncture_count_0p1_0p25": 6,
+            "juncture_median_s": 0.26,
+            "longest_pauses_s": [
+              0.88,
+              0.8,
+              0.43,
+              0.38,
+              0.3
+            ]
+          },
+          "energy": {
+            "rel_db_slope_per_s": 0.303,
+            "half_to_half_delta_db": 3.24,
+            "sounding_trough_db": -20.07
+          }
+        },
+        "objective_visual": {
+          "face_frames": 2,
+          "face_seen_ratio": 1.0,
+          "smile_mean": 0.001,
+          "smile_max": 0.001,
+          "smile_ratio": 0.0,
+          "brow_down_mean": 0.1,
+          "mouth_press_mean": 0.007,
+          "blink_count": 0,
+          "gaze_off_mean": 0.47,
+          "yaw_std_deg": 0.1,
+          "pitch_std_deg": 0.13,
+          "lip_motion": 0.00467,
+          "pose_frames": 2,
+          "pose_seen_ratio": 1.0,
+          "posture_std": 0.0027,
+          "head_sway": 0.0015,
+          "wrist_visible": 0.0,
+          "wrist_motion": 0.0,
+          "gesture_events": 0
+        }
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-sentence-vid33",
+      "t": 23.59,
+      "start_s": 19.46,
+      "end_s": 27.73,
+      "text": "This combination of AI and design has fueled my passion for full stack development and machine learning.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 8.27,
+        "pitch": {
+          "voiced_frames": 471,
+          "voiced_ratio": 0.481,
+          "mean_hz": 123.7,
+          "sd_semitone": 1.65,
+          "pdq": 0.1031,
+          "range_st_10_90": 2.93,
+          "detrended_sd_semitone": 1.62,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 33,
+          "speech_rate_syl_per_s": 3.99,
+          "articulation_rate_syl_per_s": 5.84
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 3,
+          "short_juncture_count_0p1_0p25": 9,
+          "juncture_median_s": 0.152,
+          "longest_pauses_s": [
+            0.68,
+            0.38,
+            0.27,
+            0.18,
+            0.18
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -0.732,
+          "half_to_half_delta_db": -5.14,
+          "sounding_trough_db": -23.11
+        }
+      },
+      "visual": null,
+      "nonverbal": null
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-sentence-vid33",
+      "t": 30.2,
+      "start_s": 27.73,
+      "end_s": 32.66,
+      "text": "I worked as a machine learning intern at TechNook for a month.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 4.93,
+        "pitch": {
+          "voiced_frames": 354,
+          "voiced_ratio": 0.574,
+          "mean_hz": 138.9,
+          "sd_semitone": 2.65,
+          "pdq": 0.1585,
+          "range_st_10_90": 7.45,
+          "detrended_sd_semitone": 2.54,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 27,
+          "speech_rate_syl_per_s": 5.48,
+          "articulation_rate_syl_per_s": 7.38
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 1,
+          "short_juncture_count_0p1_0p25": 8,
+          "juncture_median_s": 0.112,
+          "longest_pauses_s": [
+            0.26,
+            0.22,
+            0.13,
+            0.13,
+            0.11
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -0.137,
+          "half_to_half_delta_db": -2.31,
+          "sounding_trough_db": -21.43
+        }
+      },
+      "visual": null,
+      "nonverbal": null
+    },
+    {
+      "type": "eval",
+      "session_id": "qa-sentence-vid33",
+      "t": 24.0,
+      "window_s": 16.0,
+      "eval": {
+        "window_start_s": 16.0,
+        "window_dur_s": 16.0,
+        "verbal": {
+          "logic": "전반적으로 논리적인 흐름을 가지고 있으나, 'a lot of projects'와 같은 모호한 표현이 사용되어 구체성이 부족합니다.",
+          "structure": "경력과 프로젝트 경험을 나열하는 구조로, 비교적 명확하게 구성되어 있습니다.",
+          "specificity": "프로젝트의 종류(fraud detection, sentiment analysis)는 언급되었으나, 어떤 기술 스택을 사용했는지, 어떤 성과를 냈는지에 대한 구체적인 설명이 부족합니다."
+        },
+        "vocal": {
+          "volume": "전반적으로 일정한 음량으로 발화되었으나, 후반부로 갈수록 음량이 감소하는 경향이 관찰됩니다.",
+          "pace": "발화 속도는 적절한 수준으로 유지되었으나, 쉼의 빈도가 다소 높은 편입니다.",
+          "pauses": "0.25초 이상의 긴 쉼이 3회 관찰되어, 문장 전환이나 생각 정리 시 다소 망설이는 듯한 인상을 줄 수 있습니다.",
+          "intonation": "억양 변화의 표준편차가 2.28 semitone으로, 단조롭지 않은 편이지만, 전반적으로 평이한 톤을 유지하고 있습니다."
+        },
+        "visual": {
+          "eye_contact": "시선 이탈 평균이 0.301로, 면접관과의 지속적인 아이 컨택트 유지에 다소 어려움이 있는 것으로 보입니다.",
+          "posture": "자세의 흔들림이 매우 적어 안정적인 자세를 유지하고 있습니다.",
+          "expression": "측정된 미소나 표정 변화가 거의 없어, 감정 표현이 절제된 상태로 보입니다.",
+          "gesture_over_time": "손동작이나 제스처는 관측되지 않았습니다."
+        },
+        "critique": [
+          "프로젝트 경험을 나열하는 데 그치고, 각 프로젝트에서 어떤 역할을 했고 어떤 성과를 냈는지에 대한 구체적인 설명이 부족합니다.",
+          "발화 후반부로 갈수록 음량이 감소하는 경향이 있어, 답변의 몰입도가 떨어지는 인상을 줄 수 있습니다.",
+          "긴 쉼이 잦아 답변의 흐름이 다소 끊기는 느낌을 주며, 이는 자신감 부족으로 비칠 수 있습니다."
+        ],
+        "key_observations": [
+          "기술 스택이나 성과에 대한 구체적인 언급이 없어 답변의 깊이가 얕습니다.",
+          "후반부 음량 감소와 잦은 쉼이 답변의 일관성을 저해합니다.",
+          "시선 이탈이 다소 관찰되어 면접관과의 소통에 집중하는 모습이 부족해 보입니다."
+        ],
+        "compact": false,
+        "objective_vocal": {
+          "duration_s": 15.99,
+          "pitch": {
+            "voiced_frames": 1026,
+            "voiced_ratio": 0.534,
+            "mean_hz": 131.7,
+            "sd_semitone": 2.28,
+            "pdq": 0.1421,
+            "range_st_10_90": 6.13,
+            "detrended_sd_semitone": 2.28,
+            "octave_error_frac": 0.0
+          },
+          "rate": {
+            "syllable_nuclei": 77,
+            "speech_rate_syl_per_s": 4.82,
+            "articulation_rate_syl_per_s": 6.58
+          },
+          "pauses": {
+            "pause_count_ge_0p25": 3,
+            "short_juncture_count_0p1_0p25": 21,
+            "juncture_median_s": 0.144,
+            "longest_pauses_s": [
+              0.68,
+              0.38,
+              0.27,
+              0.25,
+              0.19
+            ]
+          },
+          "energy": {
+            "rel_db_slope_per_s": -0.074,
+            "half_to_half_delta_db": -2.8,
+            "sounding_trough_db": -23.25
+          }
+        },
+        "objective_visual": {
+          "face_frames": 2,
+          "face_seen_ratio": 1.0,
+          "smile_mean": 0.0,
+          "smile_max": 0.0,
+          "smile_ratio": 0.0,
+          "brow_down_mean": 0.134,
+          "mouth_press_mean": 0.004,
+          "blink_count": 0,
+          "gaze_off_mean": 0.301,
+          "yaw_std_deg": 0.16,
+          "pitch_std_deg": 0.04,
+          "lip_motion": 0.00403,
+          "pose_frames": 2,
+          "pose_seen_ratio": 1.0,
+          "posture_std": 0.0002,
+          "head_sway": 0.002,
+          "wrist_visible": 0.0,
+          "wrist_motion": 0.0,
+          "gesture_events": 0
+        }
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-sentence-vid33",
+      "t": 47.4,
+      "start_s": 45.87,
+      "end_s": 48.93,
+      "text": "Things like that.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 3.06,
+        "pitch": {
+          "voiced_frames": 125,
+          "voiced_ratio": 0.343,
+          "mean_hz": 136.3,
+          "sd_semitone": 2.74,
+          "pdq": 0.1774,
+          "range_st_10_90": 5.94,
+          "detrended_sd_semitone": 2.38,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 12,
+          "speech_rate_syl_per_s": 3.92,
+          "articulation_rate_syl_per_s": 4.51
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 0,
+          "short_juncture_count_0p1_0p25": 2,
+          "juncture_median_s": 0.2,
+          "longest_pauses_s": [
+            0.23,
+            0.17
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -0.616,
+          "half_to_half_delta_db": -2.1,
+          "sounding_trough_db": -27.91
+        }
+      },
+      "visual": null,
+      "nonverbal": null
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-sentence-vid33",
+      "t": 39.65,
+      "start_s": 33.43,
+      "end_s": 45.87,
+      "text": "I have been developing web applications for more than six months now.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 12.45,
+        "pitch": {
+          "voiced_frames": 721,
+          "voiced_ratio": 0.48,
+          "mean_hz": 130.5,
+          "sd_semitone": 2.06,
+          "pdq": 0.1256,
+          "range_st_10_90": 4.66,
+          "detrended_sd_semitone": 2.01,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 59,
+          "speech_rate_syl_per_s": 4.74,
+          "articulation_rate_syl_per_s": 6.46
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 5,
+          "short_juncture_count_0p1_0p25": 9,
+          "juncture_median_s": 0.144,
+          "longest_pauses_s": [
+            0.56,
+            0.53,
+            0.44,
+            0.32,
+            0.27
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -0.259,
+          "half_to_half_delta_db": -2.73,
+          "sounding_trough_db": -20.13
+        }
+      },
+      "visual": null,
+      "nonverbal": null
+    },
+    {
+      "type": "eval",
+      "session_id": "qa-sentence-vid33",
+      "t": 40.0,
+      "window_s": 16.0,
+      "eval": {
+        "window_start_s": 32.0,
+        "window_dur_s": 16.0,
+        "verbal": {
+          "logic": "경험의 나열에 치중되어 있어, 해당 경험을 통해 무엇을 배웠는지에 대한 깊이 있는 분석이 부족합니다. 단순히 '무엇을 했다'는 사실 전달에 머물러 있습니다.",
+          "structure": "문장 구조가 다소 길고 복잡하여, 핵심 내용이 한 번에 명확하게 전달되지 않는 경향이 있습니다. 정보의 나열식 구성이 두드러집니다.",
+          "specificity": "구체적인 성과나 기여도를 수치화하여 제시하지 못하고, '많은 웹사이트를 개발했다', '팀을 관리했다'와 같은 추상적인 표현에 그치고 있습니다."
+        },
+        "vocal": {
+          "volume": "전반적으로 일정한 음량으로 유지되나, 후반부로 갈수록 음량이 감소하는 경향이 관찰됩니다.",
+          "pace": "발화 속도는 적절한 수준으로 보이나, 문장 구조가 길어지면서 호흡이 길어지는 구간이 있습니다.",
+          "pauses": "짧은 휴지(0.1~0.25초)가 비교적 자주 발생하며, 이는 내용 전환이나 생각 정리의 과정으로 보입니다.",
+          "intonation": "억양 변화의 표준편차가 2.2 semitone으로, 다소 단조로운 톤으로 느껴질 수 있습니다."
+        },
+        "visual": {
+          "eye_contact": "시선 이탈 평균이 0.224로, 면접관과의 지속적인 아이 컨택트 유지에 다소 어려움이 있는 것으로 보입니다.",
+          "posture": "자세의 흔들림이 매우 적어 안정적인 자세를 유지하고 있습니다.",
+          "expression": "측정된 미소나 표정 변화가 거의 없어, 감정 표현이 절제된 상태로 보입니다.",
+          "gesture_over_time": "손동작/제스처는 관측되지 않았습니다."
+        },
+        "critique": [
+          "경험 나열에 그치고 있어, 해당 경험을 통해 얻은 '배움'이나 '성과'에 대한 깊이 있는 설명이 부족합니다.",
+          "문장 구조가 길고 복잡하여, 핵심 메시지가 명확하게 전달되지 않는 부분이 있습니다.",
+          "전반적으로 단조로운 억양과 적은 표정 변화가 느껴져, 내용에 대한 몰입도나 열정이 다소 부족하게 보입니다."
+        ],
+        "key_observations": [
+          "안정적인 자세를 유지하고 있으나, 시선 이탈이 관찰됩니다.",
+          "발화 속도는 적절하나, 억양 변화가 단조로운 편입니다.",
+          "경험 설명이 추상적이며, 구체적인 성과 제시가 미흡합니다."
+        ],
+        "compact": false,
+        "objective_vocal": {
+          "duration_s": 16.01,
+          "pitch": {
+            "voiced_frames": 948,
+            "voiced_ratio": 0.486,
+            "mean_hz": 131.8,
+            "sd_semitone": 2.2,
+            "pdq": 0.1357,
+            "range_st_10_90": 4.76,
+            "detrended_sd_semitone": 2.15,
+            "octave_error_frac": 0.0
+          },
+          "rate": {
+            "syllable_nuclei": 78,
+            "speech_rate_syl_per_s": 4.87,
+            "articulation_rate_syl_per_s": 6.7
+          },
+          "pauses": {
+            "pause_count_ge_0p25": 6,
+            "short_juncture_count_0p1_0p25": 13,
+            "juncture_median_s": 0.16,
+            "longest_pauses_s": [
+              0.55,
+              0.53,
+              0.45,
+              0.42,
+              0.31
+            ]
+          },
+          "energy": {
+            "rel_db_slope_per_s": -0.103,
+            "half_to_half_delta_db": -2.42,
+            "sounding_trough_db": -20.92
+          }
+        },
+        "objective_visual": {
+          "face_frames": 2,
+          "face_seen_ratio": 1.0,
+          "smile_mean": 0.0,
+          "smile_max": 0.0,
+          "smile_ratio": 0.0,
+          "brow_down_mean": 0.169,
+          "mouth_press_mean": 0.004,
+          "blink_count": 0,
+          "gaze_off_mean": 0.224,
+          "yaw_std_deg": 0.77,
+          "pitch_std_deg": 0.29,
+          "lip_motion": 0.00479,
+          "pose_frames": 2,
+          "pose_seen_ratio": 1.0,
+          "posture_std": 0.0007,
+          "head_sway": 0.0007,
+          "wrist_visible": 0.0,
+          "wrist_motion": 0.0,
+          "gesture_events": 0
+        }
+      }
+    },
+    {
+      "type": "turn_end",
+      "session_id": "qa-sentence-vid33",
+      "t": 55.9308355608955,
+      "transcript_full": "Good morning, my name is Anish. I am a third year graduate from Manipal University. I am pursuing computer science engineering with artificial intelligence and machine learning. This combination of AI and design has fueled my passion for full stack development and machine learning. I worked as a machine learning intern at TechNook for a month. I have been developing web applications for more than six months now. Things like that.",
+      "eval": null
+    }
+  ],
+  "recordCount": 11,
+  "transcriptFull": "Good morning, my name is Anish. I am a third year graduate from Manipal University. I am pursuing computer science engineering with artificial intelligence and machine learning. This combination of AI and design has fueled my passion for full stack development and machine learning. I worked as a machine learning intern at TechNook for a month. I have been developing web applications for more than six months now. Things like that.",
+  "windowTranscripts": [],
+  "latestTurnEnd": {
+    "type": "turn_end",
+    "session_id": "qa-sentence-vid33",
+    "t": 55.9308355608955,
+    "transcript_full": "Good morning, my name is Anish. I am a third year graduate from Manipal University. I am pursuing computer science engineering with artificial intelligence and machine learning. This combination of AI and design has fueled my passion for full stack development and machine learning. I worked as a machine learning intern at TechNook for a month. I have been developing web applications for more than six months now. Things like that.",
+    "eval": null
+  },
+  "rawMediaExposed": false,
+  "rawSecretsExposed": false
+}

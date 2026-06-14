@@ -1,0 +1,92 @@
+[
+  {
+    "video": "00001702.mp4",
+    "cat": "object detection",
+    "q": "What finger I show?",
+    "ref": "Thumb",
+    "ans": "I only see a neutral view with no clear hand or finger visible.",
+    "pass": false,
+    "latency_ms": 2820
+  },
+  {
+    "video": "00002172.mp4",
+    "cat": "object counting",
+    "q": "How many thumbs are up?",
+    "ref": "2",
+    "ans": "I don’t see any thumbs up in the provided visual context.",
+    "pass": false,
+    "latency_ms": 3235
+  },
+  {
+    "video": "00002263.mp4",
+    "cat": "object referencing",
+    "q": "Is the mirror behind me on the left or right?",
+    "ref": "Right",
+    "ans": "I can’t tell which side the mirror is on from this view.",
+    "pass": false,
+    "latency_ms": 2426
+  },
+  {
+    "video": "00000491.mp4",
+    "cat": "object counting",
+    "q": "How many books am I holding?",
+    "ref": "2",
+    "ans": "I can’t tell how many books you’re holding from the available visual context.",
+    "pass": false,
+    "latency_ms": 3231
+  },
+  {
+    "video": "00000739.mp4",
+    "cat": "action detection",
+    "q": "What exercise is this called?",
+    "ref": "Jumping jacks",
+    "ans": "Let me take a quick look and put a name to that movement. That looks like a bodyweight squat.",
+    "pass": false,
+    "latency_ms": 3646
+  },
+  {
+    "video": "00001583.mp4",
+    "cat": "object referencing",
+    "q": "What is this thing called that I am holding?",
+    "ref": "Sunglasses",
+    "ans": "I can’t identify the object from the provided visual information.",
+    "pass": false,
+    "latency_ms": 2426
+  },
+  {
+    "video": "00000943.mp4",
+    "cat": "object attributes",
+    "q": "Is the door closed?",
+    "ref": "No",
+    "ans": "I can’t see a door in the video.",
+    "pass": false,
+    "latency_ms": 2825
+  },
+  {
+    "video": "00001212.mp4",
+    "cat": "subjective",
+    "q": "Do you like my cap?",
+    "ref": "NA",
+    "ans": "I can’t see a cat in the camera view.",
+    "pass": false,
+    "latency_ms": 2424
+  },
+  {
+    "video": "00000124.mp4",
+    "cat": "object attributes",
+    "q": "Which color is the shirt?",
+    "ref": "White",
+    "ans": "I can’t determine your shirt color from the guidance provided.",
+    "pass": false,
+    "latency_ms": 2425
+  },
+  {
+    "video": "00000941.mp4",
+    "cat": "action counting",
+    "q": "How many time do I touch my ears?",
+    "ref": "2",
+    "ans": "Your expression looks neutral and your gaze stays forward.",
+    "pass": false,
+    "latency_ms": 2826
+  }
+]

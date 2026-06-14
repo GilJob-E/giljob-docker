@@ -1,6 +1,6 @@
-# Local self-hosted LiveKit media room runbook
+# Optional local self-hosted LiveKit media room runbook
 
-This slice uses LiveKit as a self-hosted realtime media room, not as a normal
+This slice is optional/legacy for media-room and AvatarKit RTC compatibility. The default OpenAI Realtime + MMM path must work without LiveKit config or browser room join. When enabled, this slice uses LiveKit as a self-hosted realtime media room, not as a normal
 frontend-to-backend API proxy. The browser connects directly to the LiveKit
 WebSocket/ICE endpoints returned by the API, while Caddy continues to proxy only
 GilJob web/API HTTP traffic.
@@ -13,7 +13,7 @@ Official references used for this contract:
 
 ## Current bounded scope
 
-In scope now:
+In scope for the optional media overlay:
 
 1. `POST /api/sessions` issues a candidate session and, when LiveKit env is configured,
    returns `livekit.publicUrl`, `livekit.roomName`, `livekit.participantIdentity`, and
@@ -24,6 +24,7 @@ In scope now:
 
 Out of scope for this slice:
 
+- The default OpenAI Realtime + MMM success path; do not make it depend on LiveKit.
 - CV/job parsing.
 - Real Main LLM turn loop.
 - SpatialReal/ElevenLabs avatar or TTS.
@@ -60,7 +61,13 @@ The scaffold narrows LiveKit UDP to `50000-50100` for local smoke; production si
 be revisited before real users. Local smoke sets `LIVEKIT_NODE_IP=127.0.0.1` so a browser
 running on the same host can complete ICE. For another laptop or public network, set
 `LIVEKIT_PUBLIC_URL` and `LIVEKIT_NODE_IP` to the server address reachable by that browser
-and open the listed ports.
+and open the listed ports. SpatialReal RTC egress has a stricter reachability requirement:
+`SPATIALREAL_RTC_LIVEKIT_URL` is legacy/avatar-RTC-only and must be reachable from SpatialReal cloud, so loopback values
+such as `ws://127.0.0.1:7880` are not valid for cloud-side avatar publishing even when they
+work for same-host browser smoke. This only proves SpatialReal can publish avatar media into
+LiveKit; it does not prove lip-sync to OpenAI Realtime remote audio because the current egress
+input is server-generated TTS audio, not the browser Realtime audio track. The non-LiveKit SDK
+Mode Web path is separately `sdk_mode_deferred` until package/API and muted PCM16 feed evidence exists.
 
 ## Local media smoke
 
@@ -70,6 +77,16 @@ From `/home/hoddukzoa/GilJob_v2`:
 ./scripts/smoke.sh config
 ./scripts/smoke.sh media-up
 ./scripts/smoke.sh browser-join
+```
+
+When this runbook is executed from an OMX worker lane with remote-only verification, run the
+same commands through SSH from the leader-approved checkout instead of the local Mac worktree,
+for example:
+
+```bash
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && ./scripts/smoke.sh config'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && ./scripts/smoke.sh media-up'
+ssh hoddukzoa@kiostation 'cd /home/hoddukzoa/GilJob_v2 && ./scripts/smoke.sh browser-join'
 ```
 
 `media-up` starts `postgres`, `api`, `web`, `livekit`, and `coturn`, verifies API/web health,

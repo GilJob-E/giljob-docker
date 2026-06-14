@@ -1,36 +1,132 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import importlib.util
 import pathlib
+import sys
+import types
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ANALYSIS_ENGINE_ROOT = REPO_ROOT / "services" / "analysis-engine"
-PINNED_GILJOBE_REF = "e0671f5"
+PINNED_GILJOBE_REF = "f7307fc"
 # Superseded pins must not resurface anywhere a stale copy could mislead operators.
-OLD_GILJOBE_REFS = ("b769120", "88a4df5")
+OLD_GILJOBE_REFS = ("a26045d", "f817f81", "b769120", "88a4df5", "e0671f5", "5ba7249")
+
+
+def load_analysis_engine_wrapper():
+    aiohttp = types.ModuleType("aiohttp")
+    aiohttp.web = types.SimpleNamespace()
+
+    server_main = types.ModuleType("giljobe.server.__main__")
+    server_main._build_critic = lambda: types.SimpleNamespace(warmup=lambda: None)
+    server_main._make_lanes = lambda: []
+    server_main._port = lambda: 8200
+    server_main._vllm_ready = lambda _critic: True
+
+    http_app = types.ModuleType("giljobe.server.http_app")
+    http_app.make_app = lambda _service, ready_check=None: None
+
+    service_mod = types.ModuleType("giljobe.server.service")
+    service_mod.AnalysisService = lambda **_kwargs: object()
+    service_mod.signals_payload = lambda session_id, records: {
+        "service": "analysis-engine",
+        "sessionId": session_id,
+        "records": records,
+        "recordCount": len(records),
+        "turnHandoff": None,
+        "rawMediaExposed": False,
+        "rawSecretsExposed": False,
+    }
+
+    sys.modules["aiohttp"] = aiohttp
+    sys.modules.setdefault("giljobe", types.ModuleType("giljobe"))
+    sys.modules.setdefault("giljobe.server", types.ModuleType("giljobe.server"))
+    sys.modules["giljobe.server.__main__"] = server_main
+    sys.modules["giljobe.server.http_app"] = http_app
+    sys.modules["giljobe.server.service"] = service_mod
+
+    spec = importlib.util.spec_from_file_location("analysis_engine_wrapper_contract", ANALYSIS_ENGINE_ROOT / "server.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 class AnalysisEngineContractTest(unittest.TestCase):
-    def test_analysis_engine_runs_giljobe_server_not_deleted_wrapper(self) -> None:
-        self.assertFalse(
-            (ANALYSIS_ENGINE_ROOT / "server.py").exists(),
-            "services/analysis-engine/server.py should stay removed; GilJobE owns the HTTP server",
-        )
-        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
+    def test_analysis_engine_runs_giljobe_app_with_realtime_mmm_ingress_wrapper(self) -> None:
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertIn("from giljobe.server.http_app import make_app", wrapper)
+        self.assertIn('web.post("/realtime/turn-events"', wrapper)
+        self.assertIn("raw_payload_not_allowed", wrapper)
+        self.assertIn("rawTranscriptLogged", wrapper)
+        self.assertIn("rawMediaAccepted", wrapper)
+        self.assertIn("perTurnMmmResult", wrapper)
+        self.assertIn("candidateSafePromptFragment", wrapper)
+        self.assertIn("class _EventOnlyRealtimeTurns", wrapper)
+        self.assertIn("_install_event_only_realtime_fallback", wrapper)
+        self.assertIn("turnHandoff", wrapper)
+        self.assertIn("render_prompt_fragment", wrapper)
+        self.assertIn("2026-06-12.per-turn-mmm-result.v1", wrapper)
+        self.assertIn("2026-06-12.candidate-safe-prompt-fragment.v1", wrapper)
+        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("python:3.12-slim", dockerfile)
         self.assertNotIn("python:3.12-alpine", dockerfile)
         self.assertIn("git ffmpeg ca-certificates", dockerfile)
         self.assertIn("ANALYSIS_ENGINE_PORT=8200", dockerfile)
         self.assertIn(f"GILJOBE_GIT_REF={PINNED_GILJOBE_REF}", dockerfile)
-        self.assertIn('CMD ["python", "-m", "giljobe.server"]', dockerfile)
-        self.assertNotIn("COPY server.py", dockerfile)
-        self.assertNotIn("/app/server.py", dockerfile)
+        self.assertIn("COPY server.py /app/server.py", dockerfile)
+        self.assertIn('CMD ["python", "/app/server.py"]', dockerfile)
+
+    def test_realtime_mmm_ingress_outputs_candidate_safe_per_turn_context(self) -> None:
+        module = load_analysis_engine_wrapper()
+        record = module._public_record({
+            "schema_version": "2026-06-11.realtime-mmm-ingress.v1",
+            "sessionId": "local-demo",
+            "turnId": "2",
+            "turnIndex": 2,
+            "eventKind": "readiness_gate.full_mmm_ready",
+            "readiness": {
+                "full_mmm_ready": True,
+                "state": "full_mmm_ready",
+                "reasonCodes": ["ready"],
+                "lanes": {
+                    "transcript": {"ready": True, "observed": True, "status": "complete"},
+                    "prosody": {"ready": True, "observed": True, "status": "complete"},
+                    "vision": {"ready": True, "observed": True, "status": "complete"},
+                },
+            },
+        })
+        self.assertEqual(record["perTurnMmmResult"]["schemaVersion"], "2026-06-12.per-turn-mmm-result.v1")
+        self.assertTrue(record["perTurnMmmResult"]["ready"])
+        self.assertEqual(record["perTurnMmmResult"]["lanes"]["transcript"]["status"], "complete")
+        fragment = record["candidateSafePromptFragment"]
+        self.assertEqual(fragment["schemaVersion"], "2026-06-12.candidate-safe-prompt-fragment.v1")
+        self.assertIn("full_mmm_ready", fragment["text"])
+        self.assertFalse(fragment["containsRawTranscript"])
+        self.assertFalse(fragment["containsRawMedia"])
+        self.assertFalse(fragment["containsSecrets"])
+
+    def test_realtime_mmm_ingress_rejects_public_raw_media_and_secret_shapes_but_allows_internal_sentence_detail(self) -> None:
+        module = load_analysis_engine_wrapper()
+        for payload in (
+            {"transcript": "raw candidate answer"},
+            {"text": "raw candidate answer"},
+            {"rawMedia": "bytes"},
+            {"provider": {"token": "secret"}},
+        ):
+            self.assertTrue(module._contains_forbidden_raw_field(payload), payload)
+        for payload in (
+            {"detail": {"transcript": "bounded candidate answer"}},
+            {"detail": {"text": "bounded candidate answer", "itemId": "item-1"}},
+            {"detail": {"visionFrame": {"encoding": "image/jpeg;base64", "data": "ZmFrZQ==", "byteLength": 4}}},
+        ):
+            self.assertFalse(module._contains_forbidden_raw_field(payload), payload)
 
     def test_pinned_giljobe_ref_is_consistent_across_runtime_files(self) -> None:
-        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
-        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
-        env_example = (REPO_ROOT / ".env.example").read_text()
-        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
+        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text(encoding="utf-8")
         for label, text in {
             "requirements": requirements,
             "compose": compose,
@@ -41,19 +137,22 @@ class AnalysisEngineContractTest(unittest.TestCase):
             for old_ref in OLD_GILJOBE_REFS:
                 self.assertNotIn(old_ref, text, label)
         self.assertIn(f"git+https://github.com/GilJob-E/GilJobE.git@{PINNED_GILJOBE_REF}", requirements)
-        self.assertIn("python -m giljobe.server", requirements)
+        self.assertIn("/realtime/turn-events", requirements)
 
     def test_grounding_lane_assets_and_toggles_are_wired(self) -> None:
         """GilJobE objective grounding lanes (vision/prosody): the image must install the
         extras and bake the MediaPipe models; compose must pass the lane toggles through."""
-        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text()
-        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text()
-        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
-        env_example = (REPO_ROOT / ".env.example").read_text()
+        requirements = (ANALYSIS_ENGINE_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        dockerfile = (ANALYSIS_ENGINE_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
         self.assertIn("giljobe[vision,prosody]", requirements)
         self.assertIn("GILJOBE_VISION_MODELS_DIR=/app/models", dockerfile)
         self.assertIn("face_landmarker.task", dockerfile)
         self.assertIn("pose_landmarker.task", dockerfile)
+        # Hands lane (GilJobE f7307fc): finger-count segments ride the turn_handoff
+        # fragment; without the baked model the lane silently self-disables.
+        self.assertIn("hand_landmarker.task", dockerfile)
         # MediaPipe C bindings dlopen GLES/EGL even for CPU inference (verified in-container);
         # dropping these silently disables the vision lane at runtime.
         self.assertIn("libegl1", dockerfile)
@@ -61,11 +160,19 @@ class AnalysisEngineContractTest(unittest.TestCase):
         for text in (compose, env_example):
             self.assertIn("GILJOBE_VISION", text)
             self.assertIn("GILJOBE_PROSODY", text)
+            # Realtime sentence lane: transcript-source toggle must stay wired and default to sideband.
+            self.assertIn("GILJOBE_TRANSCRIPT_SOURCE", text)
+        self.assertIn("GILJOBE_TRANSCRIPT_SOURCE: ${GILJOBE_TRANSCRIPT_SOURCE:-external}", compose)
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertIn("from giljobe.analysis.grounding import maybe_vision_grounder", wrapper)
+        self.assertIn("_analyze_internal_vision_frame", wrapper)
+        self.assertIn("faceSeenRatio", wrapper)
+        self.assertIn("poseSeenRatio", wrapper)
 
     def test_compose_wires_analysis_engine_dependencies_without_public_token_leaks(self) -> None:
-        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text()
-        media_compose = (REPO_ROOT / "infra" / "docker-compose.media.yml").read_text()
-        caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text()
+        compose = (REPO_ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+        media_compose = (REPO_ROOT / "infra" / "docker-compose.media.yml").read_text(encoding="utf-8")
+        caddyfile = (REPO_ROOT / "infra" / "caddy" / "Caddyfile").read_text(encoding="utf-8")
         self.assertIn("analysis-engine:", compose)
         self.assertIn("../services/analysis-engine", compose)
         self.assertIn("VLLM_BASE_URL", compose)
@@ -81,36 +188,37 @@ class AnalysisEngineContractTest(unittest.TestCase):
     def test_docs_describe_giljobe_owned_http_contract(self) -> None:
         analysis_docs = "\n".join(
             [
-                (ANALYSIS_ENGINE_ROOT / "README.md").read_text(),
-                (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text(),
-                (ANALYSIS_ENGINE_ROOT / "CLAUDE.md").read_text(),
+                (ANALYSIS_ENGINE_ROOT / "README.md").read_text(encoding="utf-8"),
+                (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text(encoding="utf-8"),
+                (ANALYSIS_ENGINE_ROOT / "CLAUDE.md").read_text(encoding="utf-8"),
             ]
         )
         for expected in (
-            "python -m giljobe.server",
             "/subscriber/start",
             "/subscriber/stop",
             "/signals",
+            "/realtime/turn-events",
             "/healthz",
             "/readyz",
             "token-safe",
         ):
             self.assertIn(expected, analysis_docs)
-        self.assertIn("There is no local wrapper", analysis_docs)
+        self.assertIn("builds GilJobE", analysis_docs)
         self.assertIn("ANALYSIS_ENGINE_ENABLE_SUBSCRIBER", analysis_docs)
         self.assertIn("legacy", analysis_docs.lower())
 
     def test_root_docs_and_verification_no_longer_reference_deleted_wrapper(self) -> None:
-        root_readme = (REPO_ROOT / "README.md").read_text()
-        root_agents = (REPO_ROOT / "AGENTS.md").read_text()
-        self.assertNotIn("services/analysis-engine/server.py", root_readme)
-        self.assertIn("docker build -q services/analysis-engine", root_readme)
-        self.assertIn("services/analysis-engine/", root_agents)
-        self.assertIn("python -m giljobe.server", root_agents)
+        root_readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        verification_runbook = (REPO_ROOT / "docs" / "runbooks" / "verification.md").read_text(encoding="utf-8")
+        analysis_agents = (ANALYSIS_ENGINE_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("services/analysis-engine/server.py", root_readme)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile services/api/server.py services/analysis-engine/server.py", verification_runbook)
+        self.assertIn("/realtime/turn-events", analysis_agents)
+        self.assertIn("analysis-engine", analysis_agents)
 
     def test_no_raw_secret_or_media_examples_in_analysis_docs(self) -> None:
         docs = "\n".join(
-            path.read_text()
+            path.read_text(encoding="utf-8")
             for path in [
                 ANALYSIS_ENGINE_ROOT / "README.md",
                 ANALYSIS_ENGINE_ROOT / "AGENTS.md",
@@ -131,3 +239,62 @@ class AnalysisEngineContractTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TurnResultsContractTest(unittest.TestCase):
+    """GET /realtime/turn-results — API _fetch_analysis_result가 당겨가는 turn_handoff 운반 계약."""
+
+    def test_turn_results_route_serves_turn_handoff_fragment(self) -> None:
+        wrapper = (ANALYSIS_ENGINE_ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertIn('web.get("/realtime/turn-results"', wrapper)
+        self.assertIn("from giljobe.emit.handoff import render_prompt_fragment", wrapper)
+        self.assertIn("candidatePromptFragment", wrapper)
+        # 구 핀 강등(ImportError → None) + 턴 미완결 pending — API 409 게이트와 정합
+        self.assertIn("render_prompt_fragment = None", wrapper)
+        self.assertIn('"status": "pending"', wrapper)
+        # Gold source: GilJobE signals_payload(...).turnHandoff, projected by render_prompt_fragment.
+        self.assertIn("payload = service.signals(interview_id)", wrapper)
+        self.assertIn('payload.get("turnHandoff")', wrapper)
+        self.assertIn("render_prompt_fragment(handoff)", wrapper)
+        self.assertNotIn("rnas.turn_result(interview_id, turn_index)", wrapper)
+        self.assertNotIn("service.signals(None)", wrapper)
+
+    def test_event_only_fallback_keeps_legacy_signal_shape(self) -> None:
+        module = load_analysis_engine_wrapper()
+        fallback = module._EventOnlyRealtimeTurns()
+        start = fallback.start("demo")
+        self.assertTrue(start["eventOnlyFallback"])
+        accepted = fallback.ingest({
+            "sessionId": "demo",
+            "eventKind": "analysis.transcript.completed",
+            "detail": {"transcript": "bounded answer", "itemId": "i1"},
+        })
+        self.assertTrue(accepted["accepted"])
+        fallback.ingest({"sessionId": "demo", "eventKind": "turn.answer_ended"})
+        signals = fallback.signals("demo")
+        self.assertEqual(signals["sessionId"], "demo")
+        self.assertGreaterEqual(signals["recordCount"], 2)
+
+    def test_realtime_guidance_can_ack_camera_face_visibility_without_claiming_direct_video(self) -> None:
+        module = load_analysis_engine_wrapper()
+        guidance = module._next_question_guidance(
+            {"observed": True, "specificityScore": 0.4, "hasNumbers": False, "questionLike": True},
+            {
+                "observed": True,
+                "sampledFrameCount": 1,
+                "faceVisible": True,
+                "personVisible": True,
+                "objectiveVisionStatus": "analyzed",
+            },
+        )
+        self.assertIn("카메라 신호상 후보자 얼굴이 프레임 안에 확인", guidance)
+        self.assertIn("후보자가 화면 확인을 물으면", guidance)
+        self.assertIn("영상을 직접 본다고 말하거나", guidance)
+        self.assertNotIn("MMM", guidance)
+        self.assertNotIn("직접 봤", guidance)
+
+    def test_turn_results_loads_with_legacy_pin_mocks(self) -> None:
+        # giljobe.emit.handoff가 없는(구 핀) 모킹 환경에서도 래퍼 로드는 성공해야 한다
+        module = load_analysis_engine_wrapper()
+        self.assertTrue(hasattr(module, "_realtime_turn_results"))
+        self.assertIsNone(module.render_prompt_fragment)

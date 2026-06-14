@@ -60,7 +60,7 @@ Write English `AGENTS.md` and `CLAUDE.md` guidance files per module for the curr
 ### 3. Module content boundaries
 - `apps/web`: `DESIGN.md` adherence, production routes, no prejoin in room, light non-scrolling meeting room, right sidebar context panel, manual button answer flow, LiveKit browser client only, visible/log redaction, no raw token/JWT UI/logs, web static contract tests.
 - `services/api`: session/report token contract, purpose-separated HMAC hash-only storage, no raw token persistence/logging, `/api/internal/*` blocked, LiveKit candidate token issuance, `LIVEKIT_INTERNAL_URL`/`LIVEKIT_PUBLIC_URL` split, production fail-closed rules, API/token tests.
-- `services/ai-engine`: Gemini-backed next-question provider boundary only; `GEMINI_API_KEY` env; no key/prompt leakage; fail closed when `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` is missing; do not claim full STT/avatar/final-report implementation.
+- `services/ai-engine`: internal keyless route-smoke and optional compatibility adapters only; live interviewer voice is brokered by `services/api` through OpenAI Realtime, with no secondary LLM/TTS fallback; do not claim it owns Realtime STT, avatar transport, or final-report implementation.
 - `services/agent1`: future multimodal placeholder only; raw AV may be observed only inside a future boundary; outward interface should be structured signal only; no raw media/token exposure; no premature implementation promises.
 - `infra`: Docker Compose/Caddy/LiveKit/coturn/Postgres boundaries; Caddy blocks internal APIs; current `/ai/*` ingress tension must be documented because Caddy currently exposes an AI route while ADR 0002 treats AI Engine/Agent1 as internal; direct media ports; TURN notes; single-server multi-container deployment; `LIVEKIT_INTERNAL_URL`/`LIVEKIT_PUBLIC_URL`; no secret commits.
 - `tests`: contract tests are behavior/security gates; add tests for new invariants; cover integration directory; avoid network-dependent tests unless explicitly requested.
@@ -70,7 +70,7 @@ Write English `AGENTS.md` and `CLAUDE.md` guidance files per module for the curr
 
 ### 4. Generated/vendor/secrets ignore scope
 - Do not read-print, commit, or quote `.env` values.
-- Skip/ignore `__pycache__/`, `node_modules/`, `.tmp-gemini-default-marker`, generated build/cache artifacts, and vendor residue unless explicitly cleaning them.
+- Skip/ignore `__pycache__/`, `node_modules/`, generated build/cache artifacts, and vendor residue unless explicitly cleaning them.
 - Generated SVG/assets may be referenced, but source of truth for architecture edits remains `docs/architecture.noml`.
 
 ### 5. Documentation contract test
@@ -78,7 +78,7 @@ Add `tests/contract/test_agent_docs_contract.py` that checks:
 - Expected `AGENTS.md` and `CLAUDE.md` files exist.
 - Every `CLAUDE.md` says to read the nearest/local `AGENTS.md` first.
 - Semantic requirements are path-specific, not global:
-  - `services/ai-engine/AGENTS.md` includes `GEMINI_API_KEY` and the bounded next-question provider scope.
+  - `services/ai-engine/AGENTS.md` states that OpenAI Realtime is the only live interviewer voice path and that this service must not reintroduce a secondary LLM/TTS fallback.
   - `services/agent1/AGENTS.md` includes `structured signal` and future multimodal placeholder wording.
   - `services/api/AGENTS.md` includes `hash-only`, `raw token`, and LiveKit URL split terms.
   - `apps/web/AGENTS.md` includes manual answer flow, right sidebar, and redaction terms.

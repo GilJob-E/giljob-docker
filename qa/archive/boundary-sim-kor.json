@@ -1,0 +1,237 @@
+{
+  "type": "boundary_sim",
+  "clip": "kor16k.wav",
+  "duration_s": 38.3,
+  "chunk_3.0s": {
+    "stats": {
+      "segments": 10,
+      "timeout_forced": 0,
+      "snapped_ratio": 0.9,
+      "confirm_lag_median_s": 2.2,
+      "confirm_lag_p95_s": 3.39,
+      "seg_dur_median_s": 3.5,
+      "seg_dur_max_s": 7.4,
+      "nv_calls_dynamic": 10,
+      "nv_calls_grid_3s": 13,
+      "nv_frames_per_call_mean": 6.7
+    },
+    "segments": [
+      {
+        "t": [
+          0.0,
+          0.5
+        ],
+        "text": "안녕하십니까?",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 2.66
+      },
+      {
+        "t": [
+          0.5,
+          3.1
+        ],
+        "text": "지원자 이나래입니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 0.12
+      },
+      {
+        "t": [
+          3.1,
+          7.0
+        ],
+        "text": "저는 그때 동기들에게 \"자문 대체 언제 사냐는\" 얘기를 자주 들었습니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 2.2
+      },
+      {
+        "t": [
+          7.0,
+          11.9
+        ],
+        "text": "그 이유는 왕복 네 시간에 아카는데도 주말 아르바이트에 한 번도 지각하지 않아.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 3.31
+      },
+      {
+        "t": [
+          11.9,
+          15.0
+        ],
+        "text": "또 상속 장학금도 계속 받았기 때문입니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 0.19
+      },
+      {
+        "t": [
+          15.0,
+          22.4
+        ],
+        "text": "이런데 그번에 공정계산 공무전에 나갔을 때는 생산 속도를 자신 6% 단축시키는 걸 선 했고 대상도 수당할 수",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 1.76
+      },
+      {
+        "t": [
+          22.4,
+          29.8
+        ],
+        "text": "현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 를 진행해서 공정 최적화에 도움을 줄 수 있었습",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 3.45
+      },
+      {
+        "t": [
+          29.8,
+          34.9
+        ],
+        "text": "앞으로 SK 하이닉스에서도 차세대 메모리 매 효율적으로 양산하는 데 기여하고 싶습니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 1.32
+      },
+      {
+        "t": [
+          34.9,
+          36.1
+        ],
+        "text": "감사합니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 3.05
+      },
+      {
+        "t": [
+          36.1,
+          36.0
+        ],
+        "text": "아",
+        "source": "turn_end",
+        "snapped": false,
+        "confirm_lag_s": null
+      }
+    ]
+  },
+  "chunk_1.0s": {
+    "stats": {
+      "segments": 10,
+      "timeout_forced": 0,
+      "snapped_ratio": 0.9,
+      "confirm_lag_median_s": 1.2,
+      "confirm_lag_p95_s": 1.64,
+      "seg_dur_median_s": 3.5,
+      "seg_dur_max_s": 7.4,
+      "nv_calls_dynamic": 10,
+      "nv_calls_grid_3s": 13,
+      "nv_frames_per_call_mean": 6.7
+    },
+    "segments": [
+      {
+        "t": [
+          0.0,
+          0.5
+        ],
+        "text": "안녕하십니까?",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 0.66
+      },
+      {
+        "t": [
+          0.5,
+          3.1
+        ],
+        "text": "원자 이나래입니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 0.12
+      },
+      {
+        "t": [
+          3.1,
+          7.0
+        ],
+        "text": "저는 그때 동기들에게 \"자문 대체 언제 사냐는\" 얘기를 자주 들었습니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 1.2
+      },
+      {
+        "t": [
+          7.0,
+          11.9
+        ],
+        "text": "그 이유는 왕복 네 시간에 아카는데도 주말 아르바이트에 한 번도 지각하지 않아.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 1.31
+      },
+      {
+        "t": [
+          11.9,
+          15.0
+        ],
+        "text": "또 상속 장학금도 계속 받았기 때문입니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 0.19
+      },
+      {
+        "t": [
+          15.0,
+          22.4
+        ],
+        "text": "이런데 그번에 공정계산 공무전에 나갔을 때는 생산 속도를 자신 6% 단축시키는 걸 선 했고 대상도 수당할 수",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 1.76
+      },
+      {
+        "t": [
+          22.4,
+          29.8
+        ],
+        "text": "현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 를 진행해서 공정 최적화에 도움을 줄 수 있었습",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 1.45
+      },
+      {
+        "t": [
+          29.8,
+          34.9
+        ],
+        "text": "앞으로 SK 하이닉스에서도 차세대 메모리 매 효율적으로 양산하는 데 기여하고 싶습니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 1.32
+      },
+      {
+        "t": [
+          34.9,
+          36.1
+        ],
+        "text": "감사합니다.",
+        "source": "punct",
+        "snapped": true,
+        "confirm_lag_s": 1.05
+      },
+      {
+        "t": [
+          36.1,
+          36.0
+        ],
+        "text": "아",
+        "source": "turn_end",
+        "snapped": false,
+        "confirm_lag_s": null
+      }
+    ]
+  }
+}

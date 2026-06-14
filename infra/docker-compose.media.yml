@@ -8,6 +8,7 @@ services:
   api:
     environment:
       LIVEKIT_REQUIRED: "true"
+      LIVEKIT_MEDIA_OVERLAY_ENABLED: "true"
       LIVEKIT_URL: ${LIVEKIT_URL:-}
       LIVEKIT_INTERNAL_URL: ${LIVEKIT_INTERNAL_URL:-ws://livekit:7880}
       LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:?set LIVEKIT_PUBLIC_URL before enabling media overlay}

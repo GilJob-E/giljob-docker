@@ -1,0 +1,830 @@
+{
+  "service": "analysis-engine",
+  "sessionId": "qa-evalab-a-kor",
+  "records": [
+    {
+      "type": "sentence",
+      "session_id": "qa-evalab-a-kor",
+      "t": 1.97,
+      "start_s": 1.34,
+      "end_s": 2.6,
+      "text": "지원자 이나래입니다.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 1.27,
+        "pitch": {
+          "voiced_frames": 186,
+          "voiced_ratio": 0.89,
+          "mean_hz": 201.6,
+          "sd_semitone": 2.91,
+          "pdq": 0.163,
+          "range_st_10_90": 8.04,
+          "detrended_sd_semitone": 2.82,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 5,
+          "speech_rate_syl_per_s": 3.94,
+          "articulation_rate_syl_per_s": 5.01
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 0,
+          "short_juncture_count_0p1_0p25": 2,
+          "juncture_median_s": 0.136,
+          "longest_pauses_s": [
+            0.17,
+            0.1
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": 0.413,
+          "half_to_half_delta_db": -2.89,
+          "sounding_trough_db": -12.35
+        }
+      },
+      "visual": {
+        "face_frames": 30,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.343,
+        "smile_max": 0.731,
+        "smile_ratio": 0.63,
+        "brow_down_mean": 0.006,
+        "mouth_press_mean": 0.016,
+        "blink_count": 0,
+        "gaze_off_mean": 0.196,
+        "yaw_std_deg": 0.95,
+        "pitch_std_deg": 0.3,
+        "lip_motion": 0.00378,
+        "pose_frames": 30,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0314,
+        "head_sway": 0.0144,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.3,
+        "note": "미소는 있으나, 시선 이탈이 미미하고 자세가 비교적 정적임"
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-evalab-a-kor",
+      "t": 0.94,
+      "start_s": 0.54,
+      "end_s": 1.34,
+      "text": "안녕하십니까?",
+      "source": "punct",
+      "speech": null,
+      "visual": {
+        "face_frames": 17,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.499,
+        "smile_max": 0.828,
+        "smile_ratio": 0.76,
+        "brow_down_mean": 0.015,
+        "mouth_press_mean": 0.028,
+        "blink_count": 1,
+        "gaze_off_mean": 0.192,
+        "yaw_std_deg": 0.99,
+        "pitch_std_deg": 0.19,
+        "lip_motion": 0.00614,
+        "pose_frames": 17,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0346,
+        "head_sway": 0.0327,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.3,
+        "note": "미소는 있으나, 시선 이탈 및 머리 움직임의 표준편차가 낮아 경직된 느낌"
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-evalab-a-kor",
+      "t": 10.74,
+      "start_s": 6.96,
+      "end_s": 14.53,
+      "text": "그 이유는 왕복 네 시간 통학하면서도 주말 아르바이트에 한 번도 지각하지 않았고 성적 장학금도 계속 받았기 때문입니다.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 7.57,
+        "pitch": {
+          "voiced_frames": 1055,
+          "voiced_ratio": 0.722,
+          "mean_hz": 246.6,
+          "sd_semitone": 4.74,
+          "pdq": 0.2841,
+          "range_st_10_90": 13.81,
+          "detrended_sd_semitone": 4.73,
+          "octave_error_frac": 0.002
+        },
+        "rate": {
+          "syllable_nuclei": 44,
+          "speech_rate_syl_per_s": 5.81,
+          "articulation_rate_syl_per_s": 6.62
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 0,
+          "short_juncture_count_0p1_0p25": 8,
+          "juncture_median_s": 0.108,
+          "longest_pauses_s": [
+            0.15,
+            0.14,
+            0.11,
+            0.11,
+            0.1
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -0.415,
+          "half_to_half_delta_db": -2.13,
+          "sounding_trough_db": -14.62
+        }
+      },
+      "visual": {
+        "face_frames": 189,
+        "face_seen_ratio": 0.99,
+        "smile_mean": 0.06,
+        "smile_max": 0.744,
+        "smile_ratio": 0.1,
+        "brow_down_mean": 0.004,
+        "mouth_press_mean": 0.02,
+        "blink_count": 6,
+        "gaze_off_mean": 0.235,
+        "yaw_std_deg": 2.16,
+        "pitch_std_deg": 1.16,
+        "lip_motion": 0.00322,
+        "pose_frames": 189,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0393,
+        "head_sway": 0.0226,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.3,
+        "note": "시선 이탈이 약간 관찰되며, 미소는 약하게 나타남"
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-evalab-a-kor",
+      "t": 4.78,
+      "start_s": 2.6,
+      "end_s": 6.96,
+      "text": "저는 그때 동기들에게 잠은 대체 언제 자냐는 얘기를 자주 들었습니다.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 4.36,
+        "pitch": {
+          "voiced_frames": 632,
+          "voiced_ratio": 0.804,
+          "mean_hz": 214.7,
+          "sd_semitone": 3.46,
+          "pdq": 0.2137,
+          "range_st_10_90": 9.64,
+          "detrended_sd_semitone": 3.34,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 24,
+          "speech_rate_syl_per_s": 5.5,
+          "articulation_rate_syl_per_s": 6.12
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 0,
+          "short_juncture_count_0p1_0p25": 4,
+          "juncture_median_s": 0.104,
+          "longest_pauses_s": [
+            0.13,
+            0.1,
+            0.1,
+            0.1
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -0.32,
+          "half_to_half_delta_db": -0.55,
+          "sounding_trough_db": -16.5
+        }
+      },
+      "visual": {
+        "face_frames": 110,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.238,
+        "smile_max": 0.703,
+        "smile_ratio": 0.48,
+        "brow_down_mean": 0.006,
+        "mouth_press_mean": 0.019,
+        "blink_count": 3,
+        "gaze_off_mean": 0.214,
+        "yaw_std_deg": 1.16,
+        "pitch_std_deg": 0.75,
+        "lip_motion": 0.00291,
+        "pose_frames": 110,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0246,
+        "head_sway": 0.0177,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.3,
+        "note": "시선 이탈 및 머리 움직임 표준편차가 낮아 비교적 안정적이나, 미소 강도가 낮음"
+      }
+    },
+    {
+      "type": "eval",
+      "session_id": "qa-evalab-a-kor",
+      "t": 8.0,
+      "window_s": 16.0,
+      "eval": {
+        "window_start_s": 0.0,
+        "window_dur_s": 16.0,
+        "verbal": {
+          "logic": "질문의 의도를 파악하고 자신의 경험을 연결하여 답변을 구성하려는 시도는 보이나, 논리 전개가 다소 산만하고 핵심 메시지가 불분명합니다.",
+          "structure": "서론-본론-결론의 구조를 갖추려 노력했으나, 각 문단 간의 연결이 매끄럽지 못하고 주제가 자주 전환됩니다.",
+          "specificity": "구체적인 사례(왕복 4시간 통학, 주말 아르바이트 미참여, 장학금 수령)를 제시했으나, 이것이 '태도'와 어떻게 연결되는지에 대한 설명이 부족합니다."
+        },
+        "vocal": {
+          "volume": "전반적으로 일정한 음량을 유지하고 있으나, 후반부로 갈수록 미세하게 감소하는 경향이 있습니다.",
+          "pace": "발화 속도는 적절한 편이나, 문장 중간에 짧은 휴지가 자주 발생하여 흐름이 끊기는 느낌을 줍니다.",
+          "pauses": "짧은 휴지가 잦아 답변의 리듬감이 다소 불안정합니다.",
+          "intonation": "전반적으로 평이한 톤을 유지하고 있어, 답변 내용에 대한 강한 어조나 강조가 부족합니다."
+        },
+        "visual": {
+          "eye_contact": "카메라를 응시하려는 노력이 보이나, 시선 이탈이 평균 0.223으로 측정되어 일관성이 부족합니다.",
+          "posture": "자세는 비교적 안정적이며, 어깨 중점 흔들림이 적어 안정감을 줍니다.",
+          "expression": "전반적으로 미소를 유지하려 노력하고 있으나, 표정의 변화가 크지 않아 다소 단조롭게 느껴집니다.",
+          "gesture_over_time": "손동작/제스처는 관측 불가합니다."
+        },
+        "critique": [
+          "답변의 논리 전개가 산만합니다. '태도'에 대한 질문에 대해 여러 가지 사례를 나열하는 데 그치고, 그것이 어떤 '태도'인지 명확하게 정의하지 못했습니다.",
+          "시선 처리가 일관되지 못합니다. 카메라 응시를 시도했으나 시선 이탈이 잦아 답변에 대한 몰입도가 떨어져 보입니다.",
+          "전반적으로 답변의 톤이 평이하고 단조롭습니다. 내용에 대한 확신이나 열정을 전달하기 위한 억양 변화나 강조가 부족합니다."
+        ],
+        "key_observations": [
+          "구체적인 사례 제시 능력은 있으나, 이를 논리적으로 연결하는 능력이 부족합니다.",
+          "안정적인 자세를 유지하려 노력했으나, 시선 처리와 억양에서 아쉬움이 남습니다"
+        ],
+        "compact": false,
+        "objective_vocal": {
+          "duration_s": 16.01,
+          "pitch": {
+            "voiced_frames": 2341,
+            "voiced_ratio": 0.748,
+            "mean_hz": 237.6,
+            "sd_semitone": 4.33,
+            "pdq": 0.2653,
+            "range_st_10_90": 12.24,
+            "detrended_sd_semitone": 4.26,
+            "octave_error_frac": 0.0
+          },
+          "rate": {
+            "syllable_nuclei": 91,
+            "speech_rate_syl_per_s": 5.68,
+            "articulation_rate_syl_per_s": 6.51
+          },
+          "pauses": {
+            "pause_count_ge_0p25": 0,
+            "short_juncture_count_0p1_0p25": 17,
+            "juncture_median_s": 0.112,
+            "longest_pauses_s": [
+              0.17,
+              0.14,
+              0.14,
+              0.14,
+              0.13
+            ]
+          },
+          "energy": {
+            "rel_db_slope_per_s": -0.184,
+            "half_to_half_delta_db": -0.95,
+            "sounding_trough_db": -16.53
+          }
+        },
+        "objective_visual": {
+          "face_frames": 394,
+          "face_seen_ratio": 1.0,
+          "smile_mean": 0.161,
+          "smile_max": 0.828,
+          "smile_ratio": 0.29,
+          "brow_down_mean": 0.006,
+          "mouth_press_mean": 0.019,
+          "blink_count": 11,
+          "gaze_off_mean": 0.223,
+          "yaw_std_deg": 1.75,
+          "pitch_std_deg": 0.93,
+          "lip_motion": 0.00315,
+          "pose_frames": 394,
+          "pose_seen_ratio": 1.0,
+          "posture_std": 0.0369,
+          "head_sway": 0.0214,
+          "wrist_visible": 0.0,
+          "wrist_motion": 0.0,
+          "gesture_events": 0
+        }
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-evalab-a-kor",
+      "t": 18.98,
+      "start_s": 15.43,
+      "end_s": 22.53,
+      "text": "이런 경험을 기반으로 공정개선 공모전에 나갔을 때는 생산 속도를 6% 단축시키는 결과를 냈고 대상도 받을 수 있었습니다.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 7.09,
+        "pitch": {
+          "voiced_frames": 929,
+          "voiced_ratio": 0.642,
+          "mean_hz": 252.7,
+          "sd_semitone": 4.12,
+          "pdq": 0.2517,
+          "range_st_10_90": 11.89,
+          "detrended_sd_semitone": 4.09,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 39,
+          "speech_rate_syl_per_s": 5.5,
+          "articulation_rate_syl_per_s": 5.69
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 0,
+          "short_juncture_count_0p1_0p25": 2,
+          "juncture_median_s": 0.12,
+          "longest_pauses_s": [
+            0.13,
+            0.11
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -0.334,
+          "half_to_half_delta_db": -1.33,
+          "sounding_trough_db": -15.01
+        }
+      },
+      "visual": {
+        "face_frames": 178,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.104,
+        "smile_max": 0.823,
+        "smile_ratio": 0.18,
+        "brow_down_mean": 0.006,
+        "mouth_press_mean": 0.017,
+        "blink_count": 5,
+        "gaze_off_mean": 0.235,
+        "yaw_std_deg": 0.91,
+        "pitch_std_deg": 1.23,
+        "lip_motion": 0.00311,
+        "pose_frames": 178,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0345,
+        "head_sway": 0.0172,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.3,
+        "note": "시선 이탈 평균 0.235, 미소 빈도 낮음"
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-evalab-a-kor",
+      "t": 26.03,
+      "start_s": 22.53,
+      "end_s": 29.53,
+      "text": "현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 테스트를 진행해서 공정 최적화에 도움을 줄 수 있었습니다.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 7.0,
+        "pitch": {
+          "voiced_frames": 791,
+          "voiced_ratio": 0.648,
+          "mean_hz": 256.3,
+          "sd_semitone": 5.25,
+          "pdq": 0.3126,
+          "range_st_10_90": 14.02,
+          "detrended_sd_semitone": 5.25,
+          "octave_error_frac": 0.003
+        },
+        "rate": {
+          "syllable_nuclei": 43,
+          "speech_rate_syl_per_s": 6.14,
+          "articulation_rate_syl_per_s": 6.56
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 0,
+          "short_juncture_count_0p1_0p25": 3,
+          "juncture_median_s": 0.144,
+          "longest_pauses_s": [
+            0.16,
+            0.14,
+            0.14
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": 0.171,
+          "half_to_half_delta_db": 0.61,
+          "sounding_trough_db": -15.83
+        }
+      },
+      "visual": {
+        "face_frames": 175,
+        "face_seen_ratio": 1.0,
+        "smile_mean": 0.039,
+        "smile_max": 0.429,
+        "smile_ratio": 0.06,
+        "brow_down_mean": 0.007,
+        "mouth_press_mean": 0.022,
+        "blink_count": 5,
+        "gaze_off_mean": 0.24,
+        "yaw_std_deg": 1.04,
+        "pitch_std_deg": 0.86,
+        "lip_motion": 0.00188,
+        "pose_frames": 175,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0209,
+        "head_sway": 0.0112,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.2,
+        "note": "미소 빈도 낮고, 시선 이탈 및 머리 움직임이 미미함"
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-evalab-a-kor",
+      "t": 37.59,
+      "start_s": 37.15,
+      "end_s": 38.03,
+      "text": "감사합니다.",
+      "source": "punct",
+      "speech": null,
+      "visual": {
+        "face_frames": 20,
+        "face_seen_ratio": 0.3,
+        "smile_mean": 0.469,
+        "smile_max": 0.839,
+        "smile_ratio": 1.0,
+        "brow_down_mean": 0.003,
+        "mouth_press_mean": 0.035,
+        "blink_count": 1,
+        "gaze_off_mean": 0.269,
+        "yaw_std_deg": 0.48,
+        "pitch_std_deg": 0.34,
+        "lip_motion": 0.01076,
+        "pose_frames": 20,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.1773,
+        "head_sway": 0.1489,
+        "wrist_visible": 0.3,
+        "wrist_motion": 0.1373,
+        "gesture_events": 1
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.4,
+        "note": "미소는 보이나, 시선 이탈 및 머리 움직임의 표준편차가 낮아 긴장감이 느껴짐"
+      }
+    },
+    {
+      "type": "sentence",
+      "session_id": "qa-evalab-a-kor",
+      "t": 33.79,
+      "start_s": 30.43,
+      "end_s": 37.15,
+      "text": "앞으로 SK하이닉스에서도 차세대 메모리를 효율적으로 양산하는 데 기여하고 싶습니다.",
+      "source": "punct",
+      "speech": {
+        "duration_s": 6.72,
+        "pitch": {
+          "voiced_frames": 673,
+          "voiced_ratio": 0.57,
+          "mean_hz": 229.1,
+          "sd_semitone": 4.22,
+          "pdq": 0.2618,
+          "range_st_10_90": 11.51,
+          "detrended_sd_semitone": 4.16,
+          "octave_error_frac": 0.006
+        },
+        "rate": {
+          "syllable_nuclei": 34,
+          "speech_rate_syl_per_s": 5.06,
+          "articulation_rate_syl_per_s": 5.7
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 1,
+          "short_juncture_count_0p1_0p25": 3,
+          "juncture_median_s": 0.148,
+          "longest_pauses_s": [
+            0.35,
+            0.16,
+            0.14,
+            0.11
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": -0.381,
+          "half_to_half_delta_db": -1.8,
+          "sounding_trough_db": -14.83
+        }
+      },
+      "visual": {
+        "face_frames": 169,
+        "face_seen_ratio": 0.86,
+        "smile_mean": 0.264,
+        "smile_max": 0.874,
+        "smile_ratio": 0.5,
+        "brow_down_mean": 0.006,
+        "mouth_press_mean": 0.028,
+        "blink_count": 6,
+        "gaze_off_mean": 0.254,
+        "yaw_std_deg": 1.15,
+        "pitch_std_deg": 1.46,
+        "lip_motion": 0.00301,
+        "pose_frames": 169,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0843,
+        "head_sway": 0.0493,
+        "wrist_visible": 0.0,
+        "wrist_motion": 0.0,
+        "gesture_events": 0
+      },
+      "nonverbal": {
+        "state": "neutral",
+        "intensity": 0.3,
+        "note": "미소는 보이나, 시선 이탈과 머리 움직임의 표준편차가 낮아 전반적으로 정적인 상태"
+      }
+    },
+    {
+      "type": "eval",
+      "session_id": "qa-evalab-a-kor",
+      "t": 24.0,
+      "window_s": 16.0,
+      "eval": {
+        "window_start_s": 16.0,
+        "window_dur_s": 16.0,
+        "verbal": {
+          "logic": "과거 경험(반이공정 속도 단축)과 현재 업무(파라미터 테스트)를 연결하여 지원 직무에 기여할 수 있음을 설명하는 논리 구조는 명확합니다. 하지만 경험의 구체적인 성과(예: 단축된 속도가 어떤 의미인지)에 대한 설명이 부족하여 임팩트가 약합니다.",
+          "structure": "서론-본론-결론의 구조를 따르려 했으나, 경험 나열에 치중하여 전체적인 흐름이 다소 산만합니다. 특히 '앞으로 SK하이닉스에서도'라는 연결고리가 다소 추상적입니다.",
+          "specificity": "구체적인 수치(46% 단축, 50번 이상 테스트)를 제시한 점은 좋으나, 이 수치들이 어떤 맥락에서 도출되었는지에 대한 설명이 부족하여 깊이가 느껴지지 않습니다."
+        },
+        "vocal": {
+          "volume": "전반적으로 일정한 음량을 유지하고 있으나, 강조가 필요한 부분에서 음량 변화가 미미하여 메시지 전달력이 약합니다.",
+          "pace": "발화 속도는 적절한 편이나, 문장 간의 연결이 매끄럽지 못하고 다소 기계적으로 느껴집니다.",
+          "pauses": "짧은 휴지(0.1~0.25초)가 적절히 사용되었으나, 내용의 전환점이나 중요한 포인트에서 의도적인 쉼이 부족하여 호흡이 다소 급하게 느껴집니다.",
+          "intonation": "억양 변화의 표준편차가 4.92 semitone으로, 단조롭지 않으나, 감정적인 강조나 설득력을 높이는 데 필요한 억양의 역동성이 부족합니다."
+        },
+        "visual": {
+          "eye_contact": "카메라를 응시하는 시선 처리는 안정적입니다.",
+          "posture": "상체 자세는 비교적 안정적이나, 어깨 중점 흔들림(0.0335)이 미세하게 관찰되어 긴장감이 느껴집니다.",
+          "expression": "전반적으로 미소를 유지하고 있으나, 표정의 변화가 크지 않아 다소 정적인 인상을 줍니다.",
+          "gesture_over_time": "손동작/제스처는 관측되지 않았습니다."
+        },
+        "critique": [
+          "경험의 성과를 나열하는 데 그치고, 그 성과가 지원 직무에 어떻게 기여할 수 있는지에 대한 '연결고리'가 추상적입니다.",
+          "전반적으로 발화의 억양이나 표정의 역동성이 부족하여, 내용의 중요도에 비해 전달력이 평이하게 느껴집니다.",
+          "미세한 어"
+        ],
+        "key_observations": [],
+        "compact": false,
+        "objective_vocal": {
+          "duration_s": 15.99,
+          "pitch": {
+            "voiced_frames": 1966,
+            "voiced_ratio": 0.661,
+            "mean_hz": 249.3,
+            "sd_semitone": 4.92,
+            "pdq": 0.2979,
+            "range_st_10_90": 13.23,
+            "detrended_sd_semitone": 4.92,
+            "octave_error_frac": 0.001
+          },
+          "rate": {
+            "syllable_nuclei": 93,
+            "speech_rate_syl_per_s": 5.82,
+            "articulation_rate_syl_per_s": 6.17
+          },
+          "pauses": {
+            "pause_count_ge_0p25": 0,
+            "short_juncture_count_0p1_0p25": 7,
+            "juncture_median_s": 0.136,
+            "longest_pauses_s": [
+              0.14,
+              0.14,
+              0.14,
+              0.14,
+              0.14
+            ]
+          },
+          "energy": {
+            "rel_db_slope_per_s": -0.003,
+            "half_to_half_delta_db": 0.43,
+            "sounding_trough_db": -16.1
+          }
+        },
+        "objective_visual": {
+          "face_frames": 400,
+          "face_seen_ratio": 1.0,
+          "smile_mean": 0.094,
+          "smile_max": 0.837,
+          "smile_ratio": 0.17,
+          "brow_down_mean": 0.006,
+          "mouth_press_mean": 0.022,
+          "blink_count": 12,
+          "gaze_off_mean": 0.239,
+          "yaw_std_deg": 1.24,
+          "pitch_std_deg": 1.1,
+          "lip_motion": 0.0028,
+          "pose_frames": 400,
+          "pose_seen_ratio": 1.0,
+          "posture_std": 0.0335,
+          "head_sway": 0.0185,
+          "wrist_visible": 0.0,
+          "wrist_motion": 0.0,
+          "gesture_events": 0
+        }
+      }
+    },
+    {
+      "type": "turn_end",
+      "session_id": "qa-evalab-a-kor",
+      "t": 44.57336065825075,
+      "transcript_full": "안녕하십니까? 지원자 이나래입니다. 저는 그때 동기들에게 잠은 대체 언제 자냐는 얘기를 자주 들었습니다. 그 이유는 왕복 네 시간 통학하면서도 주말 아르바이트에 한 번도 지각하지 않았고 성적 장학금도 계속 받았기 때문입니다. 이런 경험을 기반으로 공정개선 공모전에 나갔을 때는 생산 속도를 6% 단축시키는 결과를 냈고 대상도 받을 수 있었습니다. 현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 테스트를 진행해서 공정 최적화에 도움을 줄 수 있었습니다. 앞으로 SK하이닉스에서도 차세대 메모리를 효율적으로 양산하는 데 기여하고 싶습니다. 감사합니다.",
+      "eval": {
+        "window_start_s": 32.0,
+        "window_dur_s": 12.573360658250749,
+        "verbal": {},
+        "vocal": {},
+        "visual": {},
+        "critique": [
+          "발화 속도가 다소 느림",
+          "억양 변화가 단조로운 편"
+        ],
+        "key_observations": [
+          "지원자는 메모리 제품의 효율적 양산 기여 의지를 밝히며 마무리했다."
+        ],
+        "compact": true,
+        "objective_vocal": {
+          "duration_s": 12.58,
+          "pitch": {
+            "voiced_frames": 1102,
+            "voiced_ratio": 0.474,
+            "mean_hz": 224.5,
+            "sd_semitone": 3.36,
+            "pdq": 0.2078,
+            "range_st_10_90": 8.97,
+            "detrended_sd_semitone": 3.29,
+            "octave_error_frac": 0.0
+          },
+          "rate": {
+            "syllable_nuclei": 50,
+            "speech_rate_syl_per_s": 3.97,
+            "articulation_rate_syl_per_s": 4.78
+          },
+          "pauses": {
+            "pause_count_ge_0p25": 2,
+            "short_juncture_count_0p1_0p25": 5,
+            "juncture_median_s": 0.152,
+            "longest_pauses_s": [
+              1.11,
+              0.36,
+              0.17,
+              0.15,
+              0.12
+            ]
+          },
+          "energy": {
+            "rel_db_slope_per_s": 0.184,
+            "half_to_half_delta_db": 1.49,
+            "sounding_trough_db": -20.44
+          }
+        },
+        "objective_visual": {
+          "face_frames": 240,
+          "face_seen_ratio": 0.85,
+          "smile_mean": 0.318,
+          "smile_max": 0.883,
+          "smile_ratio": 0.54,
+          "brow_down_mean": 0.007,
+          "mouth_press_mean": 0.022,
+          "blink_count": 6,
+          "gaze_off_mean": 0.235,
+          "yaw_std_deg": 1.13,
+          "pitch_std_deg": 1.11,
+          "lip_motion": 0.00298,
+          "pose_frames": 240,
+          "pose_seen_ratio": 1.0,
+          "posture_std": 0.0892,
+          "head_sway": 0.055,
+          "wrist_visible": 0.03,
+          "wrist_motion": 0.0816,
+          "gesture_events": 0
+        }
+      }
+    }
+  ],
+  "recordCount": 11,
+  "transcriptFull": "안녕하십니까? 지원자 이나래입니다. 저는 그때 동기들에게 잠은 대체 언제 자냐는 얘기를 자주 들었습니다. 그 이유는 왕복 네 시간 통학하면서도 주말 아르바이트에 한 번도 지각하지 않았고 성적 장학금도 계속 받았기 때문입니다. 이런 경험을 기반으로 공정개선 공모전에 나갔을 때는 생산 속도를 6% 단축시키는 결과를 냈고 대상도 받을 수 있었습니다. 현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 테스트를 진행해서 공정 최적화에 도움을 줄 수 있었습니다. 앞으로 SK하이닉스에서도 차세대 메모리를 효율적으로 양산하는 데 기여하고 싶습니다. 감사합니다.",
+  "windowTranscripts": [],
+  "latestTurnEnd": {
+    "type": "turn_end",
+    "session_id": "qa-evalab-a-kor",
+    "t": 44.57336065825075,
+    "transcript_full": "안녕하십니까? 지원자 이나래입니다. 저는 그때 동기들에게 잠은 대체 언제 자냐는 얘기를 자주 들었습니다. 그 이유는 왕복 네 시간 통학하면서도 주말 아르바이트에 한 번도 지각하지 않았고 성적 장학금도 계속 받았기 때문입니다. 이런 경험을 기반으로 공정개선 공모전에 나갔을 때는 생산 속도를 6% 단축시키는 결과를 냈고 대상도 받을 수 있었습니다. 현재 회사에서도 신규 장비를 셋업할 때 50번 이상 파라미터 테스트를 진행해서 공정 최적화에 도움을 줄 수 있었습니다. 앞으로 SK하이닉스에서도 차세대 메모리를 효율적으로 양산하는 데 기여하고 싶습니다. 감사합니다.",
+    "eval": {
+      "window_start_s": 32.0,
+      "window_dur_s": 12.573360658250749,
+      "verbal": {},
+      "vocal": {},
+      "visual": {},
+      "critique": [
+        "발화 속도가 다소 느림",
+        "억양 변화가 단조로운 편"
+      ],
+      "key_observations": [
+        "지원자는 메모리 제품의 효율적 양산 기여 의지를 밝히며 마무리했다."
+      ],
+      "compact": true,
+      "objective_vocal": {
+        "duration_s": 12.58,
+        "pitch": {
+          "voiced_frames": 1102,
+          "voiced_ratio": 0.474,
+          "mean_hz": 224.5,
+          "sd_semitone": 3.36,
+          "pdq": 0.2078,
+          "range_st_10_90": 8.97,
+          "detrended_sd_semitone": 3.29,
+          "octave_error_frac": 0.0
+        },
+        "rate": {
+          "syllable_nuclei": 50,
+          "speech_rate_syl_per_s": 3.97,
+          "articulation_rate_syl_per_s": 4.78
+        },
+        "pauses": {
+          "pause_count_ge_0p25": 2,
+          "short_juncture_count_0p1_0p25": 5,
+          "juncture_median_s": 0.152,
+          "longest_pauses_s": [
+            1.11,
+            0.36,
+            0.17,
+            0.15,
+            0.12
+          ]
+        },
+        "energy": {
+          "rel_db_slope_per_s": 0.184,
+          "half_to_half_delta_db": 1.49,
+          "sounding_trough_db": -20.44
+        }
+      },
+      "objective_visual": {
+        "face_frames": 240,
+        "face_seen_ratio": 0.85,
+        "smile_mean": 0.318,
+        "smile_max": 0.883,
+        "smile_ratio": 0.54,
+        "brow_down_mean": 0.007,
+        "mouth_press_mean": 0.022,
+        "blink_count": 6,
+        "gaze_off_mean": 0.235,
+        "yaw_std_deg": 1.13,
+        "pitch_std_deg": 1.11,
+        "lip_motion": 0.00298,
+        "pose_frames": 240,
+        "pose_seen_ratio": 1.0,
+        "posture_std": 0.0892,
+        "head_sway": 0.055,
+        "wrist_visible": 0.03,
+        "wrist_motion": 0.0816,
+        "gesture_events": 0
+      }
+    }
+  },
+  "rawMediaExposed": false,
+  "rawSecretsExposed": false
+}

@@ -18,7 +18,7 @@ Source of truth:
 
 ### M1 — Docker skeleton and health
 
-- Add `infra/docker-compose.yml` services for frontend, api, ai-engine, agent1, postgres, optional/profiled redis, and caddy; add `infra/docker-compose.media.yml` as the optional LiveKit/coturn overlay for the same single-server stack.
+- Add `infra/docker-compose.yml` services for frontend, api, analysis-engine, agent1, postgres, optional/profiled redis, and caddy; add `infra/docker-compose.media.yml` as the optional LiveKit/coturn overlay for the same single-server stack.
 - Implement only health endpoints/placeholders first.
 - Keep `/api/internal/*` blocked at Caddy and API middleware.
 

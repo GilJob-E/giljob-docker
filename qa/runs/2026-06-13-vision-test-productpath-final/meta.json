@@ -1,0 +1,16 @@
+{
+  "date": "2026-06-13",
+  "purpose": ".vision_test.mp4 product-path 객관 레인(speech/visual/nonverbal) — 실 OpenAI Realtime 전사 포함 풀스택",
+  "engine": {
+    "container": "giljob-qa-analysis-engine-1",
+    "pin": "f817f81 (GilJobE — turn-events/turn-results 소유)"
+  },
+  "media": "qa/.vision_test.mp4 (24.9s, 원본 1920x1080) → fake cam /tmp/qa-productpath/.vision_test.y4m (640x480@15fps loop) + 주입 mic (clip audio mono f32@16k + room-tone tail 3000ms)",
+  "publish_path": "product-path-room (Chrome fake camera + injected WebAudio mic, 실 WebRTC)",
+  "transcript_feed": "openai-realtime (실 전사 — REAL text)",
+  "stack": "giljob-qa",
+  "interview_id": "qa-vision-test-final-1",
+  "publisher": "Google Chrome 148.0.7778.167, playwright(chromium 드라이브), SpatialReal avatar 번들 차단(headless GL 왜곡 방지)",
+  "harness": "qa/runs/_tools/productpath_signals.mjs (qivd_room_smoke 룸 구동 경로 재사용 + /analysis/signals 캡처)",
+  "caveat": "y4m은 캡처 시작부터 루프(clip+pad 동안 재생). 답변=면접 1턴(turnIndex 0). signals.json=/analysis/signals 정본 페이로드(records+turnHandoff). candidate-fragment.json=게이트용 thin 프래그먼트."
+}

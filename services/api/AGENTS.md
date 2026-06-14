@@ -9,12 +9,15 @@ This module owns the session/token API scaffold. Follow the root `AGENTS.md` plu
 - Issue LiveKit candidate join tokens when LiveKit is configured.
 - Preserve the `LIVEKIT_INTERNAL_URL` and `LIVEKIT_PUBLIC_URL` split.
 - Fail closed for production secret requirements and required LiveKit configuration.
-- Broker browser-facing interview question, TTS, and avatar-session routes to internal `ai-engine` routes; never expose provider keys, raw session tokens, or internal upstream error bodies.
+- Keep legacy browser-facing question and TTS routes fail-closed with `deprecated_ai_engine_removed` / `realtime_only`; avatar-session metadata is API-owned and disabled/deferred unless SDK Mode Web is explicitly configured. Keep `SPATIALREAL_API_KEY` server-only; `/api/interviews/{id}/avatar/session` may return only a short-lived SpatialReal SDK `sessionToken`, never provider keys or upstream error bodies.
+- Broker OpenAI Realtime session metadata and WebRTC SDP attach with server-only provider keys. Return only redacted route/session metadata; do not require browser-direct provider calls.
+- Record bounded Realtime transcript/prosody/vision sideband events and expose `full_mmm_ready` gating. Transcript text and low-resolution vision samples may travel only on the internal API→analysis-engine sideband; do not persist or log raw transcript/audio/video media through these routes.
 - Keep direct `/ai/*`, `/tts/*`, and `/avatar/*` provider paths blocked at ingress; browser code should use `/api/interviews/...` routes.
 
 ## Forbidden changes
 - Do not store raw token values in records, fixtures, logs, test output, or docs.
-- Do not log JWTs, LiveKit tokens, session tokens, report tokens, or secret env values.
+- Do not log JWTs, LiveKit tokens, session tokens, report tokens, SpatialReal SDK session tokens, or secret env values.
+- Do not log Realtime client secrets, standard provider keys, SDP bodies, SpatialReal API keys/session tokens, or upstream provider error bodies.
 - Do not weaken token TTL, purpose separation, or hash comparison behavior without an ADR and tests.
 
 ## Tests
