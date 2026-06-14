@@ -1503,6 +1503,7 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
       rawTranscriptIncluded: false,
       rawMediaIncluded: false,
     }, completedTurnIndex);
+    await flushAnalysisLane(); // [RESTORE] finalize LiveKit analysis turn → rich turnHandoff before the MMM gate
     lastAnswerTranscript = realtimeAnswerTranscript || "Realtime transcript unavailable.";
     realtimeAnswerTranscript = "";
     realtimeTranscriptCompleted = false;
@@ -1945,7 +1946,6 @@ function renderRealtimeQuestionProgress() {
   if (avatarSurface && activeAvatarSession?.ready) {
     avatarSurface.dataset.state = "speaking";
   }
-  muteAvatarRtcAudioElements();
 }
 
 function renderRealtimeQuestionDone(event) {
@@ -2159,7 +2159,91 @@ async function startPreview() {
   await restartPreviewStream();
 }
 
+// === [RESTORE] LiveKit 분석 미디어 레인 — candidate 카메라/마이크 → LiveKit → 엔진 MMM ===
+// PR#25/4def05e가 들어낸 "분석용 미디어 publish"만 복구(아바타 SpatialReal SDK 경로는 유지).
+// 세션은 sessionId=interviewId로 통일돼 candidate 룸(giljob-session-{id})·turn-events·구독자 키가
+// 모두 일치 → 엔진이 미디어(window 구독자)+전사(turn-events)를 합쳐 turnHandoff 객관 레인을 만든다.
+let analysisRoom = null;
+let analysisLaneSetup = null; // single-flight: connect + first publish + subscriber start happen exactly once
+
+async function setupAnalysisLaneOnce() {
+  const livekit = activeSession?.livekit;
+  const url = livekit?.url || livekit?.publicUrl;
+  const sessionId = activeSession?.sessionId || activeInterviewId;
+  const { Room } = await import("https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.esm.mjs");
+  analysisRoom = new Room();
+  await analysisRoom.connect(url, livekit.candidateToken);
+  appendLog(`analysis LiveKit lane connected room=${livekit.roomName}`);
+  // ★ publish the candidate track BEFORE starting the engine subscriber — the engine decides
+  // window-vs-event-only at join time, so the track must already be in the room.
+  await analysisRoom.localParticipant.setCameraEnabled(cameraEnabled);
+  await analysisRoom.localParticipant.setMicrophoneEnabled(micEnabled);
+  const response = await fetch("/analysis/subscriber/start", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId, criticMode: "window" }),
+  });
+  appendLog(`analysis subscriber start HTTP ${response.status} for ${sessionId}`);
+}
+
+async function ensureAnalysisLane() {
+  const livekit = activeSession?.livekit;
+  if (!livekit || livekit.tokenStatus !== "issued" || !livekit.candidateToken || !(livekit.url || livekit.publicUrl)) {
+    return; // LiveKit media overlay off (realtime-only deploy) → analysis lane is a no-op
+  }
+  if (!micEnabled && !cameraEnabled && !analysisRoom) {
+    return;
+  }
+  if (!analysisLaneSetup) {
+    analysisLaneSetup = setupAnalysisLaneOnce().catch((error) => {
+      analysisLaneSetup = null; // allow retry on next media toggle
+      appendLog(`analysis lane setup failed: ${errorMessage(error)}`);
+      throw error;
+    });
+  }
+  try {
+    await analysisLaneSetup;
+  } catch {
+    return;
+  }
+  // keep the published media in sync with the current camera/mic state (idempotent)
+  await analysisRoom.localParticipant.setCameraEnabled(cameraEnabled);
+  await analysisRoom.localParticipant.setMicrophoneEnabled(micEnabled);
+}
+
+async function flushAnalysisLane() {
+  // Finalize the turn: stopping the engine subscriber triggers its end_turn flush, which
+  // produces the rich per-sentence records → turnHandoff (speech/visual/nonverbal). Reset so
+  // the next answer turn re-establishes the lane + a fresh window subscriber.
+  if (!analysisLaneSetup) {
+    return;
+  }
+  try {
+    await fetch("/analysis/subscriber/stop", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    appendLog("analysis lane flushed (engine subscriber stopped → turnHandoff finalized)");
+  } catch (error) {
+    appendLog(`analysis lane flush failed: ${errorMessage(error)}`);
+  }
+  if (analysisRoom) {
+    try {
+      await analysisRoom.disconnect();
+    } catch {
+      // disconnect best-effort
+    }
+    analysisRoom = null;
+  }
+  analysisLaneSetup = null;
+}
+
 async function applyMediaStateToRoom() {
+  // [RESTORE] publish candidate media to the LiveKit analysis lane (independent of the
+  // OpenAI Realtime conversation + SpatialReal avatar). Fire-and-forget so it never blocks
+  // the realtime media path; no-ops when LiveKit overlay is disabled.
+  ensureAnalysisLane().catch((error) => appendLog(`analysis lane error: ${errorMessage(error)}`));
   if (activeRealtimeSession) {
     await applyRealtimeMediaState();
     return;
