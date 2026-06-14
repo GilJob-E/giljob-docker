@@ -5,6 +5,7 @@
   "type": "module",
   "description": "GilJob v2 Realtime-first interview room web shell with deferred SpatialReal SDK Mode surfaces.",
   "scripts": {
+    "dev": "python3 server.py",
     "check:js": "node --check static/app.js"
   },
   "dependencies": {
