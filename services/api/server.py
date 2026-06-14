@@ -1992,12 +1992,13 @@ def _realtime_post_connect_session_update() -> dict[str, object]:
 
 
 def _openai_realtime_sdp_endpoint(model: object | None = None) -> str:
-    _ = model  # Model is baked into the ephemeral session; SDP endpoint is model-less.
-    return f"{OPENAI_REALTIME_API_BASE}/realtime"
+    m = str(model or OPENAI_REALTIME_MODEL)
+    return f"{OPENAI_REALTIME_API_BASE}/realtime?model={urllib.parse.quote(m)}"
 
 
-def _openai_realtime_calls_endpoint() -> str:
-    return f"{OPENAI_REALTIME_API_BASE}/realtime"
+def _openai_realtime_calls_endpoint(model: str | None = None) -> str:
+    m = model or OPENAI_REALTIME_MODEL
+    return f"{OPENAI_REALTIME_API_BASE}/realtime?model={urllib.parse.quote(m)}"
 
 
 def _multipart_form_data(fields: dict[str, str]) -> tuple[bytes, str]:
@@ -2155,10 +2156,16 @@ def create_realtime_call(interview_id: str, payload: dict[str, Any]) -> tuple[in
             upstream_status = response.status
             location = response.headers.get("Location") or ""
     except urllib.error.HTTPError as error:
-        error.read()
+        error_body = error.read().decode("utf-8", errors="replace")
         upstream_status = error.code
         answer_sdp = ""
         location = ""
+        try:
+            err_json = json.loads(error_body)
+            err_msg = (err_json.get("error") or {}).get("message") or err_json.get("message") or error_body[:200]
+        except Exception:
+            err_msg = error_body[:200]
+        print(json.dumps({"event": "openai_realtime_call_error", "status": upstream_status, "sessionId": interview_id, "error": err_msg}), flush=True)
     except urllib.error.URLError:
         _log_latency_span("api.openai_realtime.call.upstream", _duration_ms(upstream_start), status=502, sessionId=interview_id, traceId=_trace_id(interview_id), provider="openai-realtime")
         return _return_with_latency(502, _realtime_unavailable_payload("realtime_provider_failed"), start, "api.realtime.call.total", session_id=interview_id, provider="openai-realtime")

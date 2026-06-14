@@ -1166,7 +1166,8 @@ class ApiHttpContractTest(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["callId"], "call_abc123")
-        self.assertEqual(captured[0].full_url, "https://api.openai.com/v1/realtime")
+        self.assertIn("https://api.openai.com/v1/realtime", captured[0].full_url)
+        self.assertIn("model=", captured[0].full_url)
         self.assertEqual(captured[0].headers.get("Authorization"), "Bearer test-ephemeral-token")
         self.assertEqual(captured[0].headers.get("Content-type"), "application/sdp")
         self.assertEqual(captured[0].data, b"v=0\r\no=- offer-sdp\r\n")
