@@ -9,7 +9,7 @@
 
 GilJob's product-critical interview loop is **candidate answer → analysis-engine MMM/RNAS → API-owned `response.create` → OpenAI Realtime output**. OpenAI Realtime WebRTC does not need LiveKit. The prior room/avatar scaffold still contains LiveKit media-room and AvatarKit RTC wiring, which made `LIVEKIT_PUBLIC_URL` and SpatialReal RTC reachability look like prerequisites for the main interview path.
 
-SpatialReal itself is not inherently LiveKit-only. Official integration docs distinguish SDK Mode, RTC Mode, and Host Mode. The current GilJob implementation is LiveKit-bound because it uses the AvatarKit RTC/UI path (`@spatialwalk/avatarkit-rtc`, `LiveKitProvider`, `AvatarPlayer.publishAudio(track)`), not because Realtime/MMM requires LiveKit.
+SpatialReal itself is not inherently LiveKit-only. Official integration docs distinguish SDK Mode, RTC Mode, and Host Mode. The retired GilJob implementation was LiveKit-bound when it used AvatarKit RTC/UI concepts (`@spatialwalk/avatarkit-rtc`, `LiveKitProvider`, `AvatarPlayer.publishAudio(track)`). The current default target is SDK Mode Web through `@spatialwalk/avatarkit`, not because Realtime/MMM requires LiveKit.
 
 ## Decision
 
@@ -28,22 +28,22 @@ SpatialReal avatar work moves to a separate non-default spike:
 3. Keep avatar UI disabled/deferred unless a feature-flagged proof is verified.
 4. Do not claim production lip-sync until kiostation browser evidence proves the audio-to-avatar path without raw SDP, provider secrets, tokens, transcripts, or raw media logs.
 
-## SDK Mode spike outcome for this lane
+## SDK Mode implementation contract for this lane
 
-Outcome: `sdk_mode_deferred`.
+Outcome before kiostation credentialed QA: `sdk_mode_deferred` or a safe blocked reason.
 
 Evidence available in this checkout:
 
-- `apps/web/package.json` declares `@spatialwalk/avatarkit` `1.0.0-beta.104`, `@spatialwalk/avatarkit-rtc` `1.0.0-beta.10`, and `livekit-client` `2.16.1`.
-- `apps/web/node_modules` is not present in this worker worktree, so current package exports, type declarations, and SDK Mode method names cannot be verified locally without installing dependencies.
-- The approved autoresearch report says SDK Mode can be non-LiveKit but still has unresolved browser PCM16 mono audio-feed and lifecycle questions.
+- `apps/web/package.json` declares `@spatialwalk/avatarkit` `1.0.0-beta.104` only for the default SDK path; `livekit-client` and `@spatialwalk/avatarkit-rtc` are not default dependencies.
+- The web image vendors `/vendor/@spatialwalk/avatarkit/dist/*` and serves JavaScript plus WASM with safe MIME types.
+- The browser initializes SDK Mode only after API-owned ready metadata, mutes SDK playback, and feeds a PCM16 copy of OpenAI Realtime output to `AvatarController.send(pcm, false)`.
 
-Therefore this docs/infra lane records SDK Mode as deferred, not unsupported. A future spike must install/inspect the current package or official docs, build a muted/local audio-feed proof, and record one of `sdk_mode_verified`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred`.
+Until kiostation browser QA proves avatar render, connected state, and lip movement without double audio, the product must report `sdk_mode_deferred` or a concrete blocked reason such as `sdk_mode_blocked_missing_provider_token`, `sdk_mode_blocked_dynamic_import`, `sdk_mode_blocked_pcm_send_failed`, or `sdk_mode_blocked_double_audio_or_mute`.
 
 ## Consequences
 
 - Docs and env examples must not imply `LIVEKIT_PUBLIC_URL` is required for Realtime/MMM.
-- AvatarKit RTC and SpatialReal-to-LiveKit egress are compatibility/experiment paths, not production claims.
+- AvatarKit RTC and SpatialReal-to-LiveKit egress are legacy compatibility paths, not default production claims.
 - Reintroducing LiveKit into the default path requires a new ADR and tests proving why Realtime/MMM cannot remain LiveKit-free.
 - Remote rebuild/restart and browser smoke remain kiostation-only integration steps after implementation is synchronized by the leader.
 

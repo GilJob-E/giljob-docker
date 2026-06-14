@@ -29,16 +29,36 @@ LIVEKIT_ENV_NAMES = (
     "LIVEKIT_API_KEY",
     "LIVEKIT_API_SECRET",
     "OPENAI_API_KEY",
+    "OPENAI_API_BASE",
     "OPENAI_REALTIME_API_BASE",
     "OPENAI_REALTIME_CALL_BROKER_ENABLED",
     "OPENAI_REALTIME_SAFETY_SALT",
+    "GEMINI_API_BASE",
+    "COACH_GEMINI_API_KEY",
+    "COACH_LLM_PROVIDER",
+    "COACH_LLM_MODEL",
+    "COACH_LLM_TIMEOUT_SECONDS",
     "REALTIME_MMM_EVENT_LOG_PATH",
     "REALTIME_MMM_FORWARD_ENABLED",
     "REALTIME_MMM_RESULT_TIMEOUT_SECONDS",
+    "HASHIMOTO_BASE_URL",
     "GILJOBE_VISION",
     "GILJOBE_PROSODY",
     "ELEVENLABS_API_KEY",
     "SPATIALREAL_API_KEY",
+    "SPATIALREAL_SDK_MODE_WEB_ENABLED",
+    "SPATIALREAL_APP_ID",
+    "SPATIALREAL_SESSION_TOKEN",
+    "SPATIALREAL_AVATAR_ID",
+    "SPATIALREAL_ENVIRONMENT",
+    "SPATIALREAL_REGION",
+    "SPATIALREAL_CONSOLE_API_HOST",
+    "SPATIALREAL_CONSOLE_ENDPOINT",
+    "SPATIALREAL_SESSION_TTL_SECONDS",
+    "SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS",
+    "SPATIALREAL_TOKEN_BROKER_USER_AGENT",
+    "SPATIALREAL_AUDIO_SAMPLE_RATE",
+    "SPATIALREAL_AUDIO_CHANNEL_COUNT",
 )
 
 
@@ -84,6 +104,62 @@ class ApiHttpContractTest(unittest.TestCase):
                 return res.status, res.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode("utf-8")
+
+    def _get(self, path: str) -> tuple[int, str]:
+        try:
+            with urllib.request.urlopen(self.base_url + path, timeout=5) as res:
+                return res.status, res.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read().decode("utf-8")
+
+    def _start_fake_spatialreal_console(
+        self,
+        *,
+        status: int = 200,
+        response_payload: dict[str, object] | None = None,
+    ) -> tuple[str, list[dict[str, object]]]:
+        captured: list[dict[str, object]] = []
+
+        class FakeSpatialRealConsoleHandler(BaseHTTPRequestHandler):
+            def do_POST(inner_self) -> None:  # noqa: N802 - stdlib callback name
+                length = int(inner_self.headers.get("Content-Length", "0") or "0")
+                raw = inner_self.rfile.read(length) if length else b""
+                captured.append({
+                    "method": "POST",
+                    "path": inner_self.path,
+                    "x_api_key": inner_self.headers.get("X-Api-Key"),
+                    "user_agent": inner_self.headers.get("User-Agent"),
+                    "body": raw.decode("utf-8"),
+                })
+                body = json.dumps(
+                    response_payload if response_payload is not None else {
+                        "id": "token-record-id",
+                        "sessionToken": "browser-safe-spatialreal-session-token",
+                        "expireAt": 1893456000,
+                    }
+                ).encode("utf-8")
+                inner_self.send_response(status)
+                inner_self.send_header("Content-Type", "application/json")
+                inner_self.send_header("Content-Length", str(len(body)))
+                inner_self.end_headers()
+                inner_self.wfile.write(body)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+                return
+
+        fake_server = ThreadingHTTPServer(("127.0.0.1", 0), FakeSpatialRealConsoleHandler)
+        thread = threading.Thread(target=fake_server.serve_forever, daemon=True)
+        thread.start()
+
+        def cleanup() -> None:
+            fake_server.shutdown()
+            fake_server.server_close()
+            thread.join(timeout=2)
+
+        self.addCleanup(cleanup)
+        host, port = fake_server.server_address
+        return f"http://{host}:{port}", captured
+
 
     def _start_fake_analysis_engine(self, *, status: int = 202, result_payload: dict[str, object] | None = None, result_status: int = 200) -> list[dict[str, object]]:
         captured: list[dict[str, object]] = []
@@ -134,6 +210,40 @@ class ApiHttpContractTest(unittest.TestCase):
         api_server.ANALYSIS_ENGINE_INTERNAL_URL = f"http://{host}:{port}"
         return captured
 
+    def _start_fake_hashimoto_strategy(self, payload: dict[str, object], *, status: int = 200) -> list[dict[str, object]]:
+        captured: list[dict[str, object]] = []
+
+        class FakeHashimotoHandler(BaseHTTPRequestHandler):
+            def do_GET(inner_self) -> None:  # noqa: N802 - stdlib callback name
+                captured.append({
+                    "method": "GET",
+                    "path": inner_self.path,
+                    "body": "",
+                })
+                body = json.dumps(payload).encode("utf-8")
+                inner_self.send_response(status)
+                inner_self.send_header("Content-Type", "application/json")
+                inner_self.send_header("Content-Length", str(len(body)))
+                inner_self.end_headers()
+                inner_self.wfile.write(body)
+
+            def log_message(inner_self, format: str, *args: object) -> None:
+                return None
+
+        fake_server = ThreadingHTTPServer(("127.0.0.1", 0), FakeHashimotoHandler)
+        fake_thread = threading.Thread(target=fake_server.serve_forever, daemon=True)
+        fake_thread.start()
+
+        def cleanup() -> None:
+            fake_server.shutdown()
+            fake_server.server_close()
+            fake_thread.join(timeout=2)
+
+        self.addCleanup(cleanup)
+        host, port = fake_server.server_address
+        os.environ["HASHIMOTO_BASE_URL"] = f"http://{host}:{port}"
+        return captured
+
     def test_create_session_routes_return_public_tokens_and_store_hashes_only(self) -> None:
         for path in ("/sessions", "/api/sessions"):
             with self.subTest(path=path):
@@ -165,25 +275,37 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(public["roomName"], "giljob-session-local-demo")
         self.assertEqual(set(SESSION_HASH_STORE), {"local-demo"})
 
-    def test_create_session_realtime_metadata_includes_safe_experimental_avatar_bridge_sibling(self) -> None:
+    def test_create_session_realtime_metadata_includes_safe_sdk_mode_sibling(self) -> None:
         status, body = self._post("/api/sessions", b'{"role":"candidate","interviewId":"local-demo"}')
         self.assertEqual(status, 201, body)
         payload = json.loads(body)
         self.assertIn("realtime", payload)
-        self.assertIn("realtimeAvatarBridge", payload)
-        bridge = payload["realtimeAvatarBridge"]
+        self.assertIn("avatarSdkMode", payload)
+        self.assertNotIn("realtimeAvatarBridge", payload)
+        sdk_mode = payload["avatarSdkMode"]
 
-        self.assertEqual(bridge["mode"], "experimental-openai-realtime-audio-to-avatar")
-        self.assertEqual(bridge["status"], "blocked")
-        self.assertFalse(bridge["enabled"])
-        self.assertEqual(bridge["directProviderRoutes"], "blocked")
-        self.assertEqual(bridge["controlBoundary"], "api-metadata-and-browser-livekit-publication")
-        self.assertEqual(bridge["requiresFeatureFlag"], "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED")
-        self.assertFalse(bridge["providerSecretsExposed"])
-        self.assertFalse(bridge["rawMediaExposed"])
-        self.assertFalse(bridge["rawTranscriptExposed"])
-        self.assertIn("experimental", bridge["description"].lower())
-        self.assertIn("blocked", bridge["blockedOutcome"].lower())
+        self.assertEqual(sdk_mode["mode"], "spatialreal-sdk-mode-web")
+        self.assertEqual(sdk_mode["transport"], "spatialreal-sdk-websocket")
+        self.assertEqual(sdk_mode["status"], "deferred")
+        self.assertEqual(sdk_mode["outcome"], "sdk_mode_deferred")
+        self.assertFalse(sdk_mode["enabled"])
+        self.assertFalse(sdk_mode["livekitRequired"])
+        self.assertEqual(sdk_mode["directProviderRoutes"], "blocked")
+        self.assertEqual(sdk_mode["requiresFeatureFlag"], "SPATIALREAL_SDK_MODE_WEB_ENABLED")
+        self.assertFalse(sdk_mode["providerSecretsExposed"])
+        self.assertFalse(sdk_mode["rawMediaExposed"])
+        self.assertFalse(sdk_mode["rawTranscriptExposed"])
+        self.assertFalse(sdk_mode["defaultEnabled"])
+        self.assertTrue(sdk_mode["tokenHidden"])
+        self.assertFalse(sdk_mode["rawMediaLogged"])
+        self.assertTrue(sdk_mode["requiresKiostationBrowserProof"])
+        self.assertEqual(sdk_mode["audioFormat"]["encoding"], "pcm16")
+        self.assertEqual(sdk_mode["audioFormat"]["channelCount"], 1)
+        self.assertEqual(sdk_mode["audioFormat"]["sampleRateHz"], 16000)
+        self.assertEqual(sdk_mode["audioFormat"]["source"], "openai-realtime-output-audio")
+        self.assertTrue(sdk_mode["audioFormat"]["mutedUntilVerified"])
+        self.assertIn("sdk mode", sdk_mode["description"].lower())
+        self.assertIn("sdk_mode_deferred", sdk_mode["blockedOutcome"].lower())
 
         serialized = json.dumps(payload, ensure_ascii=False)
         forbidden = [
@@ -195,6 +317,9 @@ class ApiHttpContractTest(unittest.TestCase):
             "raw media bytes",
             "raw candidate",
             "v=0",
+            "experimental-openai-realtime-audio-to-avatar",
+            "SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED",
+            "AvatarPlayer.publishAudio",
         ]
         for marker in forbidden:
             with self.subTest(marker=marker):
@@ -363,6 +488,170 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(forwarded["detail"]["visionFrame"]["data"], "ZmFrZQ==")
         self.assertNotIn("visionFrame", payload)
 
+    def test_coach_feedback_reads_exact_turn_result_without_exposing_raw_analysis(self) -> None:
+        analysis = self._start_fake_analysis_engine(result_payload={
+            "result": {
+                "schemaVersion": "2026-06-13.rnas-turn-result.v2",
+                "status": "ready",
+                "sessionId": "local-demo",
+                "turnIndex": 1,
+                "confidence": 0.86,
+                "latencyMs": 412,
+                "candidatePromptFragment": "raw transcript must not leak",
+                "candidateSafePromptFragment": {
+                    "text": "다음 답변에서는 프로젝트 맥락과 본인 기여를 더 구체적으로 확인하세요.",
+                    "containsRawTranscript": False,
+                    "containsRawMedia": False,
+                },
+                "transcriptSignals": {"status": "sentence_observed", "specificityScore": 0.58},
+                "visionSignals": {"status": "frame_observed", "faceVisible": True},
+                "prosodySignals": {"status": "timing_observed", "speechDurationMs": 1660},
+                "behavioralSignals": {"engagement": "steady"},
+                "coverage": {"speech": 6, "visual": 8, "nv": 8},
+                "rawTranscriptLogged": False,
+                "rawMediaAccepted": False,
+            }
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["interviewId"], "local-demo")
+        self.assertEqual(payload["turnIndex"], 1)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["delivery"]["mode"], "api-mediated-coach-feedback")
+        self.assertEqual(payload["delivery"]["analysisEndpoint"], "/realtime/turn-results")
+        self.assertFalse(payload["delivery"]["rawAnalysisReturned"])
+        self.assertTrue(payload["coachFeedback"]["ready"])
+        self.assertIn("summary", payload["coachFeedback"])
+        self.assertIn("answerEvaluation", payload["coachFeedback"])
+        self.assertIn("multimodalEvaluation", payload["coachFeedback"])
+        self.assertIsInstance(payload["coachFeedback"]["bullets"], list)
+        self.assertEqual(payload["coachLlm"]["provider"], "fake")
+        self.assertEqual(payload["coachLlm"]["providerStatus"], "fake")
+        self.assertEqual(payload["coachLlm"]["model"], "fake-coach")
+        self.assertEqual(payload["analysis"]["endpoint"], "/realtime/turn-results")
+        self.assertEqual(payload["analysis"]["resultStatus"], "ready")
+        self.assertEqual(payload["analysis"]["coverage"], {"nv": 8, "speech": 6, "visual": 8})
+        self.assertEqual(analysis[-1]["method"], "GET")
+        self.assertIn("/realtime/turn-results?interviewId=local-demo&turnIndex=1", analysis[-1]["path"])
+        self.assertNotIn('"candidatePromptFragment":', body)
+        self.assertNotIn("raw transcript must not leak", body)
+        self.assertNotIn("candidateSafePromptFragment", body)
+        self.assertNotIn("ai-engine", body)
+
+    def test_coach_feedback_is_pending_until_exact_turn_result_is_ready(self) -> None:
+        captured = self._start_fake_analysis_engine(result_payload={
+            "result": {
+                "status": "pending",
+                "sessionId": "local-demo",
+                "turnIndex": 1,
+            }
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["status"], "pending")
+        self.assertFalse(payload["coachFeedback"]["ready"])
+        self.assertEqual(payload["coachFeedback"]["reason"], "analysis_result_not_ready")
+        self.assertFalse(payload["coachLlm"]["attempted"])
+        self.assertEqual(payload["analysis"]["endpoint"], "/realtime/turn-results")
+        self.assertEqual(captured[-1]["method"], "GET")
+        self.assertIn("/realtime/turn-results?interviewId=local-demo&turnIndex=1", captured[-1]["path"])
+        self.assertNotIn('"candidatePromptFragment":', body)
+
+    def test_coach_feedback_rejects_wrong_turn_result_as_pending(self) -> None:
+        self._start_fake_analysis_engine(result_payload={
+            "result": {
+                "status": "ready",
+                "sessionId": "local-demo",
+                "turnIndex": 2,
+                "candidateSafePromptFragment": {"text": "다른 턴 결과입니다."},
+                "rawTranscriptLogged": False,
+                "rawMediaAccepted": False,
+            }
+        })
+
+        status, body = self._get("/api/interviews/local-demo/turns/1/coach-feedback")
+
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["status"], "pending")
+        self.assertEqual(payload["coachFeedback"]["reason"], "exact_turn_analysis_result_required")
+        self.assertFalse(payload["coachLlm"]["attempted"])
+        self.assertNotIn("다른 턴 결과입니다", body)
+
+    def test_gemini_coach_feedback_calls_provider_without_key_or_raw_leak(self) -> None:
+        os.environ["COACH_LLM_PROVIDER"] = "gemini"
+        os.environ["COACH_LLM_MODEL"] = "gemini-test-model"
+        os.environ["COACH_GEMINI_API_KEY"] = "secret-gemini-key"
+        captured: list[urllib.request.Request] = []
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps({
+                    "candidates": [{
+                        "content": {
+                            "parts": [{
+                                "text": json.dumps({
+                                    "summary": "멀티모달 신호를 함께 본 코칭입니다.",
+                                    "answerEvaluation": "답변은 구체성이 조금 더 필요합니다.",
+                                    "multimodalEvaluation": "시선과 발화 흐름은 안정적입니다.",
+                                    "bullets": ["핵심 성과를 수치로 덧붙이세요."],
+                                })
+                            }]
+                        }
+                    }]
+                }).encode("utf-8")
+
+        def fake_urlopen(request: urllib.request.Request, timeout: float = 0) -> FakeResponse:
+            captured.append(request)
+            self.assertIn("generativelanguage.googleapis.com", request.full_url)
+            upstream_body = request.data.decode("utf-8")
+            self.assertIn("다음 답변에서는 근거를 확인하세요.", upstream_body)
+            self.assertNotIn("raw transcript must not leak", upstream_body)
+            return FakeResponse()
+
+        result = {
+            "schemaVersion": "2026-06-13.rnas-turn-result.v2",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidatePromptFragment": "raw transcript must not leak",
+            "candidateSafePromptFragment": {
+                "text": "다음 답변에서는 근거를 확인하세요.",
+                "containsRawTranscript": False,
+                "containsRawMedia": False,
+            },
+            "coverage": {"speech": 6, "visual": 8, "nv": 8},
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        }
+
+        with patch("server.urllib.request.urlopen", side_effect=fake_urlopen):
+            status, payload = api_server._gemini_coach_feedback(api_server._coach_llm_settings(), result, "local-demo", 1)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["provider"], "gemini")
+        self.assertEqual(payload["providerStatus"], "provider")
+        self.assertEqual(payload["model"], "gemini-test-model")
+        self.assertEqual(payload["coachFeedback"]["summary"], "멀티모달 신호를 함께 본 코칭입니다.")
+        self.assertEqual(captured[0].headers.get("X-goog-api-key"), "secret-gemini-key")
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("secret-gemini-key", serialized)
+        self.assertNotIn("raw transcript must not leak", serialized)
+
 
     def test_realtime_response_create_allows_bootstrap_first_question_without_mmm_gate(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
@@ -483,6 +772,148 @@ class ApiHttpContractTest(unittest.TestCase):
         for forbidden in ("MMM", "analysis-engine", "backend", "readiness gate"):
             self.assertNotIn(forbidden, payload["sideband"]["command"]["response"]["instructions"])
 
+    def test_realtime_response_create_merges_exact_hashimoto_strategy_guidance(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidateSafePromptFragment": {
+                "schemaVersion": "2026-06-12.candidate-safe-prompt-fragment.v1",
+                "text": "Ask one concise follow-up about production ownership.",
+                "containsRawTranscript": False,
+                "containsRawMedia": False,
+                "containsSecrets": False,
+            },
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        hashimoto = self._start_fake_hashimoto_strategy({
+            "ready": True,
+            "session_id": "local-demo",
+            "as_of_turn_id": "turn_0001",
+            "session_complete": False,
+            "interaction_strategy": {
+                "logic_goal": "Confirm the candidate personally owned a production incident.",
+                "logical_gap_to_bridge": "The prior answer did not explain the decision criteria.",
+                "interviewer_persona_guidance": {
+                    "intent": "Ask for one concrete incident.",
+                    "focus_point": "Their role, decision, and tradeoff.",
+                    "emotion_direction": "Calm and specific.",
+                },
+                "current_context": {
+                    "topic": "production operations",
+                    "depth_level": 2,
+                    "topic_changed": False,
+                    "transition_hint": "Stay on the same topic for one deeper question.",
+                    "resolved_history": [
+                        {"proposition": "They used FastAPI", "status": "covered"},
+                    ],
+                },
+            },
+        })
+
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        instructions = payload["sideband"]["command"]["response"]["instructions"]
+        self.assertIn("Ask one concise follow-up about production ownership.", instructions)
+        self.assertIn("Confirm the candidate personally owned a production incident.", instructions)
+        self.assertIn("Their role, decision, and tradeoff.", instructions)
+        self.assertEqual(payload["hashimotoStrategy"]["used"], True)
+        self.assertEqual(payload["hashimotoStrategy"]["asOfTurnId"], "turn_0001")
+        self.assertEqual(payload["hashimotoStrategy"]["expectedTurnId"], "turn_0001")
+        self.assertEqual(payload["hashimotoStrategy"]["sessionComplete"], False)
+        self.assertEqual(hashimoto[-1]["method"], "GET")
+        self.assertIn("/strategy", hashimoto[-1]["path"])
+        self.assertIn("session_id=local-demo", hashimoto[-1]["path"])
+
+    def test_realtime_response_create_ignores_stale_hashimoto_strategy(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.mmm-result.v1",
+            "status": "ready",
+            "sessionId": "local-demo",
+            "turnIndex": 1,
+            "candidateSafePromptFragment": {
+                "schemaVersion": "2026-06-12.candidate-safe-prompt-fragment.v1",
+                "text": "Ask from the analysis fragment only.",
+                "containsRawTranscript": False,
+                "containsRawMedia": False,
+                "containsSecrets": False,
+            },
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+        self._start_fake_hashimoto_strategy({
+            "ready": True,
+            "session_id": "local-demo",
+            "as_of_turn_id": "turn_0000",
+            "session_complete": False,
+            "interaction_strategy": {
+                "logic_goal": "STALE_STRATEGY_MUST_NOT_APPEAR",
+            },
+        })
+
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"))
+        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"))
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 202, body)
+        payload = json.loads(body)
+        instructions = payload["sideband"]["command"]["response"]["instructions"]
+        self.assertIn("Ask from the analysis fragment only.", instructions)
+        self.assertNotIn("STALE_STRATEGY_MUST_NOT_APPEAR", instructions)
+        self.assertEqual(payload["hashimotoStrategy"]["used"], False)
+        self.assertEqual(payload["hashimotoStrategy"]["reason"], "turn_mismatch")
+        self.assertEqual(payload["hashimotoStrategy"]["asOfTurnId"], "turn_0000")
+        self.assertEqual(payload["hashimotoStrategy"]["expectedTurnId"], "turn_0001")
+
+    def test_realtime_response_create_rejects_wrong_or_stale_turn_analysis_result(self) -> None:
+        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
+        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
+        os.environ["GILJOBE_VISION"] = "off"
+        os.environ["GILJOBE_PROSODY"] = "off"
+        analysis = self._start_fake_analysis_engine(result_payload={
+            "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
+            "status": "ready",
+            "turnIndex": 2,
+            "candidatePromptFragment": "STALE_GUIDANCE_SHOULD_NOT_BE_USED",
+            "rawTranscriptLogged": False,
+            "rawMediaAccepted": False,
+        })
+
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
+        )
+        self._post(
+            "/api/interviews/local-demo/turns/1/events",
+            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
+        )
+        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["error"], "analysis_result_stale_or_wrong_turn")
+        self.assertEqual(payload["analysisTurnIndex"], 1)
+        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "exact_turn_analysis_required"})
+        self.assertIn("turnIndex=1", analysis[-1]["path"])
+        self.assertNotIn("STALE_GUIDANCE_SHOULD_NOT_BE_USED", body)
+
     def test_realtime_response_create_allows_task_instructions_without_fragment_pollution(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
         os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
@@ -520,37 +951,6 @@ class ApiHttpContractTest(unittest.TestCase):
         instructions = payload["sideband"]["command"]["response"]["instructions"]
         self.assertEqual(instructions, "Answer the spoken task directly. Return only the final answer.")
         self.assertNotIn("fragment 문장", instructions)
-
-    def test_realtime_response_create_accepts_turn_handoff_fragment_without_turn_index_rejection(self) -> None:
-        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
-        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
-        os.environ["GILJOBE_VISION"] = "off"
-        os.environ["GILJOBE_PROSODY"] = "off"
-        analysis = self._start_fake_analysis_engine(result_payload={
-            "schemaVersion": "2026-06-12.turn-handoff-fragment.v2",
-            "status": "ready",
-            "turnIndex": 2,
-            "sessionId": "local-demo",
-            "candidatePromptFragment": "같은 세션의 turnHandoff 조각으로 자연스러운 후속 질문을 하세요.",
-            "rawTranscriptLogged": False,
-            "rawMediaAccepted": False,
-        })
-
-        self._post(
-            "/api/interviews/local-demo/turns/1/events",
-            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
-        )
-        self._post(
-            "/api/interviews/local-demo/turns/1/events",
-            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
-        )
-        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
-        self.assertEqual(status, 202, body)
-        payload = json.loads(body)
-        self.assertEqual(payload["analysisTurnIndex"], 1)
-        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": True, "commandType": "response.create"})
-        self.assertIn("turnIndex=1", analysis[-1]["path"])
-        self.assertIn("turnHandoff 조각", payload["sideband"]["command"]["response"]["instructions"])
 
     def test_realtime_response_create_rejects_unsafe_analysis_fragment(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
@@ -642,86 +1042,6 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertEqual(payload["error"], "analysis_result_unavailable")
         self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "structured_analysis_required"})
         self.assertNotIn("inline result must be ignored", body)
-
-    def test_realtime_response_create_rejects_wrong_session_turn_handoff_result(self) -> None:
-        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
-        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
-        os.environ["GILJOBE_VISION"] = "off"
-        os.environ["GILJOBE_PROSODY"] = "off"
-        self._start_fake_analysis_engine(result_payload={
-            "schemaVersion": "2026-06-12.mmm-result.v1",
-            "status": "ready",
-            "sessionId": "other-demo",
-            "turnIndex": 1,
-            "candidatePromptFragment": "wrong turn fragment must not be used",
-            "rawTranscriptLogged": False,
-            "rawMediaAccepted": False,
-        })
-        self._post(
-            "/api/interviews/local-demo/turns/1/events",
-            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
-        )
-        self._post(
-            "/api/interviews/local-demo/turns/1/events",
-            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
-        )
-
-        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
-        self.assertEqual(status, 409, body)
-        payload = json.loads(body)
-        self.assertEqual(payload["error"], "analysis_result_wrong_session")
-        self.assertEqual(payload["responseCreate"]["reason"], "turn_handoff_session_required")
-        self.assertNotIn("wrong turn fragment must not be used", body)
-
-
-    def test_realtime_response_create_rejects_wrong_session_turn_handoff_result_duplicate_guard(self) -> None:
-        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
-        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
-        os.environ["GILJOBE_VISION"] = "off"
-        os.environ["GILJOBE_PROSODY"] = "off"
-        self._start_fake_analysis_engine(result_payload={
-            "schemaVersion": "2026-06-12.mmm-result.v1",
-            "status": "ready",
-            "sessionId": "other-demo",
-            "turnIndex": 1,
-            "candidatePromptFragment": "wrong turn fragment must not be used",
-            "rawTranscriptLogged": False,
-            "rawMediaAccepted": False,
-        })
-        self._post(
-            "/api/interviews/local-demo/turns/1/events",
-            json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"),
-        )
-        self._post(
-            "/api/interviews/local-demo/turns/1/events",
-            json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"),
-        )
-
-        status, body = self._post("/api/interviews/local-demo/turns/2/realtime/response", b"{}")
-        self.assertEqual(status, 409, body)
-        payload = json.loads(body)
-        self.assertEqual(payload["error"], "analysis_result_wrong_session")
-        self.assertEqual(payload["responseCreate"]["reason"], "turn_handoff_session_required")
-        self.assertNotIn("wrong turn fragment must not be used", body)
-
-
-
-    def test_realtime_response_create_ignores_inline_wrong_turn_analysis_result(self) -> None:
-        os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
-        os.environ["REALTIME_MMM_FORWARD_ENABLED"] = "off"
-        os.environ["GILJOBE_VISION"] = "off"
-        os.environ["GILJOBE_PROSODY"] = "off"
-        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "turn.answer_ended", "detail": {"transcriptAvailable": True}}).encode("utf-8"))
-        self._post("/api/interviews/local-demo/turns/1/events", json.dumps({"type": "transcript.completed", "transcript": "bounded candidate answer"}).encode("utf-8"))
-
-        status, body = self._post(
-            "/api/interviews/local-demo/turns/2/realtime/response",
-            json.dumps({"analysisResult": {"status": "ready", "interviewId": "local-demo", "turnIndex": 99, "candidatePromptFragment": "이전 답변을 바탕으로 구체 사례를 물어보세요."}}).encode("utf-8"),
-        )
-        self.assertEqual(status, 409, body)
-        payload = json.loads(body)
-        self.assertEqual(payload["error"], "analysis_result_unavailable")
-        self.assertEqual(payload["responseCreate"], {"owner": "api", "created": False, "reason": "structured_analysis_required"})
 
     def test_mmm_ready_requires_turn_handoff_fragment_ready(self) -> None:
         os.environ["REALTIME_MMM_EVENT_LOG_PATH"] = "0"
@@ -887,10 +1207,163 @@ class ApiHttpContractTest(unittest.TestCase):
         delivery = payload.get("delivery")
         if isinstance(delivery, dict):
             self.assertNotEqual(delivery.get("source"), "ai-engine")
+        self.assertIn("sdkMode", payload)
+        self.assertNotIn("bridge", payload)
+        self.assertNotIn("client", payload)
+        for forbidden_livekit_field in ("avatarClientToken", "livekitUrl", "url", "roomName", "participantIdentity"):
+            with self.subTest(forbidden_livekit_field=forbidden_livekit_field):
+                self.assertNotIn(forbidden_livekit_field, serialized)
+        sdk_mode = payload["sdkMode"]
+        self.assertEqual(sdk_mode["mode"], "spatialreal-sdk-mode-web")
+        self.assertEqual(sdk_mode["transport"], "spatialreal-sdk-websocket")
+        self.assertFalse(sdk_mode["livekitRequired"])
+        self.assertEqual(sdk_mode["requiresFeatureFlag"], "SPATIALREAL_SDK_MODE_WEB_ENABLED")
+        self.assertEqual(sdk_mode["outcome"], "sdk_mode_deferred")
+        self.assertFalse(sdk_mode["providerSecretsExposed"])
+        self.assertFalse(sdk_mode["rawMediaExposed"])
+        self.assertFalse(sdk_mode["rawTranscriptExposed"])
+        self.assertFalse(sdk_mode["defaultEnabled"])
+        self.assertTrue(sdk_mode["tokenHidden"])
+        self.assertFalse(sdk_mode["rawMediaLogged"])
+        self.assertTrue(sdk_mode["requiresKiostationBrowserProof"])
+        self.assertEqual(sdk_mode["audioFormat"]["encoding"], "pcm16")
+        self.assertEqual(sdk_mode["audioFormat"]["channelCount"], 1)
+        self.assertEqual(sdk_mode["audioFormat"]["sampleRateHz"], 16000)
+        self.assertEqual(sdk_mode["audioFormat"]["source"], "openai-realtime-output-audio")
+        self.assertTrue(sdk_mode["audioFormat"]["mutedUntilVerified"])
+        self.assertIn("sdk mode", sdk_mode["description"].lower())
+        self.assertIn("sdk_mode_deferred", sdk_mode["blockedOutcome"].lower())
         if payload.get("error") == "deprecated_ai_engine_removed":
             self.assertEqual(payload.get("reason"), "realtime_only")
         else:
             self.assertIn(payload.get("status"), {"disabled", "deferred", "session_issued", "not_configured"})
+
+    def test_avatar_session_sdk_enabled_configured_returns_ready_client_metadata_without_livekit(self) -> None:
+        os.environ["SPATIALREAL_SDK_MODE_WEB_ENABLED"] = "true"
+        os.environ["SPATIALREAL_APP_ID"] = "public-app-id-for-browser"
+        os.environ["SPATIALREAL_SESSION_TOKEN"] = "short-lived-spatialreal-session-token"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-demo-01"
+        os.environ["SPATIALREAL_AUDIO_SAMPLE_RATE"] = "16000"
+        os.environ["SPATIALREAL_AUDIO_CHANNEL_COUNT"] = "1"
+
+        status, body = self._post(
+            "/api/interviews/local-demo/avatar/session",
+            json.dumps({"reason": "sdk-ready-contract"}).encode("utf-8"),
+        )
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        self.assertTrue(payload["ready"])
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["provider"], "spatialreal")
+        self.assertIn("client", payload)
+        self.assertIn("sdkMode", payload)
+        self.assertIn("spatialrealSdk", payload["client"])
+
+        sdk_mode = payload["sdkMode"]
+        self.assertTrue(sdk_mode["enabled"])
+        self.assertEqual(sdk_mode["mode"], "spatialreal-sdk-mode-web")
+        self.assertEqual(sdk_mode["transport"], "spatialreal-sdk-websocket")
+        self.assertFalse(sdk_mode["livekitRequired"])
+        self.assertFalse(sdk_mode["providerSecretsExposed"])
+        self.assertFalse(sdk_mode["rawMediaLogged"])
+
+        client_sdk = payload["client"]["spatialrealSdk"]
+        self.assertEqual(client_sdk["appId"], "public-app-id-for-browser")
+        self.assertEqual(client_sdk["sessionToken"], "short-lived-spatialreal-session-token")
+        self.assertEqual(client_sdk["avatarId"], "avatar-demo-01")
+        self.assertEqual(client_sdk["audioFormat"], {"encoding": "pcm16", "channelCount": 1, "sampleRateHz": 16000})
+
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        for forbidden_livekit_field in ("avatarClientToken", "candidateToken", "livekitUrl", "url", "roomName", "participantIdentity"):
+            with self.subTest(forbidden_livekit_field=forbidden_livekit_field):
+                self.assertNotIn(forbidden_livekit_field, serialized)
+        self.assertNotIn("SPATIALREAL_API_KEY", serialized)
+        self.assertNotIn("LIVEKIT_API_SECRET", serialized)
+
+    def test_avatar_session_sdk_enabled_brokers_short_lived_token_with_server_api_key(self) -> None:
+        console_base_url, captured = self._start_fake_spatialreal_console()
+        os.environ["SPATIALREAL_SDK_MODE_WEB_ENABLED"] = "true"
+        os.environ["SPATIALREAL_API_KEY"] = "secret-spatialreal-api-key"
+        os.environ["SPATIALREAL_APP_ID"] = "public-app-id-for-browser"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-demo-01"
+        os.environ["SPATIALREAL_CONSOLE_API_HOST"] = console_base_url
+        os.environ["SPATIALREAL_SESSION_TTL_SECONDS"] = "600"
+
+        status, body = self._post(
+            "/api/interviews/local-demo/avatar/session",
+            json.dumps({"reason": "sdk-ready-api-key-broker-contract"}).encode("utf-8"),
+        )
+
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        client_sdk = payload["client"]["spatialrealSdk"]
+        self.assertEqual(client_sdk["appId"], "public-app-id-for-browser")
+        self.assertEqual(client_sdk["avatarId"], "avatar-demo-01")
+        self.assertEqual(client_sdk["sessionToken"], "browser-safe-spatialreal-session-token")
+        self.assertEqual(client_sdk["sessionTokenExpiresAt"], 1893456000)
+        self.assertEqual(client_sdk["tokenPolicy"], "api-key-brokered-single-use-session-token")
+        self.assertEqual(client_sdk["tokenSource"], "server-side-spatialreal-api-key")
+        self.assertEqual(client_sdk["consoleRegion"], "ap-northeast")
+        self.assertFalse(payload["sdkMode"]["livekitRequired"])
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0]["path"], "/v1/console/session-tokens")
+        self.assertEqual(captured[0]["x_api_key"], "secret-spatialreal-api-key")
+        self.assertEqual(captured[0]["user_agent"], "GilJob-v2-SpatialReal-TokenBroker/1.0")
+        token_request = json.loads(str(captured[0]["body"]))
+        self.assertIsInstance(token_request["expireAt"], int)
+
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn("secret-spatialreal-api-key", serialized)
+        self.assertNotIn("SPATIALREAL_API_KEY", serialized)
+        self.assertNotIn("AvatarKit RTC", serialized)
+        self.assertNotIn("livekitUrl", serialized)
+
+    def test_avatar_session_sdk_enabled_api_key_broker_failure_is_redacted(self) -> None:
+        console_base_url, _captured = self._start_fake_spatialreal_console(
+            status=401,
+            response_payload={"error": "invalid_api_key", "message": "secret-spatialreal-api-key"},
+        )
+        os.environ["SPATIALREAL_SDK_MODE_WEB_ENABLED"] = "true"
+        os.environ["SPATIALREAL_API_KEY"] = "secret-spatialreal-api-key"
+        os.environ["SPATIALREAL_APP_ID"] = "public-app-id-for-browser"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-demo-01"
+        os.environ["SPATIALREAL_CONSOLE_API_HOST"] = console_base_url
+
+        status, body = self._post("/api/interviews/local-demo/avatar/session", b"{}")
+
+        self.assertEqual(status, 502, body)
+        payload = json.loads(body)
+        self.assertFalse(payload["ready"])
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["reason"], "spatialreal_session_token_http_401")
+        self.assertEqual(payload["sdkMode"]["outcome"], "sdk_mode_blocked_provider_token_broker")
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn("secret-spatialreal-api-key", serialized)
+        self.assertNotIn("invalid_api_key", serialized)
+        self.assertNotIn("SPATIALREAL_API_KEY", serialized)
+
+    def test_sdk_enabled_avatar_metadata_does_not_bypass_full_mmm_gate(self) -> None:
+        os.environ["SPATIALREAL_SDK_MODE_WEB_ENABLED"] = "true"
+        os.environ["SPATIALREAL_APP_ID"] = "public-app-id-for-browser"
+        os.environ["SPATIALREAL_SESSION_TOKEN"] = "short-lived-spatialreal-session-token"
+        os.environ["SPATIALREAL_AVATAR_ID"] = "avatar-demo-01"
+
+        avatar_status, avatar_body = self._post("/api/interviews/local-demo/avatar/session", b"{}")
+        self.assertIn(avatar_status, {200, 202}, avatar_body)
+        status, body = self._post(
+            "/api/interviews/local-demo/turns/2/realtime/response",
+            json.dumps({"reason": "sdk-enabled-followup"}).encode("utf-8"),
+        )
+        self.assertEqual(status, 409, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["responseCreate"]["owner"], "api")
+        self.assertFalse(payload["responseCreate"]["created"])
+        self.assertIn(
+            payload["responseCreate"]["reason"],
+            {"full_mmm_required_for_prior_answer", "structured_analysis_required"},
+        )
+        self.assertNotIn("avatar", json.dumps(payload, ensure_ascii=False).lower())
 
     def test_avatar_session_route_accepts_caddy_stripped_path_and_bad_id_fails(self) -> None:
         status, body = self._post("/interviews/local-demo/avatar/session", b"{}")
@@ -944,6 +1417,23 @@ class ApiHttpContractTest(unittest.TestCase):
         self.assertNotIn("ai-engine:", compose)
         self.assertIn("ANALYSIS_ENGINE_INTERNAL_URL", compose)
         self.assertIn("http://analysis-engine:8200", compose)
+        for sdk_env_name in (
+            "SPATIALREAL_SDK_MODE_WEB_ENABLED",
+            "SPATIALREAL_API_KEY",
+            "SPATIALREAL_APP_ID",
+            "SPATIALREAL_AVATAR_ID",
+            "SPATIALREAL_SESSION_TOKEN",
+            "SPATIALREAL_ENVIRONMENT",
+            "SPATIALREAL_REGION",
+            "SPATIALREAL_CONSOLE_API_HOST",
+            "SPATIALREAL_CONSOLE_ENDPOINT",
+            "SPATIALREAL_SESSION_TTL_SECONDS",
+            "SPATIALREAL_SESSION_TOKEN_TIMEOUT_SECONDS",
+            "SPATIALREAL_TOKEN_BROKER_USER_AGENT",
+        ):
+            with self.subTest(sdk_env_name=sdk_env_name):
+                self.assertIn(f"{sdk_env_name}: ${{{sdk_env_name}", compose)
+        self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", compose)
 
 
 if __name__ == "__main__":

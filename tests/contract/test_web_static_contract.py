@@ -4,6 +4,7 @@ from http.server import ThreadingHTTPServer
 import importlib.util
 import json
 import pathlib
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -96,6 +97,14 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("질문 준비 중", body)
         self.assertIn("current-question-title", body)
         self.assertIn("transcript-body", body)
+        self.assertIn("coach-feedback-title", body)
+        self.assertIn("coach-feedback-body", body)
+        self.assertIn("coach-feedback-list", body)
+        self.assertIn("Coach feedback", body)
+        self.assertIn('class="feedback-panel-region"', body)
+        self.assertIn('class="question-answer-panel-region"', body)
+        self.assertLess(body.index('class="panel-card coach-card"'), body.index('class="question-answer-panel-region"'))
+        self.assertLess(body.index('id="current-question-title"'), body.index('id="transcript-body"'))
         self.assertIn("mmm-debug-summary", body)
         self.assertIn("Operator MMM debug", body)
         self.assertIn("readiness/response", body)
@@ -133,6 +142,9 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("position: static;", body)
         self.assertIn("#transcript-body {", body)
         self.assertIn("max-height: min(36vh, 420px);", body)
+        self.assertRegex(body, r"\.drawer-panel-stack\s*\{[^}]*grid-template-rows: minmax\(0, 1fr\) minmax\(0, 2fr\);")
+        self.assertRegex(body, r"\.question-answer-panel-region\s*\{[^}]*overflow-y: auto;")
+        self.assertIn("#current-question-body,\n#transcript-body,\n#coach-feedback-body,\n.coach-feedback-list", body)
         self.assertIn(".mmm-debug-summary {", body)
         self.assertIn("max-height: min(34vh, 360px);", body)
         self.assertIn(".room-debug-drawer details {", body)
@@ -180,6 +192,12 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("candidate answer turn", body)
         self.assertIn("giljob:interviewer-question-ended", body)
         self.assertIn("lastAnswer", body)
+        self.assertIn("function renderCoachFeedback", body)
+        self.assertIn("function requestCoachFeedback", body)
+        self.assertIn("/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/coach-feedback", body)
+        self.assertIn("requestCoachFeedback(completedTurnIndex)", body)
+        self.assertIn("coach feedback unavailable", body)
+        self.assertIn("coach feedback pending", body)
         self.assertIn("candidate-answer-ended-browser-clean-boundary", body)
         self.assertIn("API sideband", body)
         self.assertIn("browser analysis control disabled", body)
@@ -258,11 +276,15 @@ class WebStaticContractTest(unittest.TestCase):
 
         # Any avatar spike must be non-default SDK Mode Web, not the previous
         # AvatarKit RTC/LiveKit bridge. It remains disabled/deferred unless an
-        # explicit SDK Mode feature flag is enabled.
+        # explicit SDK Mode feature flag is enabled, but must accept API-owned
+        # sdk_mode_ready metadata once the token broker succeeds.
         self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED", body)
         self.assertIn("sdk_mode_deferred", body)
+        self.assertIn("sdk_mode_ready", body)
+        self.assertIn("SPATIALREAL_SDK_ACCEPTED_OUTCOMES", body)
         self.assertIn("Avatar disabled/deferred", body)
         self.assertIn("providerSecretsExposed === false", body)
+        self.assertNotIn("sdkMode.outcome === SPATIALREAL_SDK_MODE_OUTCOME", body)
         self.assertIn("rawMediaExposed === false", body)
         self.assertNotIn("experimental-openai-realtime-audio-to-avatar", body)
         self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", body)
@@ -284,12 +306,89 @@ class WebStaticContractTest(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, body)
 
+    def test_app_js_contains_actual_spatialreal_sdk_activation_and_pcm_bridge_contract(self) -> None:
+        body = (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        required_activation_markers = [
+            'import("@spatialwalk/avatarkit")',
+            "AvatarSDK.initialize",
+            "AvatarSDK.setSessionToken",
+            "AvatarManager.shared.load",
+            "new sdk.AvatarView",
+            "AVATAR_SDK_SYNCED_PLAYBACK_VOLUME",
+            "setAvatarSdkPlaybackVolume",
+            "Realtime direct audio output",
+            "controller.send",
+            "PCM16",
+            "sendAvatarSdkPcmChunk(controller, pcm, false)",
+            "response.done",
+            "function avatarSdkBeginResponseFeed",
+            "function avatarSdkEndResponseFeed",
+            "AVATAR_PCM_END_GRACE_MS",
+            "AVATAR_PCM_TAIL_SILENCE_MS",
+            "AVATAR_PCM_MAX_DRAIN_MS",
+            "AVATAR_PCM_NO_SPEECH_DRAIN_MS",
+            "AVATAR_PCM_TAIL_POLL_MS",
+            "avatar SDK PCM chunk",
+            "avatarSdkResponseFeedActive",
+            "interviewer-audio-element-capture",
+            "realtime-remote-track-pre-output",
+            "spatialreal-sdk-synced-playback",
+            "waiting for Realtime response feed",
+            "PCM feed opens when SDK is ready and silence is gated until speech",
+            "first question waits for avatar session readiness check",
+            "waiting for SDK init before first Realtime question",
+            "waiting for SDK connection before first Realtime question",
+            "avatar SDK PCM silence dropped before speech",
+            "AVATAR_PCM_SPEECH_RMS_THRESHOLD",
+        ]
+        for marker in required_activation_markers:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, body)
+
+        safe_blocked_reasons = [
+            "sdk_flag_disabled",
+            "spatialreal_config_missing",
+            "sdk_mode_blocked_missing_vendor_asset",
+            "sdk_mode_blocked_wasm_mime",
+            "sdk_mode_blocked_dynamic_import",
+            "sdk_mode_blocked_double_audio_or_mute",
+            "sdk_mode_blocked_pcm_feed_setup_failed",
+            "sdk_mode_blocked_pcm_send_failed",
+        ]
+        for reason in safe_blocked_reasons:
+            with self.subTest(reason=reason):
+                self.assertIn(reason, body)
+
+        self.assertIn("waitForFullMmmReady", body)
+        self.assertIn("avatarSdkPcmStats", body)
+        self.assertIn("lastSpeechAt", body)
+        self.assertIn("lastChunkAt", body)
+        self.assertIn("avatar SDK PCM tail drain started", body)
+        self.assertIn("avatar SDK PCM tail drain continuing", body)
+        self.assertIn("avatar SDK PCM tail drain ending", body)
+        self.assertIn("tail_silence", body)
+        self.assertIn("max_drain", body)
+        self.assertIn("no_speech_drain_timeout", body)
+        self.assertIn("avatar SDK PCM bridge idle during response feed", body)
+        self.assertIn("Realtime remote audio track observed for interviewer playback; avatar SDK PCM16 adapter waits for response feed", body)
+        self.assertIn("SpatialReal SDK owns audible playback for lip-sync", body)
+        self.assertIn("Realtime direct audio muted for lip-sync", body)
+        self.assertIn("avatar SDK response feed active from", body)
+        self.assertIn("realtime-connected-avatar-checked", body)
+        self.assertIn("avatar SDK connection wait before first Realtime question", body)
+        self.assertNotIn("avatarSdkBeginResponseFeed();", body)
+        self.assertNotIn("PCM feed waits for Realtime audio delta", body)
+        self.assertLess(body.index("waitForFullMmmReady"), body.index("requestRealtimeNextQuestion"))
+        self.assertNotIn("AvatarPlayer.publishAudio", body)
+        self.assertNotIn("SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED", body)
+
     def test_app_js_realtime_lifecycle_order_matrix_is_explicit(self) -> None:
         body = (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8")
         order_pairs = [
             ("remoteStream.addTrack(event.track)", "captureRealtimeRemoteAudioTrack(event.track)"),
             ("remoteStream.addTrack(event.track)", "attachRealtimeRemoteAudio(remoteStream)"),
             ("response.done", "markInterviewerQuestionEnded"),
+            ('markInterviewerQuestionEnded({ provider: "openai-realtime"', "avatarSdkEndResponseFeed(responseId)"),
             ("disconnectRealtimeRoom", "realtimeRemoteAudioTrack = null"),
         ]
         for before, after in order_pairs:
@@ -343,6 +442,63 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertNotIn("node_modules/@spatialwalk/avatarkit-rtc/dist", dockerfile)
         if "node_modules/@spatialwalk/avatarkit/dist" in dockerfile:
             self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED", (WEB_ROOT / "static" / "app.js").read_text(encoding="utf-8"))
+
+    def test_web_server_serves_only_allowed_spatialreal_sdk_vendor_assets_with_safe_mime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            node_modules_root = pathlib.Path(tmp_dir)
+            sdk_dist = node_modules_root / "@spatialwalk" / "avatarkit" / "dist"
+            sdk_dist.mkdir(parents=True)
+            (sdk_dist / "index.js").write_text("export const SpatialRealAvatarKit = {};\n", encoding="utf-8")
+            (sdk_dist / "worker.mjs").write_text("export default {};\n", encoding="utf-8")
+            (sdk_dist / "avatar.wasm").write_bytes(b"\x00asm\x01\x00\x00\x00")
+            (node_modules_root / "@spatialwalk" / "avatarkit" / "package.json").write_text("{}", encoding="utf-8")
+
+            original_node_modules_root = web_server.NODE_MODULES_ROOT
+            web_server.NODE_MODULES_ROOT = node_modules_root.resolve()
+            try:
+                expected_assets = {
+                    "/vendor/@spatialwalk/avatarkit/dist/index.js": "text/javascript",
+                    "/vendor/@spatialwalk/avatarkit/dist/worker.mjs": "text/javascript",
+                    "/vendor/@spatialwalk/avatarkit/dist/avatar.wasm": "application/wasm",
+                }
+                for path, expected_content_type in expected_assets.items():
+                    with self.subTest(path=path):
+                        status, content_type, body = self._get(path)
+                        self.assertEqual(status, 200)
+                        self.assertIn(expected_content_type, content_type)
+                        if path.endswith(".wasm"):
+                            self.assertNotIn("text/javascript", content_type)
+                        else:
+                            self.assertIn("export", body)
+
+                rejected_paths = [
+                    "/vendor/@spatialwalk/avatarkit/package.json",
+                    "/vendor/@spatialwalk/avatarkit-rtc/dist/index.js",
+                    "/vendor/livekit-client/dist/livekit-client.esm.mjs",
+                ]
+                for path in rejected_paths:
+                    with self.subTest(path=path):
+                        status, content_type, body = self._get(path)
+                        self.assertEqual(status, 404)
+                        self.assertIn("application/json", content_type)
+                        self.assertEqual(json.loads(body)["error"], "not_found")
+            finally:
+                web_server.NODE_MODULES_ROOT = original_node_modules_root
+
+    def test_spatialreal_sdk_importmap_and_docs_keep_vendor_scope_explicit(self) -> None:
+        room_html = (WEB_ROOT / "static" / "interview-room.html").read_text(encoding="utf-8")
+        web_readme = (WEB_ROOT / "README.md").read_text(encoding="utf-8")
+        verification_runbook = (REPO_ROOT / "docs" / "runbooks" / "verification.md").read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+        self.assertIn('"@spatialwalk/avatarkit": "/vendor/@spatialwalk/avatarkit/dist/index.js"', room_html)
+        self.assertNotIn('"@spatialwalk/avatarkit-rtc"', room_html)
+        self.assertIn("allowed SDK vendor path", web_readme)
+        self.assertIn("application/wasm", web_readme)
+        self.assertIn("vendor/WASM/MIME contract", verification_runbook)
+        self.assertIn("npm --prefix apps/web ci", verification_runbook)
+        self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED=false", env_example)
+        self.assertIn("browser SDK assets are public static files only", env_example)
 
     def test_web_server_does_not_serve_legacy_livekit_rtc_vendor_assets(self) -> None:
         status, content_type, body = self._get("/vendor/@spatialwalk/avatarkit-rtc/dist/index.js")

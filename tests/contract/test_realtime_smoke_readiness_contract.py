@@ -121,7 +121,8 @@ class RealtimeSmokeReadinessContractTest(unittest.TestCase):
         self.assertIn("LIVEKIT_REQUIRED=false", env_example)
         self.assertIn("ANALYSIS_ENGINE_ENABLE_SUBSCRIBER=false", env_example)
         self.assertIn("SPATIALREAL_SDK_MODE_WEB_ENABLED=false", env_example)
-        self.assertIn("SPATIALREAL_SDK_MODE_OUTCOME=sdk_mode_deferred", env_example)
+        self.assertNotIn("SPATIALREAL_SDK_MODE_OUTCOME=", env_example)
+        self.assertIn("sdk_mode_ready", readme)
 
         forbidden_main_path_claims = [
             "LiveKit candidate join token 발급",

@@ -56,15 +56,39 @@ Record only redacted summary fields from `scripts/realtime-smoke-readiness.py`:
 
 Do not claim live Realtime readiness from a local Mac/worktree. If `REQUIRE_REALTIME_LIVE=1` fails because provider credentials, DNS, TLS, or network reachability are missing, report it as a kiostation runtime blocker with the redacted category above.
 
+## SpatialReal SDK activation contract
+
+Contract tests must cover the actual SDK activation path, not only deferred metadata:
+
+- Enabled/configured `POST /api/interviews/{id}/avatar/session` returns `ready=true`, `status=ready`, `sdkMode.mode=spatialreal-sdk-mode-web`, `sdkMode.transport=spatialreal-sdk-websocket`, `livekitRequired=false`, and `client.spatialrealSdk` with browser-approved `appId`, short-lived `sessionToken`, `avatarId`, token policy/source metadata, and PCM16 mono 16 kHz `audioFormat`. The preferred path uses server-side `SPATIALREAL_API_KEY` to mint that session token; the API key itself must never appear in the response.
+- SDK success responses must not include LiveKit viewer-token fields such as `token`, `url`, `roomName`, `candidateToken`, or `avatarClientToken`.
+- Browser activation must dynamically import `@spatialwalk/avatarkit`, call `AvatarSDK.initialize`, `AvatarSDK.setSessionToken`, `AvatarManager.shared.load`, create `new AvatarView`, set SDK volume to silent or block, feed `controller.send(PCM16,false)`, and emit exactly one safe end marker on Realtime `response.done`.
+- Missing config, missing vendor assets, bad WASM MIME, dynamic import failure, mute failure, or PCM feed failure must become safe blocked/deferred reasons and must not mark avatar active.
+- SDK enabled/ready status never bypasses exact-turn `full_mmm_ready`; ordinary follow-up `response.create` remains API-owned and gated.
+
+## Web static vendor/WASM/MIME contract
+
+Before blaming Realtime or avatar code for a browser startup failure, verify the static asset contract from a checkout with web dependencies installed:
+
+```bash
+npm --prefix apps/web ci
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.contract.test_web_static_contract -v
+node --check apps/web/static/app.js
+```
+
+Expected result: the room import map may reference the deferred base SDK path `/vendor/@spatialwalk/avatarkit/dist/index.js`, but the only served SDK vendor prefix is `/vendor/@spatialwalk/avatarkit/dist/`. Legacy `/vendor/livekit-client/...` and `/vendor/@spatialwalk/avatarkit-rtc/...` stay 404 on the default path. Allowed SDK JavaScript/MJS assets must be served as `text/javascript`, and allowed SDK `.wasm` assets must be served as `application/wasm`. Package-root reads under `/vendor/` must stay rejected.
+
+Archive/runtime note: `git archive HEAD` does not include `apps/web/node_modules`, so remote verification that exercises allowed vendor assets must either run `npm --prefix apps/web ci` in the synced checkout or use a runtime tree where those dependencies are already installed. Missing package files should be reported as a vendor install/runtime packaging blocker, not as proof that LiveKit RTC is required.
+
 ## SpatialReal non-LiveKit spike evidence
 
-Current docs/infra outcome: `sdk_mode_deferred`. The worker checkout declares `@spatialwalk/avatarkit` but lacks installed package files, so SDK Mode Web exports/method names and audio-feed lifecycle were not locally verifiable. Future SDK Mode verification must prove package/API availability and a muted PCM16 mono audio feed without LiveKit before changing avatar status from disabled/deferred. Valid outcomes are `sdk_mode_verified`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_by_audio_feed`, or `sdk_mode_deferred`.
+Current stable default outcome: `sdk_mode_deferred`. When the SDK flag and SpatialReal server credentials are present, API-key token brokerage must move `/avatar/session` to `ready`/`sdk_mode_ready`, and browser QA must then prove package/API availability plus a muted PCM16 mono audio feed without LiveKit before changing avatar outcome to verified. The token broker must send an explicit `SPATIALREAL_TOKEN_BROKER_USER_AGENT`; Python urllib's default signature has been observed to trigger Cloudflare 1010. Valid outcomes are `sdk_mode_ready`, `sdk_mode_verified`, `sdk_mode_blocked_provider_token_broker`, `sdk_mode_not_supported_current_version`, `sdk_mode_blocked_missing_provider_token`, `sdk_mode_blocked_by_audio_feed`, `sdk_mode_blocked_double_audio_or_mute`, or `sdk_mode_deferred`.
 
 ## Interviewer voice and avatar provider contract
 
 - Non-Realtime LLM/TTS provider fallback must stay removed from env, compose, supported docs, and default runtime services.
-- `SPATIALREAL_BROWSER_AUDIO_BRIDGE_ENABLED=false` is the stable default. If explicitly enabled, it exposes API-owned metadata only and still requires kiostation browser evidence before any avatar lip-sync claim.
-- SpatialReal/avatar provider credentials and legacy RTC egress variables are not part of the default runtime env. Reintroducing them requires a separate compatibility-gated change and must not make LiveKit or avatar egress a Realtime/MMM prerequisite.
+- `SPATIALREAL_SDK_MODE_WEB_ENABLED=false` is the stable default. If enabled, `/api/interviews/{id}/avatar/session` must expose SDK-shaped, API-owned metadata only: browser-approved `appId`/`avatarId`, a short-lived SDK `sessionToken`, token policy/source, and audio format. It still requires kiostation browser evidence before any avatar lip-sync claim.
+- SpatialReal/avatar API credentials are server-only optional QA env; legacy RTC egress variables are not part of the default runtime env. Reintroducing LiveKit/RTC egress requires a separate compatibility-gated change and must not make LiveKit or avatar egress a Realtime/MMM prerequisite.
 - Public ingress must not expose direct `/tts/*`, `/avatar/*`, `/ai/tts/*`, `/ai/avatar/*`, or broad `/ai/*` provider routes. Legacy TTS/avatar broker routes are disabled/deferred unless explicitly verified as API-owned compatibility surfaces; default Realtime/MMM must not depend on ai-engine.
 
 Remote verification command shape from a synced checkout on `kiostation` (default rebuild/restart scope: `api web analysis-engine caddy`):

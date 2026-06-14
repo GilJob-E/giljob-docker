@@ -12,6 +12,7 @@ DOC_PAIRS = [
     pathlib.Path("services/api"),
     pathlib.Path("services/analysis-engine"),
     pathlib.Path("services/agent1"),
+    pathlib.Path("services/hashimoto"),
     pathlib.Path("infra"),
     pathlib.Path("tests"),
     pathlib.Path("docs"),
@@ -25,6 +26,7 @@ PATH_SPECIFIC_TERMS = {
     "services/api/AGENTS.md": ["hash-only", "raw token", "LIVEKIT_INTERNAL_URL", "LIVEKIT_PUBLIC_URL"],
     "services/analysis-engine/AGENTS.md": ["GilJobE", "STT and multimodal", "source of truth", "Do not add the Main LLM loop", "avatar/TTS"],
     "services/agent1/AGENTS.md": ["future multimodal placeholder", "structured signal", "raw media"],
+    "services/hashimoto/AGENTS.md": ["strategy package", "does not generate questions", "internal only", "session_id", "GEMINI_API_KEY"],
     "infra/AGENTS.md": ["Caddy", "LiveKit", "coturn", "direct media", "/ai/*", "broker routes", "direct public"],
     "tests/AGENTS.md": ["tests/contract", "tests/integration", "path-specific"],
     "docs/AGENTS.md": ["architecture.noml", "generated", "English"],
@@ -55,7 +57,7 @@ RUNBOOK_SPECIFIC_TERMS = {
         "Avatar metadata is API-owned",
         "disabled/deferred",
         "does not ingest OpenAI Realtime remote audio",
-        "No OpenAI Realtime remote-audio injection into SpatialReal",
+        "feature-flagged SpatialReal SDK Mode Web receiving a muted PCM16 copy",
         "Do not downgrade `livekit-client`",
     ],
     "docs/source-manifest.md": [
@@ -129,6 +131,21 @@ class AgentDocsContractTest(unittest.TestCase):
                 self.assertIn(command, body)
 
 
+    def test_env_example_keeps_openai_realtime_primary_and_scopes_gemini_to_coach_feedback(self) -> None:
+        body = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertIn("OPENAI_REALTIME_PRIMARY=true", body)
+        self.assertIn("REALTIME_MMM_FORWARD_ENABLED=true", body)
+        self.assertIn("COACH_LLM_PROVIDER=fake", body)
+        self.assertIn("COACH_LLM_MODEL=", body)
+        self.assertIn("COACH_LLM_TIMEOUT_SECONDS=15", body)
+        self.assertIn("COACH_GEMINI_API_KEY=", body)
+        self.assertIn("GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta", body)
+        self.assertNotIn("AI_ENGINE_INTERNAL_URL", body)
+        self.assertNotIn("services/ai-engine", body)
+        self.assertIsNone(re.search(r"(?m)^GEMINI_API_KEY=", body))
+        self.assertIsNone(re.search(r"(?m)^GEMINI_MODEL=", body))
+        self.assertIsNone(re.search(r"(?m)^GEMINI_TTS_MODEL=", body))
+        self.assertIsNone(re.search(r"(?m)^OPENAI_REALTIME_PRIMARY=false$", body))
 
     def test_default_runtime_contracts_do_not_reference_ai_engine_service(self) -> None:
         checked_paths = [
@@ -154,17 +171,6 @@ class AgentDocsContractTest(unittest.TestCase):
         self.assertIn("ANALYSIS_ENGINE_INTERNAL_URL", compose)
         self.assertIn("http://analysis-engine:8200", compose)
         self.assertNotRegex(compose, r"analysis-engine:[\s\S]*?depends_on:[\s\S]*?ai-engine")
-
-    def test_env_example_keeps_openai_realtime_primary_and_removes_gemini_fallback(self) -> None:
-        body = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
-        self.assertIn("OPENAI_REALTIME_PRIMARY=true", body)
-        self.assertIn("REALTIME_MMM_FORWARD_ENABLED=true", body)
-        self.assertNotIn("AI_ENGINE_INTERNAL_URL", body)
-        self.assertNotIn("services/ai-engine", body)
-        self.assertNotIn("GEMINI_API_KEY", body)
-        self.assertNotIn("GEMINI_MODEL", body)
-        self.assertNotIn("GEMINI_TTS_MODEL", body)
-        self.assertIsNone(re.search(r"(?m)^OPENAI_REALTIME_PRIMARY=false$", body))
 
     def test_agent_docs_do_not_include_raw_secret_shapes(self) -> None:
         for path in self.agent_doc_paths():

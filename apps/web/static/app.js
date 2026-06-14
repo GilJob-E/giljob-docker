@@ -35,6 +35,9 @@ const avatarStatusText = document.querySelector("#avatar-status-text");
 const avatarPanelTitle = document.querySelector("#avatar-panel-title");
 const avatarPanelBody = document.querySelector("#avatar-panel-body");
 const transcriptBody = document.querySelector("#transcript-body");
+const coachFeedbackTitle = document.querySelector("#coach-feedback-title");
+const coachFeedbackBody = document.querySelector("#coach-feedback-body");
+const coachFeedbackList = document.querySelector("#coach-feedback-list");
 const mmmDebugSummary = document.querySelector("#mmm-debug-summary");
 
 let activeSession = null;
@@ -47,9 +50,19 @@ let currentTurnIndex = 1;
 let lastAnswerTranscript = "";
 let lastAnalysisBlock = ""; // server-owned analysis summary only; browser never starts analysis workers or injects verbatim transcripts.
 let activeAvatarSession = null;
-let avatarSdkModeState = { initialized: false, outcome: "sdk_mode_deferred", reason: "not_started" };
+let avatarSdkModeState = { initialized: false, outcome: "sdk_mode_deferred", reason: "not_started", audioFeed: "pcm16-mono-16000" };
 let activeRealtimeSession = null;
 let realtimeRemoteAudioTrack = null;
+let activeAvatarSdkRuntime = null;
+let avatarSdkInitializePromise = null;
+let avatarPcmBridge = null;
+let avatarPcmBridgeIdleTimer = null;
+let avatarPcmBridgeEndTimer = null;
+let avatarSdkResponseFeedActive = false;
+let avatarSdkSyncedPlaybackActive = false;
+let avatarSdkConnectionState = "unknown";
+let avatarSdkConnectionWaiters = [];
+let avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, silentDrops: 0, rmsMax: 0, startedAt: 0, lastChunkAt: 0, lastSpeechAt: 0, responseDoneAt: 0, speechStarted: false };
 let activeRealtimeResponseId = "";
 let realtimeAnswerTranscript = "";
 let realtimeInterviewerQuestionTranscript = "";
@@ -65,11 +78,33 @@ const REALTIME_TRANSCRIPT_COMPLETED_EVENT = "conversation.item.input_audio_trans
 const REALTIME_TRANSCRIPT_GRACE_MS = 6000;
 const FULL_MMM_READY_MAX_ATTEMPTS = 30;
 const SPATIALREAL_SDK_MODE_WEB_ENABLED = "SPATIALREAL_SDK_MODE_WEB_ENABLED";
-const SPATIALREAL_SDK_MODE_OUTCOME = "sdk_mode_deferred";
+const SPATIALREAL_SDK_READY_OUTCOME = "sdk_mode_ready";
+const SPATIALREAL_SDK_DEFERRED_OUTCOME = "sdk_mode_deferred";
+const SPATIALREAL_SDK_ACCEPTED_OUTCOMES = new Set([SPATIALREAL_SDK_READY_OUTCOME, "sdk_mode_verified"]);
 const SPATIALREAL_SDK_MODE = "spatialreal-sdk-mode-web";
+const SPATIALREAL_SDK_TRANSPORT = "spatialreal-sdk-websocket";
+const SPATIALREAL_SDK_AUDIO_FEED_FORMAT = "pcm16-mono-16000";
+const AVATAR_PCM_END_GRACE_MS = 3000;
+const AVATAR_PCM_TAIL_SILENCE_MS = 2200;
+const AVATAR_PCM_MAX_DRAIN_MS = 20000;
+const AVATAR_PCM_NO_SPEECH_DRAIN_MS = 8000;
+const AVATAR_PCM_TAIL_POLL_MS = 250;
+const AVATAR_PCM_SPEECH_RMS_THRESHOLD = 0.0015;
+const AVATAR_SDK_CONNECTED_WAIT_MS = 5000;
+const AVATAR_SDK_SYNCED_PLAYBACK_VOLUME = 1;
 const LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL = "LiveKit-free Realtime main path";
 const AVATAR_DEFERRED_LABEL = "Avatar disabled/deferred";
 const SPATIALREAL_SDK_MODE_LABEL = "SpatialReal SDK Mode";
+const SPATIALREAL_SDK_SAFE_BLOCKED_REASONS = [
+  "sdk_flag_disabled",
+  "spatialreal_config_missing",
+  "sdk_mode_blocked_missing_vendor_asset",
+  "sdk_mode_blocked_wasm_mime",
+  "sdk_mode_blocked_dynamic_import",
+  "sdk_mode_blocked_double_audio_or_mute",
+  "sdk_mode_blocked_pcm_feed_setup_failed",
+  "sdk_mode_blocked_pcm_send_failed",
+];
 const REALTIME_INTERVIEWER_RESPONSE_INSTRUCTIONS = [
   "당신은 한국어 라이브 면접관입니다.",
   "백엔드 분석 준비는 이미 완료된 뒤에만 응답이 요청됩니다.",
@@ -139,11 +174,15 @@ function toggleContextDrawer() {
 }
 
 function appendLog(message) {
-  if (!logEl) {
-    return;
-  }
   const timestamp = new Date().toISOString();
-  logEl.textContent = `${timestamp} ${redactSensitiveText(message)}\n${logEl.textContent}`;
+  const safeMessage = redactSensitiveText(message);
+  if (logEl) {
+    logEl.textContent = `${timestamp} ${safeMessage}\n${logEl.textContent}`;
+  }
+  const lowerMessage = String(safeMessage).toLowerCase();
+  if ((lowerMessage.includes("avatar sdk") || lowerMessage.includes("spatialreal sdk")) && window.console?.info) {
+    window.console.info(`[giljob-avatar] ${timestamp} ${safeMessage}`);
+  }
 }
 
 function setStatus(message, state = "idle") {
@@ -187,17 +226,44 @@ function avatarStatusLabel(payload) {
 }
 
 function avatarSdkModeConfig(payload = activeAvatarSession) {
-  return payload?.sdkMode || payload?.client?.sdkMode || activeSession?.avatarSdkMode || {};
+  // SDK Mode metadata must be sibling/public metadata. Prefer API-owned
+  // avatarSdk/client.spatialrealSdk metadata over legacy bridge shapes.
+  const clientSdk = payload?.client?.spatialrealSdk && typeof payload.client.spatialrealSdk === "object" ? payload.client.spatialrealSdk : {};
+  return payload?.sdkMode || payload?.avatarSdk || clientSdk.sdkMode || clientSdk || activeSession?.avatarSdk || activeSession?.avatarSdkMode || {};
+}
+
+function avatarSdkAudioFeedConfig(payload = activeAvatarSession) {
+  const sdkMode = avatarSdkModeConfig(payload);
+  return sdkMode.audioFeed || sdkMode.audio || {};
+}
+
+function normalizeAvatarSdkModeState(payload = activeAvatarSession) {
+  const sdkMode = avatarSdkModeConfig(payload);
+  const audioFeed = avatarSdkAudioFeedConfig(payload);
+  const audioFormat = audioFeed.format || [audioFeed.encoding, audioFeed.channels, audioFeed.sampleRate].filter(Boolean).join("-") || SPATIALREAL_SDK_AUDIO_FEED_FORMAT;
+  const metadataAccepted = sdkMode.enabled === true
+    && sdkMode.mode === SPATIALREAL_SDK_MODE
+    && [SPATIALREAL_SDK_TRANSPORT, "spatialreal-sdk-websocket"].includes(sdkMode.transport)
+    && sdkMode.livekitRequired === false
+    && sdkMode.requiresFeatureFlag === SPATIALREAL_SDK_MODE_WEB_ENABLED
+    && SPATIALREAL_SDK_ACCEPTED_OUTCOMES.has(sdkMode.outcome || sdkMode.status)
+    && sdkMode.providerSecretsExposed === false
+    && sdkMode.rawMediaExposed === false
+    && sdkMode.rawTranscriptExposed !== true;
+  return {
+    initialized: false,
+    metadataAccepted,
+    mode: sdkMode.mode || SPATIALREAL_SDK_MODE,
+    transport: sdkMode.transport || SPATIALREAL_SDK_TRANSPORT,
+    livekitRequired: sdkMode.livekitRequired === false ? false : Boolean(sdkMode.livekitRequired),
+    outcome: sdkMode.outcome || sdkMode.status || SPATIALREAL_SDK_DEFERRED_OUTCOME,
+    reason: sdkMode.reason || (metadataAccepted ? "pcm_audio_feed_unverified" : "sdk_mode_metadata_incomplete"),
+    audioFeed: audioFormat || SPATIALREAL_SDK_AUDIO_FEED_FORMAT,
+  };
 }
 
 function isSpatialRealSdkModeEnabled(payload = activeAvatarSession) {
-  const sdkMode = avatarSdkModeConfig(payload);
-  return sdkMode.enabled === true
-    && sdkMode.mode === SPATIALREAL_SDK_MODE
-    && sdkMode.requiresFeatureFlag === SPATIALREAL_SDK_MODE_WEB_ENABLED
-    && sdkMode.outcome === SPATIALREAL_SDK_MODE_OUTCOME
-    && sdkMode.providerSecretsExposed === false
-    && sdkMode.rawMediaExposed === false;
+  return normalizeAvatarSdkModeState(payload).metadataAccepted === true;
 }
 
 
@@ -571,25 +637,474 @@ function markRealtimeFirstAudio() {
   postRealtimeTurnEvent("realtime.first_audio", { source: "remote-audio-track" }).catch((error) => appendLog(`first audio marker failed: ${errorMessage(error)}`));
 }
 
+function setRealtimeDirectAudioOutputMutedForAvatar(isMuted, reason = "avatar-sync") {
+  const nextMuted = Boolean(isMuted);
+  const changed = avatarSdkSyncedPlaybackActive !== nextMuted;
+  avatarSdkSyncedPlaybackActive = nextMuted;
+  if (interviewerAudio) {
+    interviewerAudio.muted = nextMuted;
+    interviewerAudio.volume = nextMuted ? 0 : 1;
+  }
+  if (changed) {
+    appendLog(`Realtime direct audio output ${nextMuted ? "muted" : "audible"}; reason=${String(reason).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80)}; ${nextMuted ? "SpatialReal SDK synced playback is audible" : "Realtime direct audio is audible fallback"}; media hidden`);
+  }
+}
+
 function attachRealtimeRemoteAudio(stream) {
   if (!interviewerAudio) {
     return;
   }
   interviewerAudio.srcObject = stream;
   interviewerAudio.hidden = true;
-  interviewerAudio.muted = false;
-  interviewerAudio.volume = 1;
+  setRealtimeDirectAudioOutputMutedForAvatar(avatarSdkSyncedPlaybackActive, "attach-realtime-remote-audio");
   interviewerAudio.addEventListener("playing", markRealtimeFirstAudio, { once: true });
   interviewerAudio.play().catch((error) => appendLog(`Realtime remote audio autoplay skipped: ${errorMessage(error)}`));
 }
 
-function renderAvatarSdkModeStatus(payload = activeAvatarSession) {
+
+function avatarSdkClientMetadata(payload = activeAvatarSession) {
+  const client = payload?.client && typeof payload.client === "object" ? payload.client : {};
+  const clientSdk = client.spatialrealSdk && typeof client.spatialrealSdk === "object" ? client.spatialrealSdk : {};
   const sdkMode = avatarSdkModeConfig(payload);
-  const mode = sdkMode.mode || SPATIALREAL_SDK_MODE;
-  const outcome = sdkMode.outcome || sdkMode.status || SPATIALREAL_SDK_MODE_OUTCOME;
-  const safeMode = String(mode).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
-  const safeOutcome = String(outcome).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
-  appendLog(`${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}; ${AVATAR_DEFERRED_LABEL}; ${SPATIALREAL_SDK_MODE_LABEL} ${safeMode}:${safeOutcome}; tokens hidden; media hidden`);
+  const audioFormat = payload?.audioFormat || sdkMode.audioFormat || sdkMode.audio || clientSdk.audioFormat || client.audioFormat || {};
+  return {
+    appId: payload?.appId || sdkMode.appId || clientSdk.appId || client.appId || activeSession?.avatarSdk?.appId || "",
+    sessionToken: payload?.sessionToken || sdkMode.sessionToken || clientSdk.sessionToken || client.sessionToken || "",
+    avatarId: payload?.avatarId || sdkMode.avatarId || clientSdk.avatarId || clientSdk.characterId || client.avatarId || client.characterId || "",
+    environment: sdkMode.environment || payload?.environment || clientSdk.environment || client.environment || "production",
+    sampleRate: Number(audioFormat.sampleRate || 16000),
+    channelCount: Number(audioFormat.channelCount || 1),
+  };
+}
+
+function avatarSdkMissingMetadataReason(payload = activeAvatarSession) {
+  const metadata = avatarSdkClientMetadata(payload);
+  if (!metadata.appId) {
+    return "sdk_app_id_missing";
+  }
+  if (!metadata.sessionToken) {
+    return "sdk_session_token_missing";
+  }
+  if (!metadata.avatarId) {
+    return "sdk_avatar_id_missing";
+  }
+  return "";
+}
+
+async function importSpatialRealAvatarKit() {
+  try {
+    return await import("@spatialwalk/avatarkit");
+  } catch (error) {
+    throw new Error(`sdk_import_failed:${errorMessage(error)}`);
+  }
+}
+
+function setAvatarSdkPlaybackVolume(controller, volume = AVATAR_SDK_SYNCED_PLAYBACK_VOLUME) {
+  if (!controller) {
+    throw new Error("sdk_controller_unavailable");
+  }
+  const safeVolume = Math.max(0, Math.min(1, Number(volume)));
+  if (typeof controller.setVolume === "function") {
+    controller.setVolume(safeVolume);
+    return "setVolume";
+  }
+  if ("volume" in controller) {
+    controller.volume = safeVolume;
+    return "volume";
+  }
+  throw new Error("sdk_volume_unavailable");
+}
+
+function resetAvatarSdkPcmStats() {
+  avatarSdkPcmStats = { chunks: 0, bytes: 0, sends: 0, nullSends: 0, silentDrops: 0, rmsMax: 0, startedAt: Date.now(), lastChunkAt: 0, lastSpeechAt: 0, responseDoneAt: 0, speechStarted: false };
+}
+
+function notifyAvatarSdkConnected() {
+  const waiters = avatarSdkConnectionWaiters;
+  avatarSdkConnectionWaiters = [];
+  waiters.forEach((resolve) => resolve(true));
+}
+
+function waitForAvatarSdkConnected(timeoutMs = AVATAR_SDK_CONNECTED_WAIT_MS) {
+  if (avatarSdkConnectionState === "connected") {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      avatarSdkConnectionWaiters = avatarSdkConnectionWaiters.filter((waiter) => waiter !== finish);
+      resolve(false);
+    }, timeoutMs);
+    const finish = (connected) => {
+      window.clearTimeout(timer);
+      resolve(Boolean(connected));
+    };
+    avatarSdkConnectionWaiters.push(finish);
+  });
+}
+
+function clearAvatarPcmBridgeIdleTimer() {
+  if (avatarPcmBridgeIdleTimer) {
+    window.clearTimeout(avatarPcmBridgeIdleTimer);
+    avatarPcmBridgeIdleTimer = null;
+  }
+}
+
+function clearAvatarPcmBridgeEndTimer() {
+  if (avatarPcmBridgeEndTimer) {
+    window.clearTimeout(avatarPcmBridgeEndTimer);
+    avatarPcmBridgeEndTimer = null;
+  }
+}
+
+function appendAvatarSdkPcmSummary(reason = "summary") {
+  if (!avatarSdkPcmStats.startedAt) {
+    return;
+  }
+  const now = Date.now();
+  const elapsedMs = now - avatarSdkPcmStats.startedAt;
+  const lastChunkAgeMs = avatarSdkPcmStats.lastChunkAt ? now - avatarSdkPcmStats.lastChunkAt : -1;
+  const lastSpeechAgeMs = avatarSdkPcmStats.lastSpeechAt ? now - avatarSdkPcmStats.lastSpeechAt : -1;
+  appendLog(`avatar SDK PCM ${reason}: chunks=${avatarSdkPcmStats.chunks}; bytes=${avatarSdkPcmStats.bytes}; sends=${avatarSdkPcmStats.sends}; nullSends=${avatarSdkPcmStats.nullSends}; silentDrops=${avatarSdkPcmStats.silentDrops}; speechStarted=${Boolean(avatarSdkPcmStats.speechStarted)}; rmsMax=${avatarSdkPcmStats.rmsMax.toFixed(4)}; connection=${avatarSdkConnectionState}; elapsedMs=${elapsedMs}; lastChunkAgeMs=${lastChunkAgeMs}; lastSpeechAgeMs=${lastSpeechAgeMs}; media hidden`);
+}
+
+function markAvatarSdkPcmSpeech(rms, source = "stream") {
+  avatarSdkPcmStats.lastSpeechAt = Date.now();
+  if (!avatarSdkPcmStats.speechStarted) {
+    avatarSdkPcmStats.speechStarted = true;
+    appendLog(`avatar SDK PCM speech detected${source ? ` on ${source}` : ""}: rms=${rms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; connection=${avatarSdkConnectionState}; media hidden`);
+  }
+}
+
+function pcm16Rms(pcmBuffer) {
+  if (!pcmBuffer || pcmBuffer.byteLength < 2) {
+    return 0;
+  }
+  const view = new DataView(pcmBuffer);
+  let total = 0;
+  const samples = Math.floor(pcmBuffer.byteLength / 2);
+  for (let offset = 0; offset + 1 < pcmBuffer.byteLength; offset += 2) {
+    const value = view.getInt16(offset, true) / 32768;
+    total += value * value;
+  }
+  return samples ? Math.sqrt(total / samples) : 0;
+}
+
+function shouldDropAvatarSdkSilence(pcmBuffer) {
+  const rms = pcm16Rms(pcmBuffer);
+  avatarSdkPcmStats.rmsMax = Math.max(avatarSdkPcmStats.rmsMax, rms);
+  if (rms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
+    markAvatarSdkPcmSpeech(rms, "stream");
+    return false;
+  }
+  if (avatarSdkPcmStats.speechStarted) {
+    return false;
+  }
+  avatarSdkPcmStats.silentDrops += 1;
+  if (avatarSdkPcmStats.silentDrops === 1 || avatarSdkPcmStats.silentDrops % 25 === 0) {
+    appendLog(`avatar SDK PCM silence dropped before speech: drops=${avatarSdkPcmStats.silentDrops}; rms=${rms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; connection=${avatarSdkConnectionState}; media hidden`);
+  }
+  return true;
+}
+
+function sendAvatarSdkPcmChunk(controller, pcmBuffer, isLast = false) {
+  if (!controller || typeof controller.send !== "function") {
+    throw new Error("sdk_controller_send_unavailable");
+  }
+  const bytes = pcmBuffer?.byteLength || 0;
+  const rms = pcm16Rms(pcmBuffer);
+  if (avatarSdkPcmStats.chunks === 0) {
+    clearAvatarPcmBridgeIdleTimer();
+  }
+  avatarSdkPcmStats.chunks += 1;
+  avatarSdkPcmStats.bytes += bytes;
+  avatarSdkPcmStats.lastChunkAt = Date.now();
+  avatarSdkPcmStats.rmsMax = Math.max(avatarSdkPcmStats.rmsMax, rms);
+  if (rms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
+    markAvatarSdkPcmSpeech(rms, isLast ? "final chunk" : "send");
+  }
+  const conversationId = controller.send(pcmBuffer || new ArrayBuffer(0), isLast);
+  if (conversationId) {
+    avatarSdkPcmStats.sends += 1;
+  } else {
+    avatarSdkPcmStats.nullSends += 1;
+  }
+  if (avatarSdkPcmStats.chunks === 1 || isLast || avatarSdkPcmStats.chunks % 25 === 0) {
+    appendLog(`avatar SDK PCM chunk ${avatarSdkPcmStats.chunks}: bytes=${bytes}; rms=${rms.toFixed(4)}; final=${Boolean(isLast)}; accepted=${Boolean(conversationId)}; connection=${avatarSdkConnectionState}; media hidden`);
+  }
+  return conversationId;
+}
+
+function createAvatarPcmSourceStream(track) {
+  if (avatarSdkSyncedPlaybackActive) {
+    return { stream: new MediaStream([track]), source: "realtime-remote-track-pre-output" };
+  }
+  if (interviewerAudio?.srcObject && (typeof interviewerAudio.captureStream === "function" || typeof interviewerAudio.mozCaptureStream === "function")) {
+    try {
+      const capture = interviewerAudio.captureStream || interviewerAudio.mozCaptureStream;
+      const capturedStream = capture.call(interviewerAudio);
+      const capturedTrack = capturedStream?.getAudioTracks?.()[0] || null;
+      if (capturedTrack) {
+        return { stream: new MediaStream([capturedTrack]), source: "interviewer-audio-element-capture" };
+      }
+    } catch (error) {
+      appendLog(`avatar SDK PCM source element capture unavailable: ${errorMessage(error)}; falling back to Realtime track; media hidden`);
+    }
+  }
+  return { stream: new MediaStream([track]), source: "realtime-remote-track" };
+}
+
+function createAvatarPcmBridge(track, controller, sampleRate = 16000) {
+  if (!track || track.kind !== "audio") {
+    throw new Error("realtime_audio_track_unavailable");
+  }
+  if (!controller || typeof controller.send !== "function") {
+    throw new Error("sdk_controller_send_unavailable");
+  }
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    throw new Error("audio_context_unavailable");
+  }
+  const context = new AudioContextClass();
+  appendLog("avatar SDK PCM bridge created with ScriptProcessorNode diagnostic path; browser deprecation warning is expected and not treated as lip-sync failure; media hidden");
+  const sourceSelection = createAvatarPcmSourceStream(track);
+  const source = context.createMediaStreamSource(sourceSelection.stream);
+  appendLog(`avatar SDK PCM source selected: ${sourceSelection.source}; response feed gated; media hidden`);
+  const processor = context.createScriptProcessor(4096, 1, 1);
+  let carry = new Float32Array(0);
+  let ended = false;
+
+  const downsampleToPcm16 = (input, inputSampleRate, outputSampleRate) => {
+    if (!input.length || !inputSampleRate || !outputSampleRate) {
+      return null;
+    }
+    const ratio = inputSampleRate / outputSampleRate;
+    const outputLength = Math.floor(input.length / ratio);
+    if (outputLength <= 0) {
+      return null;
+    }
+    const buffer = new ArrayBuffer(outputLength * 2);
+    const view = new DataView(buffer);
+    for (let index = 0; index < outputLength; index += 1) {
+      const start = Math.floor(index * ratio);
+      const end = Math.min(input.length, Math.floor((index + 1) * ratio));
+      let total = 0;
+      let count = 0;
+      for (let cursor = start; cursor < end; cursor += 1) {
+        total += input[cursor];
+        count += 1;
+      }
+      const sample = Math.max(-1, Math.min(1, count ? total / count : input[start] || 0));
+      view.setInt16(index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    }
+    return buffer;
+  };
+
+  processor.onaudioprocess = (event) => {
+    if (ended || !avatarSdkResponseFeedActive) {
+      return;
+    }
+    const input = event.inputBuffer.getChannelData(0);
+    const combined = new Float32Array(carry.length + input.length);
+    combined.set(carry);
+    combined.set(input, carry.length);
+    const minFrameCount = Math.max(1, Math.floor(context.sampleRate / 20));
+    if (combined.length < minFrameCount) {
+      carry = combined;
+      return;
+    }
+    const usableLength = Math.floor(combined.length / minFrameCount) * minFrameCount;
+    const usable = combined.slice(0, usableLength);
+    carry = combined.slice(usableLength);
+    const pcm = downsampleToPcm16(usable, context.sampleRate, sampleRate);
+    if (!pcm || pcm.byteLength % 2 !== 0) {
+      return;
+    }
+    if (avatarSdkConnectionState !== "connected") {
+      avatarSdkPcmStats.silentDrops += 1;
+      if (avatarSdkPcmStats.silentDrops === 1 || avatarSdkPcmStats.silentDrops % 25 === 0) {
+        appendLog(`avatar SDK PCM held until connected: drops=${avatarSdkPcmStats.silentDrops}; connection=${avatarSdkConnectionState}; media hidden`);
+      }
+      return;
+    }
+    if (shouldDropAvatarSdkSilence(pcm)) {
+      return;
+    }
+    try {
+      sendAvatarSdkPcmChunk(controller, pcm, false);
+    } catch (error) {
+      renderAvatarSdkDegraded(`sdk_pcm_send_failed:${errorMessage(error)}`);
+    }
+  };
+
+  source.connect(processor);
+  processor.connect(context.destination);
+
+  return {
+    async start() {
+      if (context.state === "suspended") {
+        await context.resume();
+      }
+    },
+    async end() {
+      if (ended) {
+        return;
+      }
+      ended = true;
+      try {
+        const finalChunk = carry.length ? downsampleToPcm16(carry, context.sampleRate, sampleRate) : new ArrayBuffer(0);
+        const finalRms = pcm16Rms(finalChunk || new ArrayBuffer(0));
+        if (avatarSdkPcmStats.speechStarted || finalRms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
+          if (finalRms >= AVATAR_PCM_SPEECH_RMS_THRESHOLD) {
+            markAvatarSdkPcmSpeech(finalRms, "final chunk");
+          }
+          sendAvatarSdkPcmChunk(controller, finalChunk || new ArrayBuffer(0), true);
+        } else {
+          avatarSdkPcmStats.silentDrops += 1;
+          appendLog(`avatar SDK PCM final silence dropped: rms=${finalRms.toFixed(4)}; threshold=${AVATAR_PCM_SPEECH_RMS_THRESHOLD}; no avatar end marker needed before speech; media hidden`);
+        }
+        appendAvatarSdkPcmSummary("end");
+      } finally {
+        carry = new Float32Array(0);
+      }
+    },
+    close() {
+      ended = true;
+      processor.disconnect();
+      source.disconnect();
+      context.close().catch(() => {});
+    },
+  };
+}
+
+async function startAvatarPcmBridgeIfReady(track = realtimeRemoteAudioTrack) {
+  if (!activeAvatarSdkRuntime?.controller || !track || avatarPcmBridge) {
+    return;
+  }
+  try {
+    resetAvatarSdkPcmStats();
+    avatarPcmBridge = createAvatarPcmBridge(track, activeAvatarSdkRuntime.controller, activeAvatarSdkRuntime.sampleRate || 16000);
+    await avatarPcmBridge.start();
+    avatarSdkModeState = { ...avatarSdkModeState, audioBridge: "pcm16_active" };
+    appendLog(`avatar SDK PCM16 bridge active; connection=${avatarSdkConnectionState}; trackReadyState=${track.readyState || "unknown"}; trackMuted=${Boolean(track.muted)}; trackEnabled=${Boolean(track.enabled)}; audiblePath=${avatarSdkSyncedPlaybackActive ? "spatialreal-sdk-synced-playback" : "realtime-direct-fallback"}; media hidden`);
+    clearAvatarPcmBridgeIdleTimer();
+    avatarPcmBridgeIdleTimer = window.setTimeout(() => {
+      if (avatarPcmBridge && avatarSdkResponseFeedActive && avatarSdkPcmStats.startedAt && avatarSdkPcmStats.chunks === 0) {
+        appendLog(`avatar SDK PCM bridge idle during response feed: no audio frames after 2000ms; connection=${avatarSdkConnectionState}; trackReadyState=${track.readyState || "unknown"}; trackMuted=${Boolean(track.muted)}; trackEnabled=${Boolean(track.enabled)}; ScriptProcessorNode deprecation warning is not the failure; media hidden`);
+      }
+    }, 2000);
+  } catch (error) {
+    renderAvatarSdkDegraded(`sdk_pcm_bridge_failed:${errorMessage(error)}`);
+  }
+}
+
+async function endAvatarPcmBridgeRound() {
+  if (!avatarPcmBridge) {
+    return;
+  }
+  try {
+    const bridge = avatarPcmBridge;
+    avatarPcmBridge = null;
+    clearAvatarPcmBridgeIdleTimer();
+    await bridge.end();
+    bridge.close();
+    avatarSdkResponseFeedActive = false;
+    appendLog("avatar SDK PCM16 end marker sent; Realtime/MMM ownership unchanged");
+  } catch (error) {
+    renderAvatarSdkDegraded(`sdk_pcm_end_failed:${errorMessage(error)}`);
+  }
+}
+
+function avatarSdkBeginResponseFeed(trigger = "audio.delta") {
+  const safeTrigger = String(trigger || "audio.delta").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  if (!activeAvatarSdkRuntime?.controller) {
+    appendLog(`avatar SDK response feed skipped: SDK runtime not ready during ${safeTrigger}; first response may not drive avatar; media hidden`);
+    return;
+  }
+  const wasActive = avatarSdkResponseFeedActive;
+  avatarSdkResponseFeedActive = true;
+  clearAvatarPcmBridgeEndTimer();
+  if (!wasActive) {
+    appendLog(`avatar SDK response feed active from ${safeTrigger}; connection=${avatarSdkConnectionState}; media hidden`);
+  }
+  startAvatarPcmBridgeIfReady(realtimeRemoteAudioTrack).catch((error) => {
+    renderAvatarSdkDegraded(`sdk_pcm_bridge_failed:${errorMessage(error)}`);
+  });
+}
+
+function getAvatarSdkPcmTailDrainDecision(drainStartedAt) {
+  const now = Date.now();
+  const elapsedMs = now - drainStartedAt;
+  const sinceSpeechMs = avatarSdkPcmStats.lastSpeechAt ? now - avatarSdkPcmStats.lastSpeechAt : Number.POSITIVE_INFINITY;
+  const sinceChunkMs = avatarSdkPcmStats.lastChunkAt ? now - avatarSdkPcmStats.lastChunkAt : Number.POSITIVE_INFINITY;
+  if (!avatarPcmBridge) {
+    return { shouldContinue: false, reason: "no_bridge", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (avatarSdkPcmStats.speechStarted && elapsedMs >= AVATAR_PCM_MAX_DRAIN_MS) {
+    return { shouldContinue: false, reason: "max_drain", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (!avatarSdkPcmStats.speechStarted && elapsedMs >= AVATAR_PCM_NO_SPEECH_DRAIN_MS) {
+    return { shouldContinue: false, reason: "no_speech_drain_timeout", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (elapsedMs < AVATAR_PCM_END_GRACE_MS) {
+    return { shouldContinue: true, reason: "min_grace", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (!avatarSdkPcmStats.speechStarted) {
+    return { shouldContinue: true, reason: "waiting_for_speech", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  if (sinceSpeechMs < AVATAR_PCM_TAIL_SILENCE_MS) {
+    return { shouldContinue: true, reason: "recent_speech", elapsedMs, sinceSpeechMs, sinceChunkMs };
+  }
+  return { shouldContinue: false, reason: "tail_silence", elapsedMs, sinceSpeechMs, sinceChunkMs };
+}
+
+function scheduleAvatarSdkPcmTailDrain(safeResponseId, drainStartedAt) {
+  clearAvatarPcmBridgeEndTimer();
+  avatarPcmBridgeEndTimer = window.setTimeout(() => {
+    avatarPcmBridgeEndTimer = null;
+    const decision = getAvatarSdkPcmTailDrainDecision(drainStartedAt);
+    const sinceSpeechLog = Number.isFinite(decision.sinceSpeechMs) ? decision.sinceSpeechMs : -1;
+    const sinceChunkLog = Number.isFinite(decision.sinceChunkMs) ? decision.sinceChunkMs : -1;
+    if (decision.shouldContinue) {
+      if (decision.reason !== "min_grace" || Math.abs(decision.elapsedMs % 1000) < AVATAR_PCM_TAIL_POLL_MS) {
+        appendLog(`avatar SDK PCM tail drain continuing: response=${safeResponseId}; reason=${decision.reason}; elapsedMs=${decision.elapsedMs}; sinceSpeechMs=${sinceSpeechLog}; sinceChunkMs=${sinceChunkLog}; chunks=${avatarSdkPcmStats.chunks}; media hidden`);
+      }
+      scheduleAvatarSdkPcmTailDrain(safeResponseId, drainStartedAt);
+      return;
+    }
+    appendLog(`avatar SDK PCM tail drain ending: response=${safeResponseId}; reason=${decision.reason}; elapsedMs=${decision.elapsedMs}; sinceSpeechMs=${sinceSpeechLog}; sinceChunkMs=${sinceChunkLog}; chunks=${avatarSdkPcmStats.chunks}; media hidden`);
+    endAvatarPcmBridgeRound()
+      .then(() => {
+        appendLog(`avatar SDK response feed ended: ${safeResponseId}; Realtime question boundary already released; tokens hidden`);
+      })
+      .catch((error) => {
+        appendLog(`avatar SDK response feed end skipped: ${errorMessage(error)}; Realtime question boundary already released`);
+      });
+  }, AVATAR_PCM_TAIL_POLL_MS);
+}
+
+function avatarSdkEndResponseFeed(responseId = "") {
+  if (!avatarSdkResponseFeedActive && !avatarPcmBridge) {
+    appendLog("avatar SDK response feed end skipped: no active PCM feed; media hidden");
+    return;
+  }
+  if (!activeAvatarSdkRuntime?.controller && !avatarPcmBridge) {
+    avatarSdkResponseFeedActive = false;
+    return;
+  }
+  const safeResponseId = String(responseId || "response").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  const drainStartedAt = Date.now();
+  avatarSdkPcmStats.responseDoneAt = drainStartedAt;
+  appendLog(`avatar SDK PCM tail drain started: response=${safeResponseId}; minGraceMs=${AVATAR_PCM_END_GRACE_MS}; tailSilenceMs=${AVATAR_PCM_TAIL_SILENCE_MS}; maxDrainMs=${AVATAR_PCM_MAX_DRAIN_MS}; noSpeechDrainMs=${AVATAR_PCM_NO_SPEECH_DRAIN_MS}; Realtime question boundary already released`);
+  scheduleAvatarSdkPcmTailDrain(safeResponseId, drainStartedAt);
+}
+
+function renderAvatarSdkModeStatus(payload = activeAvatarSession) {
+  const state = normalizeAvatarSdkModeState(payload);
+  avatarSdkModeState = { ...avatarSdkModeState, ...state };
+  const safeMode = String(state.mode).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  const safeOutcome = String(state.outcome).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  const safeAudioFeed = String(state.audioFeed).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  appendLog(`${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}; ${AVATAR_DEFERRED_LABEL}; ${SPATIALREAL_SDK_MODE_LABEL} ${safeMode}:${safeOutcome}; ${state.transport}; ${safeAudioFeed}; tokens hidden; media hidden`);
 }
 
 function captureRealtimeRemoteAudioTrack(track) {
@@ -601,13 +1116,27 @@ function captureRealtimeRemoteAudioTrack(track) {
     activeRealtimeSession.remoteAudioTrack = track;
   }
   renderAvatarSdkModeStatus();
-  appendLog("Realtime remote audio track observed for interviewer playback only; avatar SDK Mode output remains deferred; media hidden");
+  if (avatarSdkResponseFeedActive) {
+    startAvatarPcmBridgeIfReady(track);
+  }
+  appendLog("Realtime remote audio track observed for interviewer playback; avatar SDK PCM16 adapter waits for response feed; media hidden");
   if (typeof track.addEventListener === "function") {
+    track.addEventListener("mute", () => {
+      appendLog("Realtime remote audio track muted; avatar SDK PCM bridge may idle until audio resumes; media hidden");
+    });
+    track.addEventListener("unmute", () => {
+      appendLog("Realtime remote audio track unmuted; avatar SDK PCM bridge should receive frames on interviewer audio; media hidden");
+    });
     track.addEventListener("ended", () => {
       if (realtimeRemoteAudioTrack === track) {
         realtimeRemoteAudioTrack = null;
       }
-      appendLog("Realtime remote audio track ended; avatar SDK Mode remains deferred; media hidden");
+      avatarPcmBridge?.close();
+      avatarPcmBridge = null;
+      avatarSdkResponseFeedActive = false;
+      clearAvatarPcmBridgeIdleTimer();
+      clearAvatarPcmBridgeEndTimer();
+      appendLog("Realtime remote audio track ended; avatar SDK PCM16 bridge closed; media hidden");
     }, { once: true });
   }
 }
@@ -740,6 +1269,8 @@ function handleRealtimeServerEvent(event) {
   if (type === "response.created") {
     activeRealtimeResponseId = event.response?.id || event.response_id || event.id || "";
     renderAvatarSdkModeStatus();
+    appendLog("avatar SDK response created; PCM feed opens when SDK is ready and silence is gated until speech; media hidden");
+    avatarSdkBeginResponseFeed(type);
     return;
   }
   if (type === "conversation.item.input_audio_transcription.delta" && typeof event.delta === "string") {
@@ -802,13 +1333,16 @@ function handleRealtimeServerEvent(event) {
   if (type === "response.audio.delta" || type === "response.output_audio.delta") {
     renderRealtimeQuestionProgress();
     markRealtimeFirstAudio();
+    avatarSdkBeginResponseFeed(type);
     return;
   }
   if (type === "response.done") {
+    const responseId = event.response?.id || event.response_id || activeRealtimeResponseId;
     renderRealtimeQuestionDone(event);
     realtimeResponseInFlight = false;
     markInterviewerQuestionEnded({ provider: "openai-realtime", turnIndex: currentTurnIndex });
     activeRealtimeResponseId = "";
+    avatarSdkEndResponseFeed(responseId);
   }
 }
 
@@ -912,7 +1446,7 @@ async function connectRealtimeRoom(session) {
   await waitForRealtimeDataChannelOpen(dataChannel);
   sendRealtimePostConnectSessionUpdate(brokerSession);
   nextQuestionRequested = false;
-  await requestRealtimeNextQuestion("realtime-connected");
+  appendLog("Realtime connected; first question waits for avatar session readiness check; media hidden");
 }
 
 async function applyRealtimeMediaState() {
@@ -974,6 +1508,7 @@ async function finishRealtimeAnswerAndRequestNextQuestion() {
     realtimeTranscriptCompleted = false;
     renderTranscriptStatus("답변 종료. full MMM 준비 신호를 기다리는 중입니다.");
     await waitForFullMmmReady(completedTurnIndex);
+    requestCoachFeedback(completedTurnIndex);
     currentTurnIndex += 1;
     nextQuestionRequested = false;
     setAnswerTurnAvailability(false, "candidate answer ended; full MMM gate passed; waiting for next Realtime question");
@@ -1006,37 +1541,114 @@ function renderAvatarRtcEgressStatus(avatarRtc) {
 }
 
 async function disconnectAvatarRtc() {
-  avatarSdkModeState = { ...avatarSdkModeState, initialized: false, reason: "disconnected" };
-  avatarRenderTarget?.classList.remove("is-rtc-active");
+  avatarPcmBridge?.close();
+  avatarPcmBridge = null;
+  avatarSdkResponseFeedActive = false;
+  avatarSdkConnectionWaiters.splice(0).forEach((resolve) => resolve(false));
+  clearAvatarPcmBridgeIdleTimer();
+  clearAvatarPcmBridgeEndTimer();
+  setRealtimeDirectAudioOutputMutedForAvatar(false, "avatar-disconnect");
+  activeAvatarSdkRuntime?.avatarView?.dispose?.();
+  activeAvatarSdkRuntime?.sdk?.AvatarSDK?.cleanup?.();
+  activeAvatarSdkRuntime = null;
+  avatarSdkConnectionState = "disconnected";
+  avatarSdkInitializePromise = null;
+  avatarSdkModeState = { ...avatarSdkModeState, initialized: false, reason: "disconnected", audioFeed: SPATIALREAL_SDK_AUDIO_FEED_FORMAT };
+  avatarRenderTarget?.classList.remove("is-rtc-active", "is-sdk-active");
   appendLog(`${AVATAR_DEFERRED_LABEL}: disconnected; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} unaffected`);
 }
 
-function renderAvatarRtcDegraded(reason) {
-  avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_MODE_OUTCOME, reason: String(reason || "sdk_mode_deferred") };
+function renderAvatarSdkDegraded(reason) {
+  setRealtimeDirectAudioOutputMutedForAvatar(false, "avatar-degraded");
+  avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_DEFERRED_OUTCOME, reason: String(reason || "sdk_mode_deferred"), audioFeed: SPATIALREAL_SDK_AUDIO_FEED_FORMAT };
   setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
-  setAvatarPanelMessage(`${AVATAR_DEFERRED_LABEL}: ${reason}. OpenAI Realtime owns STT/VAD/interviewer audio. ${SPATIALREAL_SDK_MODE_LABEL} remains ${SPATIALREAL_SDK_MODE_OUTCOME}; no production lip-sync claim.`);
+  setAvatarPanelMessage(`${AVATAR_DEFERRED_LABEL}: ${reason}. OpenAI Realtime owns STT/VAD/interviewer audio. ${SPATIALREAL_SDK_MODE_LABEL} remains ${SPATIALREAL_SDK_DEFERRED_OUTCOME}; no production lip-sync claim.`);
   appendLog(`${AVATAR_DEFERRED_LABEL}: ${reason}; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}; tokens hidden; media hidden`);
 }
 
-async function initializeAvatarRtc(payload) {
+async function initializeSpatialRealSdkAvatar(payload) {
   if (!payload?.ready || payload?.provider !== "spatialreal") {
-    renderAvatarRtcDegraded("spatialreal_session_not_ready");
+    renderAvatarSdkDegraded("spatialreal_session_not_ready");
     return;
   }
   if (!isSpatialRealSdkModeEnabled(payload)) {
-    renderAvatarRtcDegraded("sdk_mode_deferred");
+    renderAvatarSdkDegraded("sdk_mode_deferred");
     return;
   }
-  avatarSdkModeState = { initialized: false, outcome: SPATIALREAL_SDK_MODE_OUTCOME, reason: "web_sdk_mode_not_verified" };
-  setAvatarRtcState("disabled", AVATAR_DEFERRED_LABEL);
-  setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} metadata is browser-safe, but runtime rendering is deferred until a kiostation proof verifies the SDK Mode audio-feed lifecycle. ${AVATAR_DEFERRED_LABEL}.`);
-  renderAvatarSdkModeStatus(payload);
+  const missingReason = avatarSdkMissingMetadataReason(payload);
+  if (missingReason) {
+    renderAvatarSdkDegraded(missingReason);
+    appendLog(`avatar SDK metadata missing: ${missingReason}; coordinate API metadata with worker-1`);
+    return;
+  }
+  if (avatarSdkInitializePromise) {
+    await avatarSdkInitializePromise;
+    return;
+  }
+  avatarSdkInitializePromise = (async () => {
+    const metadata = avatarSdkClientMetadata(payload);
+    const sdk = await importSpatialRealAvatarKit();
+    const { AvatarSDK, AvatarManager, DrivingServiceMode } = sdk;
+    if (!AvatarSDK || !AvatarManager?.shared || !sdk.AvatarView) {
+      throw new Error("sdk_exports_unavailable");
+    }
+    await AvatarSDK.initialize(metadata.appId, {
+      environment: metadata.environment,
+      drivingServiceMode: DrivingServiceMode?.sdk || "sdk",
+      logLevel: "error",
+      audioFormat: { channelCount: metadata.channelCount || 1, sampleRate: metadata.sampleRate || 16000 },
+    });
+    AvatarSDK.setSessionToken(metadata.sessionToken);
+    const avatar = await AvatarManager.shared.load(metadata.avatarId);
+    if (!avatarRenderTarget) {
+      throw new Error("avatar_render_target_missing");
+    }
+    avatarRenderTarget.replaceChildren();
+    const avatarView = new sdk.AvatarView(avatar, avatarRenderTarget);
+    const controller = avatarView.controller;
+    controller.onConnectionState = (state) => {
+      avatarSdkConnectionState = String(state || "unknown");
+      appendLog(`avatar SDK connection state: ${avatarSdkConnectionState}; tokens hidden`);
+      if (avatarSdkConnectionState === "connected") {
+        notifyAvatarSdkConnected();
+      }
+    };
+    controller.onConversationState = (state) => {
+      appendLog(`avatar SDK conversation state: ${String(state || "unknown")}; media hidden`);
+    };
+    controller.onError = (error) => {
+      appendLog(`avatar SDK error: ${errorMessage(error)}; tokens hidden`);
+    };
+    const playbackMethod = setAvatarSdkPlaybackVolume(controller, AVATAR_SDK_SYNCED_PLAYBACK_VOLUME);
+    await controller.initializeAudioContext();
+    avatarSdkConnectionState = "connecting";
+    await controller.start();
+    setAvatarSdkPlaybackVolume(controller, AVATAR_SDK_SYNCED_PLAYBACK_VOLUME);
+    setRealtimeDirectAudioOutputMutedForAvatar(true, "avatar-sdk-synced-playback");
+    activeAvatarSdkRuntime = { sdk, avatarView, controller, sampleRate: metadata.sampleRate || 16000, playbackMethod };
+    avatarSdkModeState = { ...normalizeAvatarSdkModeState(payload), initialized: true, reason: "sdk_mode_ready_synced_playback", playbackMethod };
+    avatarRenderTarget?.classList.add("is-sdk-active");
+    setAvatarRtcState("speaking", "Avatar SDK synced playback active");
+    setAvatarPanelMessage(`${SPATIALREAL_SDK_MODE_LABEL} active with synced ${SPATIALREAL_SDK_AUDIO_FEED_FORMAT} playback. OpenAI Realtime still generates the interviewer audio; SpatialReal SDK owns audible playback for lip-sync.`);
+    appendLog(`avatar SDK initialized; synced playback via ${playbackMethod}; volume=${AVATAR_SDK_SYNCED_PLAYBACK_VOLUME}; Realtime direct audio muted for lip-sync; session token hidden; ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL}`);
+    if (avatarSdkResponseFeedActive) {
+      await startAvatarPcmBridgeIfReady(realtimeRemoteAudioTrack);
+    } else {
+      appendLog("avatar SDK PCM bridge armed; waiting for Realtime response feed before sending audio; media hidden");
+    }
+  })().catch((error) => {
+    avatarSdkInitializePromise = null;
+    renderAvatarSdkDegraded(`sdk_init_failed:${errorMessage(error)}`);
+  });
+  await avatarSdkInitializePromise;
 }
 
 function renderAvatarState(payload) {
   activeAvatarSession = payload || null;
-  const state = payload?.error ? "error" : payload?.ready ? "disabled" : payload?.status === "disabled" ? "disabled" : "pending";
-  const label = payload?.error ? "Avatar error" : payload?.ready ? AVATAR_DEFERRED_LABEL : avatarStatusLabel(payload);
+  const sdkModeStateForRender = payload?.ready ? normalizeAvatarSdkModeState(payload) : null;
+  const readyForSdkInit = payload?.ready && sdkModeStateForRender?.metadataAccepted;
+  const state = payload?.error ? "error" : readyForSdkInit ? "pending" : payload?.ready ? "disabled" : payload?.status === "disabled" ? "disabled" : "pending";
+  const label = payload?.error ? "Avatar error" : readyForSdkInit ? "Avatar SDK 준비중" : payload?.ready ? AVATAR_DEFERRED_LABEL : avatarStatusLabel(payload);
   if (avatarSurface) {
     avatarSurface.dataset.state = state;
   }
@@ -1048,12 +1660,13 @@ function renderAvatarState(payload) {
   }
   if (avatarPanelBody) {
     if (payload?.ready) {
-      const audio = payload?.client?.audioFormat || {};
-      const sdkMode = avatarSdkModeConfig(payload);
-      const sdkStatus = isSpatialRealSdkModeEnabled(payload)
-        ? `${SPATIALREAL_SDK_MODE_LABEL} metadata accepted; ${SPATIALREAL_SDK_MODE_OUTCOME}`
-        : `${SPATIALREAL_SDK_MODE_LABEL} ${SPATIALREAL_SDK_MODE_OUTCOME} (${sdkMode.status || sdkMode.reason || "feature flag off"})`;
-      avatarPanelBody.textContent = `SpatialReal session metadata is ready, but avatar rendering is disabled/deferred. Session token is not shown. Audio ${audio.channelCount || 1}ch/${audio.sampleRate || 16000}Hz. ${sdkStatus}. ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} continues.`;
+      const sdkModeState = normalizeAvatarSdkModeState(payload);
+      const sdkStatus = sdkModeState.metadataAccepted
+        ? `${SPATIALREAL_SDK_MODE_LABEL} metadata accepted for ${sdkModeState.transport}; ${sdkModeState.outcome}`
+        : `${SPATIALREAL_SDK_MODE_LABEL} ${SPATIALREAL_SDK_DEFERRED_OUTCOME} (${sdkModeState.reason || "feature flag off"})`;
+      avatarPanelBody.textContent = sdkModeState.metadataAccepted
+        ? `SpatialReal session metadata accepted. Initializing avatar SDK; session token is not shown. Audio feed ${sdkModeState.audioFeed}. ${sdkStatus}. ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} continues.`
+        : `SpatialReal session metadata is ready, but avatar rendering is disabled/deferred. Session token is not shown. Audio feed ${sdkModeState.audioFeed}. ${sdkStatus}. ${LIVEKIT_FREE_REALTIME_MAIN_PATH_LABEL} continues.`;
     } else if (payload?.reason) {
       avatarPanelBody.textContent = `${AVATAR_DEFERRED_LABEL}: ${payload.reason}. Provider keys stay server-side.`;
     } else if (payload?.error) {
@@ -1063,7 +1676,7 @@ function renderAvatarState(payload) {
     }
   }
   if (payload?.ready) {
-    initializeAvatarRtc(payload).catch((error) => appendLog(`avatar SDK Mode deferred: ${errorMessage(error)}`));
+    initializeSpatialRealSdkAvatar(payload).catch((error) => appendLog(`avatar SDK Mode init: ${errorMessage(error)}`));
   }
 }
 
@@ -1086,8 +1699,14 @@ async function requestAvatarSession(reason = "room-join") {
       throw new Error(payload.message || payload.error || `avatar session failed: HTTP ${response.status}`);
     }
     renderAvatarState(payload);
+    if (payload?.ready && avatarSdkInitializePromise) {
+      appendLog("avatar session ready; waiting for SDK init before first Realtime question; tokens hidden");
+      await avatarSdkInitializePromise;
+      appendLog("avatar SDK init complete; waiting for SDK connection before first Realtime question; tokens hidden");
+      const connected = await waitForAvatarSdkConnected();
+      appendLog(`avatar SDK connection wait before first Realtime question: ${connected ? "connected" : "timeout"}; current=${avatarSdkConnectionState}; tokens hidden`);
+    }
     appendLog(`avatar session state: ${payload.status || "unknown"}; provider ${payload.provider || "unknown"}; session token hidden; Realtime voice unaffected`);
-    initializeAvatarRtc(payload).catch((error) => appendLog(`avatar init deferred safely: ${errorMessage(error)}`));
     return payload;
   } catch (error) {
     const message = errorMessage(error);
@@ -1121,6 +1740,66 @@ function renderInterviewQuestion(question) {
 function renderTranscriptStatus(message) {
   if (transcriptBody) {
     transcriptBody.textContent = message;
+  }
+}
+
+function renderCoachFeedbackState(title, body, bullets = []) {
+  if (coachFeedbackTitle) {
+    coachFeedbackTitle.textContent = title;
+  }
+  if (coachFeedbackBody) {
+    coachFeedbackBody.textContent = body;
+  }
+  if (coachFeedbackList) {
+    coachFeedbackList.replaceChildren(...bullets.map((item) => {
+      const li = document.createElement("li");
+      li.textContent = String(item);
+      return li;
+    }));
+  }
+}
+
+function renderCoachFeedback(payload) {
+  const feedback = payload?.coachFeedback || {};
+  if (!feedback.ready) {
+    renderCoachFeedbackState("코치 피드백 대기", feedback.summary || "분석 결과를 기다리는 중입니다.", []);
+    return;
+  }
+  const bullets = [
+    feedback.answerEvaluation,
+    feedback.multimodalEvaluation,
+    ...(Array.isArray(feedback.bullets) ? feedback.bullets : []),
+  ].filter(Boolean);
+  renderCoachFeedbackState("코치 피드백", feedback.summary || "답변 피드백이 준비되었습니다.", bullets);
+}
+
+async function requestCoachFeedback(turnIndex) {
+  renderCoachFeedbackState("코치 피드백 생성 중", "분석 결과를 코치 피드백으로 정리하고 있습니다.", []);
+  try {
+    const endpoint = `/api/interviews/${encodeURIComponent(activeInterviewId)}/turns/${turnIndex}/coach-feedback`;
+    let lastPayload = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
+      const payload = await response.json().catch(() => ({}));
+      lastPayload = payload;
+      if (!response.ok && response.status !== 202) {
+        throw new Error(payload.message || payload.error || `coach feedback failed: HTTP ${response.status}`);
+      }
+      renderCoachFeedback(payload);
+      if (response.ok && payload?.coachFeedback?.ready) {
+        appendLog(`coach feedback ${payload.status || "received"} for turn ${turnIndex}; raw analysis hidden`);
+        return payload;
+      }
+      appendLog(`coach feedback pending for turn ${turnIndex}: ${payload?.coachFeedback?.reason || payload?.status || "pending"}`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    renderCoachFeedback(lastPayload);
+    return lastPayload;
+  } catch (error) {
+    const message = errorMessage(error);
+    renderCoachFeedbackState("코치 피드백 사용 불가", "이번 턴의 코치 피드백을 가져오지 못했습니다. 다음 턴 진행은 계속됩니다.", []);
+    appendLog(`coach feedback unavailable: ${message}`);
+    return null;
   }
 }
 
@@ -1602,7 +2281,7 @@ async function createSession() {
   const sessionLabel = payload.roomName || payload.sessionId || activeInterviewId;
   setStatus(`session created: ${sessionLabel}`, "idle");
   appendLog(`session created for ${sessionLabel}; tokens hidden; avatar remains deferred unless a verified avatar path is explicitly enabled`);
-  renderAvatarRtcDegraded("avatar_session_deferred_unverified");
+  renderAvatarSdkDegraded("avatar_session_deferred_unverified");
   return activeSession;
 }
 
@@ -1612,7 +2291,9 @@ async function connectPrimaryTransport() {
     appendLog("Realtime primary metadata missing; attempting API-brokered Realtime path and failing closed if unavailable");
   }
   await connectRealtimeRoom(session);
-  renderAvatarRtcDegraded("avatar_session_not_requested_default_realtime_path");
+  await requestAvatarSession("primary-transport-connected");
+  nextQuestionRequested = false;
+  await requestRealtimeNextQuestion("realtime-connected-avatar-checked");
 }
 
 async function connectProductionRoomRoute() {
@@ -1723,6 +2404,7 @@ setRoomMode("prejoin");
 setAnswerTurnAvailability(false);
 syncMediaUi();
 hydrateProductionRoutes();
+renderCoachFeedbackState("코치 피드백 대기", "답변 분석이 정리되면 코치 피드백이 표시됩니다.", []);
 renderTranscriptStatus("OpenAI Realtime 전사와 bounded vision metadata를 analysis-engine에 전달한 뒤, API가 MMM 준비 후 다음 질문을 생성합니다.");
 appendLog(`Interview Room ready for interview ${activeInterviewId}; use /api/sessions through Caddy for same-origin API access`);
 connectProductionRoomRoute();
