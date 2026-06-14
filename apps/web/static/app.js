@@ -24,6 +24,8 @@ const interviewRouteLabel = document.querySelector("#interview-route-label");
 const contextDrawer = document.querySelector("#room-context-drawer");
 const toggleContextDrawerButton = document.querySelector("#toggle-context-drawer");
 const closeContextDrawerButton = document.querySelector("#close-context-drawer");
+const debugDrawer = document.querySelector("#debug-drawer");
+const toggleDebugDrawerButton = document.querySelector("#toggle-debug-drawer");
 const currentQuestionTitle = document.querySelector("#current-question-title");
 const currentQuestionBody = document.querySelector("#current-question-body");
 const interviewerQuestionText = document.querySelector("#interviewer-question-text");
@@ -171,6 +173,22 @@ function setContextDrawerOpen(isOpen) {
 
 function toggleContextDrawer() {
   setContextDrawerOpen(Boolean(contextDrawer?.hidden));
+}
+
+function setDebugDrawerOpen(isOpen) {
+  if (!debugDrawer) {
+    return;
+  }
+  debugDrawer.hidden = !isOpen;
+  debugDrawer.setAttribute("aria-hidden", String(!isOpen));
+  if (toggleDebugDrawerButton) {
+    toggleDebugDrawerButton.setAttribute("aria-expanded", String(isOpen));
+    toggleDebugDrawerButton.textContent = isOpen ? "디버그 닫기" : "디버그";
+  }
+}
+
+function toggleDebugDrawer() {
+  setDebugDrawerOpen(Boolean(debugDrawer?.hidden));
 }
 
 function appendLog(message) {
@@ -2393,6 +2411,7 @@ toggleMicButton?.addEventListener("click", handleToggleMicClick);
 toggleCameraButton?.addEventListener("click", toggleCamera);
 toggleContextDrawerButton?.addEventListener("click", toggleContextDrawer);
 closeContextDrawerButton?.addEventListener("click", () => setContextDrawerOpen(false));
+toggleDebugDrawerButton?.addEventListener("click", toggleDebugDrawer);
 document.addEventListener("giljob:interviewer-question-started", () => {
   if (!micEnabled) {
     setAnswerTurnAvailability(false, "interviewer question started; answer button disabled");

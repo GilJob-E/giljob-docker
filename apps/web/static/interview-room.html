@@ -64,6 +64,7 @@
           <button id="toggle-mic" class="button control-button" type="button" aria-pressed="false" aria-disabled="true" disabled title="면접관 질문이 끝나면 답변 시작 버튼이 활성화됩니다.">답변 시작</button>
           <button id="toggle-camera" class="button control-button" type="button" aria-pressed="false">Camera off</button>
           <button id="toggle-context-drawer" class="button button-secondary" type="button" aria-expanded="false" aria-controls="room-context-drawer">면접 패널</button>
+          <button id="toggle-debug-drawer" class="button button-secondary" type="button" aria-expanded="false" aria-controls="debug-drawer">디버그</button>
           <span class="control-divider" aria-hidden="true"></span>
           <button id="leave-room" class="button button-secondary danger-button" type="button" disabled>면접 종료</button>
           <a class="button button-secondary" data-interview-route="report" href="/interviews/local-demo/report">리포트 보기</a>
@@ -137,8 +138,8 @@
         </div>
       </aside>
 
-      <section class="room-debug-drawer" aria-label="Development diagnostics" hidden aria-hidden="true">
-        <details>
+      <section id="debug-drawer" class="room-debug-drawer" aria-label="Development diagnostics" hidden aria-hidden="true">
+        <details open>
           <summary>Development diagnostics</summary>
           <section class="product-grid" aria-label="Product details">
             <section class="product-mockup-card" aria-labelledby="session-title">
