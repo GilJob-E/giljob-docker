@@ -1123,6 +1123,7 @@ class ApiHttpContractTest(unittest.TestCase):
     def test_realtime_call_broker_prepared_does_not_echo_sdp_when_explicitly_disabled(self) -> None:
         os.environ["OPENAI_API_KEY"] = "secret-openai-key"
         os.environ["OPENAI_REALTIME_CALL_BROKER_ENABLED"] = "false"
+        api_server.REALTIME_EPHEMERAL_TOKENS["local-demo"] = "test-ephemeral-token"
         offer = "v=0\r\no=- raw-offer-sdp\r\n"
         status, payload = api_server.create_realtime_call("local-demo", {"sdp": offer})
 
@@ -1136,6 +1137,7 @@ class ApiHttpContractTest(unittest.TestCase):
 
     def test_realtime_call_broker_default_extracts_call_id_without_key_leak(self) -> None:
         os.environ["OPENAI_API_KEY"] = "secret-openai-key"
+        api_server.REALTIME_EPHEMERAL_TOKENS["local-demo"] = "test-ephemeral-token"
         captured: list[urllib.request.Request] = []
 
         class FakeHeaders(dict[str, str]):
@@ -1144,7 +1146,7 @@ class ApiHttpContractTest(unittest.TestCase):
 
         class FakeResponse:
             status = 201
-            headers = FakeHeaders({"Location": "https://api.openai.com/v1/realtime/calls?call_id=call_abc123"})
+            headers = FakeHeaders({"Location": "https://api.openai.com/v1/realtime?call_id=call_abc123"})
 
             def __enter__(self):
                 return self
@@ -1164,18 +1166,16 @@ class ApiHttpContractTest(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["callId"], "call_abc123")
-        self.assertEqual(captured[0].full_url, "https://api.openai.com/v1/realtime/calls")
-        self.assertEqual(captured[0].headers.get("Authorization"), "Bearer secret-openai-key")
-        self.assertIn(b"v=0\r\no=- offer-sdp\r\n", captured[0].data)
-        self.assertNotIn(b"v=0 o=- offer-sdp", captured[0].data)
-        self.assertIn(b'"type": "realtime"', captured[0].data)
-        self.assertIn(b'"audio": {"output":', captured[0].data)
-        self.assertNotIn(b'"turn_detection"', captured[0].data)
-        self.assertNotIn(b'"transcription"', captured[0].data)
+        self.assertEqual(captured[0].full_url, "https://api.openai.com/v1/realtime")
+        self.assertEqual(captured[0].headers.get("Authorization"), "Bearer test-ephemeral-token")
+        self.assertEqual(captured[0].headers.get("Content-type"), "application/sdp")
+        self.assertEqual(captured[0].data, b"v=0\r\no=- offer-sdp\r\n")
+        self.assertNotIn(b"secret-openai-key", captured[0].data)
         body = json.dumps(payload, ensure_ascii=False)
         self.assertIn("answer-sdp", body)
         self.assertNotIn("offer-sdp", body)
         self.assertNotIn("secret-openai-key", body)
+        self.assertNotIn("test-ephemeral-token", body)
 
 
     def test_legacy_question_route_does_not_expose_provider_failure_markers(self) -> None:

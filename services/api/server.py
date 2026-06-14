@@ -79,6 +79,7 @@ SESSION_HASH_STORE: dict[str, dict[str, object]] = {}
 REALTIME_TURN_STATE: dict[str, dict[int, dict[str, object]]] = {}
 REALTIME_RESPONSE_COMMANDS: dict[str, dict[int, dict[str, object]]] = {}
 REALTIME_MMM_EVENT_LOG_LOCK = threading.Lock()
+REALTIME_EPHEMERAL_TOKENS: dict[str, str] = {}
 HASHIMOTO_SESSION_SEEDS: dict[str, dict[str, str]] = {}
 HASHIMOTO_BOOTSTRAPPED_SESSIONS: set[str] = set()
 HASHIMOTO_FEED_LOCK = threading.Lock()
@@ -1991,12 +1992,12 @@ def _realtime_post_connect_session_update() -> dict[str, object]:
 
 
 def _openai_realtime_sdp_endpoint(model: object | None = None) -> str:
-    _ = model  # Realtime Calls SDP attach endpoint is model-less; model is set when minting the ephemeral session.
-    return f"{OPENAI_REALTIME_API_BASE}/realtime/calls"
+    _ = model  # Model is baked into the ephemeral session; SDP endpoint is model-less.
+    return f"{OPENAI_REALTIME_API_BASE}/realtime"
 
 
 def _openai_realtime_calls_endpoint() -> str:
-    return f"{OPENAI_REALTIME_API_BASE}/realtime/calls"
+    return f"{OPENAI_REALTIME_API_BASE}/realtime"
 
 
 def _multipart_form_data(fields: dict[str, str]) -> tuple[bytes, str]:
@@ -2081,6 +2082,16 @@ def create_realtime_session(interview_id: str, payload: dict[str, Any]) -> tuple
         _log_latency_span("api.openai_realtime.session.upstream", _duration_ms(upstream_start), status=502, sessionId=interview_id, traceId=_trace_id(interview_id), provider="openai-realtime")
         return _return_with_latency(502, _realtime_unavailable_payload("realtime_provider_failed"), start, "api.realtime.session.total", session_id=interview_id, provider="openai-realtime")
     _log_latency_span("api.openai_realtime.session.upstream", _duration_ms(upstream_start), status=upstream_status, sessionId=interview_id, traceId=_trace_id(interview_id), provider="openai-realtime")
+    # Extract and store ephemeral token for the subsequent SDP call broker step.
+    if upstream_status < 400:
+        try:
+            raw = json.loads(body)
+            cs = raw.get("client_secret") if isinstance(raw, dict) else None
+            ephemeral = (cs.get("value") if isinstance(cs, dict) else None) or (raw.get("value") if isinstance(raw, dict) else None)
+            if ephemeral:
+                REALTIME_EPHEMERAL_TOKENS[interview_id] = str(ephemeral)
+        except Exception:
+            pass
     public = _parse_realtime_response(body, upstream_status)
     public["interviewId"] = interview_id
     public["sideband"] = {
@@ -2104,9 +2115,11 @@ def create_realtime_call(interview_id: str, payload: dict[str, Any]) -> tuple[in
     start = time.perf_counter()
     if not INTERVIEW_ID_PATTERN.fullmatch(interview_id):
         return 400, {"error": "invalid_interview_id"}
-    api_key = _openai_realtime_key()
-    if not api_key:
+    if not _openai_realtime_key():
         return _return_with_latency(503, _realtime_unavailable_payload("realtime_not_configured"), start, "api.realtime.call.total", session_id=interview_id, provider="openai-realtime")
+    ephemeral_token = REALTIME_EPHEMERAL_TOKENS.get(interview_id)
+    if not ephemeral_token:
+        return _return_with_latency(503, _realtime_unavailable_payload("realtime_session_expired"), start, "api.realtime.call.total", session_id=interview_id, provider="openai-realtime")
     sdp = _safe_sdp(payload.get("sdp") or payload.get("offerSdp") or "", MAX_SDP_CHARS)
     if not sdp:
         return 400, {"error": "missing_sdp"}
@@ -2125,18 +2138,13 @@ def create_realtime_call(interview_id: str, payload: dict[str, Any]) -> tuple[in
             "delivery": _realtime_delivery("api-mediated-realtime-call"),
         }, start, "api.realtime.call.total", session_id=interview_id, provider="openai-realtime")
 
-    session_config = _default_realtime_call_session_config(interview_id, payload)
-    multipart_body, content_type = _multipart_form_data({
-        "sdp": sdp,
-        "session": json.dumps(session_config),
-    })
     request = urllib.request.Request(
         _openai_realtime_calls_endpoint(),
-        data=multipart_body,
+        data=sdp.encode("utf-8"),
         method="POST",
         headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": content_type,
+            "Authorization": f"Bearer {ephemeral_token}",
+            "Content-Type": "application/sdp",
             "OpenAI-Safety-Identifier": _safety_identifier(interview_id),
         },
     )
